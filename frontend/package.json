@@ -1,0 +1,34 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "postcss.config.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "axios": "^1.17.0",
+    "date-fns": "^4.4.0",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.5",
+    "react-barcode": "^1.6.1",
+    "react-dom": "^19.2.5",
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "^7.17.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.4",
+    "vite": "^8.0.10"
+  }
+}

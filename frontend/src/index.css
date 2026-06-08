@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased bg-slate-950 text-slate-100;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-slate-800 text-slate-100 px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors;
+  }
+  
+  .card {
+    @apply bg-slate-900 rounded-xl shadow-sm hover:shadow-md transition-shadow;
+  }
+  
+  .input {
+    @apply w-full px-3 py-2 border border-slate-700 rounded-md bg-slate-800 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500;
+  }
+}
+
+@layer utilities {
+  .bg-white { background-color: #0f172a !important; }
+  .bg-gray-50 { background-color: #020617 !important; }
+  .bg-gray-100 { background-color: #0f172a !important; }
+  .bg-gray-200 { background-color: #1f2937 !important; }
+  .bg-gray-300 { background-color: #374151 !important; }
+  .bg-gray-900 { background-color: #111827 !important; }
+  .text-gray-900 { color: #f8fafc !important; }
+  .text-gray-800 { color: #e2e8f0 !important; }
+  .text-gray-700 { color: #cbd5e1 !important; }
+  .text-gray-600 { color: #94a3b8 !important; }
+  .text-gray-500 { color: #64748b !important; }
+  .border-gray-200 { border-color: #334155 !important; }
+  .border-gray-300 { border-color: #475569 !important; }
+  .hover\:bg-gray-100:hover { background-color: #1e293b !important; }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
