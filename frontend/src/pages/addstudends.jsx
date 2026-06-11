@@ -76,7 +76,7 @@ const AddStudent = () => {
                 value={formData.class}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border color:black border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Select a class</option>
                 {classes.map(cls => (
@@ -90,7 +90,7 @@ const AddStudent = () => {
                 Parent Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"/>
                 <input
                   type="email"
                   name="parentEmail"
@@ -107,7 +107,7 @@ const AddStudent = () => {
                 Roll Number
               </label>
               <div className="relative">
-                <Hash className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Hash className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-black text-white-400" />
                 <input
                   type="text"
                   name="rollNumber"
