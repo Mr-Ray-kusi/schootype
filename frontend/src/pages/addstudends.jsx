@@ -14,7 +14,7 @@ const AddStudent = () => {
     rollNumber: '',
   });
 
-  const classes = ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'];
+  const classes = ['CLASS 1', 'CLASS 2', 'CLASS 3', 'CLASS 4', 'CLASS 5', 'CLASS 6', 'CLASS 7', 'CLASS 8', 'CLASS 9', 'CLASS 10', 'CLASS 11', 'CLASS 12'];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
