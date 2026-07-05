@@ -1,0 +1,2 @@
+-- Subscription billing fields stored in SQLite school_extras:
+-- next_payment_due, last_payment_at, subscription_frozen

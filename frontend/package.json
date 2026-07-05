@@ -15,13 +15,14 @@
   "type": "commonjs",
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@zxing/browser": "^0.2.0",
     "axios": "^1.17.0",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
     "react": "^19.2.5",
-    "react-barcode": "^1.6.1",
     "react-dom": "^19.2.5",
     "react-hot-toast": "^2.6.0",
+    "react-qr-code": "^2.2.0",
     "react-router-dom": "^7.17.0"
   },
   "devDependencies": {

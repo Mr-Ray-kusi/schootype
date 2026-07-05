@@ -58,22 +58,22 @@ const ReportCards = () => {
       <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold text-white">Report Cards</h1>
-        <p className="mt-3 text-slate-400">Teachers upload class and subject results using their secret access codes. Admins can audit submissions and review student performance.</p>
+        <p className="mt-3 text-slate-300">Teachers upload class and subject results using their secret access codes. Admins can audit submissions and review student performance.</p>
       </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Class Filters</h2>
-            <p className="text-sm text-slate-400">Choose a class to view reports and uploaded results.</p>
+            <p className="text-sm text-slate-300">Choose a class to view reports and uploaded results.</p>
           </div>
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
-            className="w-full md:w-64 rounded-xl border border-slate-700 bg-white px-4 py-3 text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full md:w-64 rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             {classes.map((className) => (
-              <option key={className} value={className} className="bg-slate-950 text-white">
+              <option key={className} value={className} className="bg-slate-900 text-white">
                 {className === 'all' ? 'All Classes' : className}
               </option>
             ))}
@@ -81,63 +81,63 @@ const ReportCards = () => {
         </div>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-3xl bg-slate-950 p-5">
-            <p className="text-sm uppercase tracking-wide text-slate-400">Student Reports</p>
+          <div className="rounded-3xl bg-slate-900 p-5">
+            <p className="text-sm uppercase tracking-wide text-slate-300">Student Reports</p>
             <p className="mt-4 text-3xl font-semibold text-white">{filteredStudentReports.length}</p>
           </div>
-          <div className="rounded-3xl bg-slate-950 p-5">
-            <p className="text-sm uppercase tracking-wide text-slate-400">Pending teacher uploads</p>
+          <div className="rounded-3xl bg-slate-900 p-5">
+            <p className="text-sm uppercase tracking-wide text-slate-300">Pending teacher uploads</p>
             <p className="mt-4 text-3xl font-semibold text-white">{pendingReports}</p>
           </div>
-          <div className="rounded-3xl bg-slate-950 p-5">
-            <p className="text-sm uppercase tracking-wide text-slate-400">Audited reports</p>
+          <div className="rounded-3xl bg-slate-900 p-5">
+            <p className="text-sm uppercase tracking-wide text-slate-300">Audited reports</p>
             <p className="mt-4 text-3xl font-semibold text-white">{auditedReports}</p>
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Grade Distribution</h2>
-            <p className="text-sm text-slate-400">Performance breakdown by overall grade range.</p>
+            <p className="text-sm text-slate-300">Performance breakdown by overall grade range.</p>
           </div>
-          <span className="inline-flex items-center rounded-full bg-indigo-600 px-4 py-2 text-sm text-white">
+          <span className="inline-flex items-center rounded-full bg-primary-600 px-4 py-2 text-sm text-white">
             Grade Performance
           </span>
         </div>
 
         <div className="mt-6 space-y-4">
           {gradeDistribution.map((item) => (
-            <div key={item.grade} className="rounded-3xl bg-slate-950 p-4">
-              <div className="flex items-center justify-between text-sm text-slate-300">
+            <div key={item.grade} className="rounded-3xl bg-slate-900 p-4">
+              <div className="flex items-center justify-between text-sm text-slate-200">
                 <span>Grade {item.grade}</span>
                 <span>{item.count} students</span>
               </div>
-              <div className="mt-3 h-3 rounded-full bg-slate-800">
+              <div className="mt-3 h-3 rounded-full bg-slate-700">
                 <div className="h-full rounded-full bg-emerald-500" style={{ width: `${item.percent}%` }} />
               </div>
-              <p className="mt-2 text-xs text-slate-400">{item.percent}% of graded submissions</p>
+              <p className="mt-2 text-xs text-slate-300">{item.percent}% of graded submissions</p>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Teacher Uploads</h2>
-            <p className="text-sm text-slate-400">Review reports submitted by teachers, then audit them to include them in the main report cards.</p>
+            <p className="text-sm text-slate-300">Review reports submitted by teachers, then audit them to include them in the main report cards.</p>
           </div>
-          <span className="inline-flex items-center rounded-full bg-blue-600 px-4 py-2 text-sm text-white">
+          <span className="inline-flex items-center rounded-full bg-primary-600 px-4 py-2 text-sm text-white">
             Admin Audit Access
           </span>
         </div>
 
-        <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-800 bg-slate-950">
-          <table className="min-w-full text-left text-sm text-slate-300">
+        <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
+          <table className="min-w-full text-left text-sm text-slate-200">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400">
+              <tr className="border-b border-slate-700 text-slate-300">
                 <th className="px-6 py-4">Teacher</th>
                 <th className="px-6 py-4">Class</th>
                 <th className="px-6 py-4">Course</th>
@@ -148,7 +148,7 @@ const ReportCards = () => {
             </thead>
             <tbody>
               {filteredTeacherReports.map((report, index) => (
-                <tr key={report.id} className={index % 2 === 0 ? 'bg-slate-900' : 'bg-slate-950'}>
+                <tr key={report.id} className={index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'}>
                   <td className="px-6 py-4 text-white">{report.teacher}</td>
                   <td className="px-6 py-4">{report.class}</td>
                   <td className="px-6 py-4">{report.course}</td>
@@ -162,7 +162,7 @@ const ReportCards = () => {
                     <button
                       type="button"
                       onClick={() => handleAudit(report.id)}
-                      className="rounded-full bg-blue-600 px-4 py-2 text-xs text-white hover:bg-blue-700"
+                      className="rounded-full bg-primary-600 px-4 py-2 text-xs text-white hover:bg-primary-700"
                     >
                       Mark Audited
                     </button>
@@ -174,12 +174,12 @@ const ReportCards = () => {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
         <h2 className="text-lg font-semibold text-white mb-4">Student Assessments</h2>
-        <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-950">
-          <table className="min-w-full text-left text-sm text-slate-300">
+        <div className="overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
+          <table className="min-w-full text-left text-sm text-slate-200">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400">
+              <tr className="border-b border-slate-700 text-slate-300">
                 <th className="px-6 py-4">Student</th>
                 <th className="px-6 py-4">Class</th>
                 <th className="px-6 py-4">Assessment</th>
@@ -189,7 +189,7 @@ const ReportCards = () => {
             </thead>
             <tbody>
               {filteredStudentReports.map((report, index) => (
-                <tr key={report.id} className={index % 2 === 0 ? 'bg-slate-900' : 'bg-slate-950'}>
+                <tr key={report.id} className={index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'}>
                   <td className="px-6 py-4 text-white">{report.name}</td>
                   <td className="px-6 py-4">{report.class}</td>
                   <td className="px-6 py-4">{report.assessment}</td>

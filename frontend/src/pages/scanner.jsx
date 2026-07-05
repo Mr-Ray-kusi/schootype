@@ -1,23 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 import axios from 'axios';
-import { QrCode, CheckCircle, XCircle, Scan } from 'lucide-react';
+import { QrCode, CheckCircle, XCircle, Scan, Link2, Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/authcontext';
 
 const Scanner = () => {
-  const [barcode, setBarcode] = useState('');
+  const { school } = useAuth();
+  const [scanCode, setScanCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [scannerToken, setScannerToken] = useState(null);
+  const [linkLoading, setLinkLoading] = useState(true);
   const inputRef = useRef(null);
   const scanTimeoutRef = useRef(null);
-  const lastKeytimeRef = useRef(0);
+
+  const mobileScannerUrl = scannerToken
+    ? `${window.location.origin}/scan/${scannerToken}`
+    : '';
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const handleSubmit = async (barcodeValue = null) => {
-    const valueToSubmit = barcodeValue || barcode;
+  useEffect(() => {
+    const fetchScannerLink = async () => {
+      try {
+        const response = await axios.get('/api/scanner/link');
+        setScannerToken(response.data.token);
+      } catch (err) {
+        console.error('Failed to load scanner link:', err);
+      } finally {
+        setLinkLoading(false);
+      }
+    };
+
+    fetchScannerLink();
+  }, []);
+
+  const handleSubmit = async (codeValue = null) => {
+    const valueToSubmit = codeValue || scanCode;
     if (!valueToSubmit.trim()) return;
 
     setLoading(true);
@@ -25,9 +48,9 @@ const Scanner = () => {
     setError(null);
 
     try {
-      const response = await axios.post('/api/attendance/mark', { barcode: valueToSubmit });
+      const response = await axios.post('/api/attendance/mark', { qrCode: valueToSubmit });
       setResult(response.data);
-      setBarcode('');
+      setScanCode('');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to mark attendance');
     } finally {
@@ -35,63 +58,148 @@ const Scanner = () => {
     }
   };
 
-  const detectBarcodeEnd = (currentBarcode) => {
-    // Clear previous timeout
+  const detectScanEnd = (currentCode) => {
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
     }
 
-    // Barcode scanners typically send data very fast (within 50ms between characters)
-    // If we haven't received input for 100ms, consider the scan complete
     scanTimeoutRef.current = setTimeout(() => {
-      if (currentBarcode.trim().length > 5) {
-        handleSubmit(currentBarcode);
+      if (currentCode.trim().length > 5) {
+        handleSubmit(currentCode);
       }
     }, 100);
   };
 
+  const copyLink = async () => {
+    if (!mobileScannerUrl) return;
+    try {
+      await navigator.clipboard.writeText(mobileScannerUrl);
+      toast.success('Scanner link copied!');
+    } catch {
+      toast.error('Could not copy link');
+    }
+  };
+
+  const regenerateLink = async () => {
+    try {
+      const response = await axios.post('/api/scanner/regenerate');
+      setScannerToken(response.data.token);
+      toast.success('New scanner link generated');
+    } catch {
+      toast.error('Failed to regenerate link');
+    }
+  };
 
   return (
     <Layout>
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">Attendance Scanner</h1>
-          <p className="text-gray-600 mt-2">Scan or enter barcode to mark attendance</p>
+          <p className="text-gray-600 mt-2">Scan QR codes from the dashboard or use a phone at the gate</p>
+        </div>
+
+        {/* Mobile scanner link */}
+        <div className="bg-gradient-to-br from-primary-50 to-primary-100 border border-primary-200 rounded-xl p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="p-2 bg-primary-600 rounded-lg">
+              <Smartphone className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Phone Scanner Link</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Open this link on a phone to scan QR codes for students, staff, and non-staff. Attendance records appear here on the admin dashboard — the phone only shows a confirmation.
+              </p>
+            </div>
+          </div>
+
+          {linkLoading ? (
+            <p className="text-sm text-gray-500">Loading scanner link...</p>
+          ) : mobileScannerUrl ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 bg-white rounded-lg border border-primary-200 p-3">
+                <Link2 className="w-5 h-5 text-primary-600 shrink-0" />
+                <input
+                  type="text"
+                  readOnly
+                  value={mobileScannerUrl}
+                  className="flex-1 text-sm text-gray-700 bg-transparent outline-none truncate"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={copyLink}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy Link
+                </button>
+                <a
+                  href={mobileScannerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-primary-300 text-primary-700 rounded-lg hover:bg-primary-50 transition-colors text-sm font-medium"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open on Phone
+                </a>
+                <button
+                  type="button"
+                  onClick={regenerateLink}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                  title="Invalidate old links and create a new one"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  New Link
+                </button>
+              </div>
+              {school?.name && (
+                <p className="text-xs text-gray-500">
+                  This link is unique to <span className="font-medium">{school.name}</span>
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-red-600">Could not load scanner link. Refresh the page.</p>
+          )}
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="flex items-center gap-2 mb-6">
+            <QrCode className="w-5 h-5 text-gray-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Desktop Scanner</h2>
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Barcode Input
+                QR Code Input
               </label>
               <div className="flex gap-2">
                 <input
                   ref={inputRef}
                   type="text"
-                  value={barcode}
+                  value={scanCode}
                   onChange={(e) => {
                     const newValue = e.target.value;
-                    setBarcode(newValue);
-                    lastKeytimeRef.current = Date.now();
-                    detectBarcodeEnd(newValue);
+                    setScanCode(newValue);
+                    detectScanEnd(newValue);
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && barcode.trim()) {
+                    if (e.key === 'Enter' && scanCode.trim()) {
                       e.preventDefault();
                       handleSubmit();
                     }
                   }}
                   onBlur={() => inputRef.current?.focus()}
-                  placeholder="Scan or type barcode here... (auto-detects scanner)"
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
+                  placeholder="Scan or paste QR code value here..."
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg"
                   autoComplete="off"
                 />
                 <button
                   type="button"
                   onClick={() => handleSubmit()}
-                  disabled={loading || !barcode}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  disabled={loading || !scanCode}
+                  className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Scan className="w-5 h-5" />
                   {loading ? 'Processing...' : 'Mark'}
@@ -99,43 +207,8 @@ const Scanner = () => {
               </div>
             </div>
           </form>
-
-          {/* Example barcodes for testing */}
-          <div className="mt-8 pt-6 border-t">
-            <p className="text-sm text-gray-600 mb-3">Quick Test Barcodes (Click to use):</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  setBarcode('TEST-STUDENT-001');
-                  setTimeout(() => handleSubmit('TEST-STUDENT-001'), 50);
-                }}
-                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Student Test
-              </button>
-              <button
-                onClick={() => {
-                  setBarcode('TEST-STAFF-001');
-                  setTimeout(() => handleSubmit('TEST-STAFF-001'), 50);
-                }}
-                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Staff Test
-              </button>
-              <button
-                onClick={() => {
-                  setBarcode('TEST-NONSTAFF-001');
-                  setTimeout(() => handleSubmit('TEST-NONSTAFF-001'), 50);
-                }}
-                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Non-Staff Test
-              </button>
-            </div>
-          </div>
         </div>
 
-        {/* Result Display */}
         {result && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-6 animate-fade-in">
             <div className="flex items-center gap-3">
@@ -153,7 +226,6 @@ const Scanner = () => {
           </div>
         )}
 
-        {/* Error Display */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-6 animate-fade-in">
             <div className="flex items-center gap-3">
@@ -166,33 +238,24 @@ const Scanner = () => {
           </div>
         )}
 
-        {/* Instructions */}
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-          <h3 className="font-semibold text-blue-900 mb-2">How to Use:</h3>
-          <ul className="space-y-2 text-sm text-blue-800">
-            <li>• Scan the barcode from student/staff ID card using a barcode scanner</li>
-            <li>• Or manually type the barcode number in the input field above</li>
-            <li>• System will automatically identify if it's a student, staff, or non-staff</li>
-            <li>• Attendance will be marked for today with current timestamp</li>
-            <li>• Each person can only be marked once per day</li>
+        <div className="bg-primary-50 border border-primary-200 rounded-xl p-6">
+          <h3 className="font-semibold text-primary-900 mb-2">How to Use:</h3>
+          <ul className="space-y-2 text-sm text-primary-800">
+            <li>• Copy the phone link and open it on a device at your school entrance</li>
+            <li>• Point the phone camera at each person&apos;s QR code on their ID card</li>
+            <li>• The phone shows a green confirmation when attendance is recorded</li>
+            <li>• View all attendance records on the Attendance page in this dashboard</li>
+            <li>• Use the desktop input above with a USB QR scanner if preferred</li>
           </ul>
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in {
-          animation: fade-in 0.3s ease-out;
-        }
+        .animate-fade-in { animation: fade-in 0.3s ease-out; }
       `}</style>
     </Layout>
   );

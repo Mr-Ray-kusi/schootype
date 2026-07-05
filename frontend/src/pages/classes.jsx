@@ -114,7 +114,7 @@ const Classes = () => {
               setFormData({ name: '', form: '', capacity: '' });
               setShowModal(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
           >
             <Plus className="w-5 h-5" />
             Add Class
@@ -127,7 +127,7 @@ const Classes = () => {
             <button
               key={filter}
               onClick={() => setActiveClassFilter(filter)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeClassFilter === filter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeClassFilter === filter ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               {filter === 'all' ? 'All Classes' : filter}
             </button>
@@ -142,7 +142,7 @@ const Classes = () => {
             placeholder="Search classes by name or form..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-slate-50"
           />
         </div>
 
@@ -153,13 +153,13 @@ const Classes = () => {
               <div className="flex justify-between items-start mb-4">
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold text-gray-900">{classItem.name}</h3>
-                  <p className="text-sm text-blue-600 font-medium mt-1">Form: {classItem.form || 'N/A'}</p>
+                  <p className="text-sm text-primary-600 font-medium mt-1">Form: {classItem.form || 'N/A'}</p>
                   <p className="text-xs text-gray-500 mt-2">Capacity: {classItem.capacity || 'N/A'} students</p>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleEdit(classItem)}
-                    className="text-blue-600 hover:text-blue-700 p-1"
+                    className="text-primary-600 hover:text-primary-700 p-1"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
@@ -197,7 +197,7 @@ const Classes = () => {
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-black"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
                     required
                     placeholder="e.g., Form 1A"
                   />
@@ -211,7 +211,7 @@ const Classes = () => {
                     type="text"
                     value={formData.form}
                     onChange={(e) => setFormData({...formData, form: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-black"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
                     placeholder="e.g., Form 1"
                   />
                 </div>
@@ -224,7 +224,7 @@ const Classes = () => {
                     type="number"
                     value={formData.capacity}
                     onChange={(e) => setFormData({...formData, capacity: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-black"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
                     placeholder="e.g., 50"
                   />
                 </div>
@@ -232,7 +232,7 @@ const Classes = () => {
                 <div className="flex gap-2 pt-4">
                   <button
                     type="submit"
-                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+                    className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700"
                   >
                     {editingClass ? 'Update' : 'Add'} Class
                   </button>

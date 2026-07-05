@@ -97,7 +97,7 @@ const Attendance = () => {
 
   const getTypeColor = (type) => {
     switch(type) {
-      case 'student': return 'bg-blue-100 text-blue-800';
+      case 'student': return 'bg-primary-100 text-primary-800';
       case 'staff': return 'bg-green-100 text-green-800';
       case 'non-staff': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
@@ -150,7 +150,7 @@ const Attendance = () => {
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
             <div>
@@ -159,7 +159,7 @@ const Attendance = () => {
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
             <div>
@@ -168,7 +168,7 @@ const Attendance = () => {
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
             <div>
@@ -176,7 +176,7 @@ const Attendance = () => {
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-black"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
               >
                 <option value="all">All Types</option>
                 <option value="student">Students</option>
@@ -192,7 +192,7 @@ const Attendance = () => {
               <select
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-black"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
               >
                 <option value="all">All Classes</option>
                 {Array.from(new Set(attendanceRecords.map((record) => record.user?.class || record.user?.role).filter(Boolean))).map((label) => (
@@ -203,7 +203,7 @@ const Attendance = () => {
             <div className="flex items-end gap-3">
               <button
                 onClick={fetchAttendance}
-                className="w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+                className="w-full px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center justify-center gap-2"
               >
                 <Filter className="w-4 h-4" />
                 Refresh
@@ -212,7 +212,7 @@ const Attendance = () => {
             <div className="flex items-end gap-3">
               <button
                 onClick={exportCsv}
-                className="w-full px-6 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-100"
+                className="w-full px-6 py-2 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
               >
                 Export CSV
               </button>
@@ -220,7 +220,7 @@ const Attendance = () => {
             <div className="flex items-end gap-3">
               <button
                 onClick={handlePrint}
-                className="w-full px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900"
+                className="w-full px-6 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800"
               >
                 Print View
               </button>
