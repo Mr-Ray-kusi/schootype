@@ -94,7 +94,7 @@ export const AuthProvider = ({ children }) => {
       (error) => {
         const status = error.response?.status;
         const url = error.config?.url || '';
-        if ((status === 401 || status === 403) && !isAuthRoute(url)) {
+        if (status === 401 && !isAuthRoute(url)) {
           clearSession();
         }
         return Promise.reject(error);

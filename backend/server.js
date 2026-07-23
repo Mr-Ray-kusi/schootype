@@ -49,8 +49,12 @@ import {
 } from './authSecurity.js';
 import { initSchoolWalletStore } from './schoolWalletStore.js';
 import { registerWalletRoutes } from './walletRoutes.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env'), override: true });
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('__login_timing_dummy__', 10);
 
@@ -1012,6 +1016,11 @@ app.get('/api/health', async (req, res) => {
         configured: Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
         ready: emailReady,
       },
+      paystack: {
+        configured: Boolean(process.env.PAYSTACK_SECRET_KEY),
+        currency: (process.env.PAYSTACK_CURRENCY || 'GHS').toUpperCase(),
+        public_key_set: Boolean(process.env.PAYSTACK_PUBLIC_KEY),
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -1020,6 +1029,11 @@ app.get('/api/health', async (req, res) => {
       email: {
         configured: Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
         ready: emailReady,
+      },
+      paystack: {
+        configured: Boolean(process.env.PAYSTACK_SECRET_KEY),
+        currency: (process.env.PAYSTACK_CURRENCY || 'GHS').toUpperCase(),
+        public_key_set: Boolean(process.env.PAYSTACK_PUBLIC_KEY),
       },
       error: error.message,
     });

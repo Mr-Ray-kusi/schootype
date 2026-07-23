@@ -258,33 +258,68 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
 
       if (account.type === 'mobile_money') {
         const provider = account.provider || momoProviderFromBankCode(account.bank_code);
-        const charge = await chargeMobileMoney({
-          email,
-          amountMinor,
-          currency,
-          phone: account.account_number,
-          provider,
-          reference,
-          metadata,
-        });
+        try {
+          const charge = await chargeMobileMoney({
+            email,
+            amountMinor,
+            currency,
+            phone: account.account_number,
+            provider,
+            reference,
+            metadata,
+          });
 
-        await updateWalletTransaction(reference, {
-          provider_reference: charge?.reference || reference,
-          metadata: {
-            display_text: charge?.display_text,
-            paystack_status: charge?.status,
-          },
-        });
+          await updateWalletTransaction(reference, {
+            provider_reference: charge?.reference || reference,
+            metadata: {
+              display_text: charge?.display_text,
+              paystack_status: charge?.status,
+            },
+          });
 
-        return res.json({
-          mode: 'mobile_money',
-          reference,
-          status: charge?.status || 'pay_offline',
-          display_text:
-            charge?.display_text ||
-            'Approve the MoMo prompt on your phone to complete the deposit.',
-          transaction: formatTransaction(await getWalletTransactionByReference(reference)),
-        });
+          return res.json({
+            mode: 'mobile_money',
+            reference,
+            status: charge?.status || 'pay_offline',
+            display_text:
+              charge?.display_text ||
+              'Approve the MoMo prompt on your phone to complete the deposit.',
+            transaction: formatTransaction(await getWalletTransactionByReference(reference)),
+          });
+        } catch (momoErr) {
+          console.warn('Direct MoMo charge unavailable, falling back to Paystack checkout:', momoErr.message);
+          const init = await initializeTransaction({
+            email,
+            amountMinor,
+            currency,
+            reference,
+            callbackUrl: callback_url || undefined,
+            channels: ['mobile_money'],
+            metadata: {
+              ...metadata,
+              momo_phone: account.account_number,
+              momo_provider: provider,
+            },
+          });
+
+          await updateWalletTransaction(reference, {
+            provider_reference: init?.reference || reference,
+            metadata: {
+              authorization_url: init?.authorization_url,
+              access_code: init?.access_code,
+              fallback: 'checkout_mobile_money',
+            },
+          });
+
+          return res.json({
+            mode: 'bank',
+            reference,
+            authorization_url: init?.authorization_url,
+            access_code: init?.access_code,
+            public_key: getPaystackConfig().publicKey || null,
+            transaction: formatTransaction(await getWalletTransactionByReference(reference)),
+          });
+        }
       }
 
       const init = await initializeTransaction({
@@ -293,7 +328,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         currency,
         reference,
         callbackUrl: callback_url || undefined,
-        channels: ['bank', 'bank_transfer'],
+        channels: ['bank', 'bank_transfer', 'card'],
         metadata,
       });
 

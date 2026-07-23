@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../contexts/authcontext';
 
@@ -57,6 +57,7 @@ const Layout = ({ children }) => {
   const { school, logout, isSuperAdmin, hasFeature, includesPlanFeature, isPlanApproved } = useAuth();
 
   const navigate = useNavigate();
+  const location = useLocation();
 
 
 
@@ -159,6 +160,20 @@ const Layout = ({ children }) => {
           title: 'Platform',
 
           items: [{ name: 'All Schools', href: '/super-admin', icon: LayoutDashboard }],
+
+        },
+
+        {
+
+          title: 'Finance',
+
+          items: [
+
+            { name: 'Bank Settings', href: '/super-admin/bank-settings', icon: Landmark },
+
+            { name: 'Platform Wallet', href: '/super-admin/platform-wallet', icon: Wallet },
+
+          ],
 
         },
 
@@ -276,6 +291,9 @@ const Layout = ({ children }) => {
 
                   {section.items.map((item) => {
 
+                    const isActive = location.pathname === item.href
+                      || (item.href !== '/super-admin' && location.pathname.startsWith(item.href));
+
                     const isLocked = !isSuperAdmin && !isPlanApproved && (item.featureKeys
 
                       ? !item.featureKeys.some((key) => hasFeature(key))
@@ -288,7 +306,11 @@ const Layout = ({ children }) => {
 
                         ? 'text-slate-400 cursor-not-allowed opacity-60'
 
-                        : 'text-slate-100 hover:bg-slate-700'
+                        : isActive
+
+                          ? 'bg-slate-700 text-white'
+
+                          : 'text-slate-100 hover:bg-slate-700'
 
                     }`;
 

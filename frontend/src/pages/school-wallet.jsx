@@ -3,11 +3,14 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
+import { useAuth } from '../contexts/authcontext';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const SchoolWallet = () => {
+  const { isSuperAdmin } = useAuth();
+  const bankSettingsPath = isSuperAdmin ? '/super-admin/bank-settings' : '/bank-settings';
   const [searchParams, setSearchParams] = useSearchParams();
   const [wallet, setWallet] = useState(null);
   const [accounts, setAccounts] = useState([]);
@@ -83,7 +86,7 @@ const SchoolWallet = () => {
     setBusy(true);
     setMomoHint('');
     try {
-      const callbackUrl = `${window.location.origin}/school-wallet`;
+      const callbackUrl = `${window.location.origin}${isSuperAdmin ? '/super-admin/platform-wallet' : '/school-wallet'}`;
       const { data } = await axios.post('/api/wallet/deposit', {
         account_id: accountId,
         amount: value,
@@ -168,13 +171,17 @@ const SchoolWallet = () => {
       <div className="space-y-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">School Wallet</h1>
+            <h1 className="text-3xl font-bold text-white">
+              {isSuperAdmin ? 'Platform Wallet' : 'School Wallet'}
+            </h1>
             <p className="mt-3 max-w-2xl text-slate-300">
-              Hold school funds on the system, load money from a saved bank/MoMo account, or withdraw to that account.
+              {isSuperAdmin
+                ? 'Hold platform funds, load money from a saved MoMo/bank account via Paystack, or withdraw to that account.'
+                : 'Hold school funds on the system, load money from a saved bank/MoMo account, or withdraw to that account.'}
             </p>
           </div>
           <Link
-            to="/bank-settings"
+            to={bankSettingsPath}
             className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-800 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-700"
           >
             Bank Settings
@@ -217,7 +224,7 @@ const SchoolWallet = () => {
           {!accounts.length ? (
             <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-900 px-4 py-8 text-center">
               <p className="text-slate-300">No bank/MoMo accounts saved yet.</p>
-              <Link to="/bank-settings" className="mt-4 inline-flex rounded-full bg-primary-600 px-5 py-2 text-sm text-white">
+              <Link to={bankSettingsPath} className="mt-4 inline-flex rounded-full bg-primary-600 px-5 py-2 text-sm text-white">
                 Add bank settings
               </Link>
             </div>

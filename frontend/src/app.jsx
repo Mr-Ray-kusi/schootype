@@ -63,6 +63,19 @@ const SuperAdminRoute = ({ children }) => {
   return children;
 };
 
+/** Bank settings / wallet — school admins need the plan feature; super admin always allowed. */
+const FinanceRoute = ({ feature, children }) => {
+  const { token, school, loading, isSuperAdmin, hasFeature, includesPlanFeature } = useAuth();
+
+  if (loading) return <LoadingScreen />;
+  if (!token) return <Navigate to="/login" />;
+  if (isSuperAdmin || school?.role === 'super_admin') return children;
+  if (!school?.payment_plan) return <Navigate to="/select-plan" />;
+  if (feature && !includesPlanFeature(feature)) return <Navigate to="/dashboard" />;
+  if (feature && !hasFeature(feature)) return <Navigate to="/dashboard" />;
+  return children;
+};
+
 const SelectPlanRoute = ({ children }) => {
   const { token, school, loading } = useAuth();
 
@@ -93,6 +106,12 @@ function App() {
           <Route path="/super-admin/schools/:schoolId" element={
             <SuperAdminRoute><SuperAdminSchool /></SuperAdminRoute>
           } />
+          <Route path="/super-admin/bank-settings" element={
+            <SuperAdminRoute><BankSettings /></SuperAdminRoute>
+          } />
+          <Route path="/super-admin/platform-wallet" element={
+            <SuperAdminRoute><SchoolWallet /></SuperAdminRoute>
+          } />
           <Route path="/students" element={
             <SchoolAdminRoute><PlanFeatureRoute feature="students"><Students /></PlanFeatureRoute></SchoolAdminRoute>
           } />
@@ -118,10 +137,10 @@ function App() {
             <SchoolAdminRoute><PlanFeatureRoute feature="fees-unpaid"><FeesUnpaid /></PlanFeatureRoute></SchoolAdminRoute>
           } />
           <Route path="/bank-settings" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="bank-settings"><BankSettings /></PlanFeatureRoute></SchoolAdminRoute>
+            <FinanceRoute feature="bank-settings"><BankSettings /></FinanceRoute>
           } />
           <Route path="/school-wallet" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="school-wallet"><SchoolWallet /></PlanFeatureRoute></SchoolAdminRoute>
+            <FinanceRoute feature="school-wallet"><SchoolWallet /></FinanceRoute>
           } />
           <Route path="/messages" element={
             <SchoolAdminRoute>
