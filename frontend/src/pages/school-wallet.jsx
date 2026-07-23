@@ -14,7 +14,7 @@ import {
   Smartphone,
   Wallet,
 } from 'lucide-react';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 import { useAuth } from '../contexts/authcontext';
 
 const formatGhs = (value) =>

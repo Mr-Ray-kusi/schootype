@@ -473,3 +473,106 @@ export async function failWithdrawal(reference, reason) {
 export function makeWalletReference(prefix = 'wlt') {
   return `${prefix}_${Date.now()}_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
 }
+
+/**
+ * Move funds from one school wallet to another (internal transfer).
+ * Creates paired ledger rows on both wallets.
+ */
+export async function transferBetweenWallets({
+  fromSchoolId,
+  toSchoolId,
+  amountMinor,
+  reference,
+  description,
+  metadata = {},
+}) {
+  const amount = Math.round(Number(amountMinor) || 0);
+  if (amount <= 0) {
+    const err = new Error('Transfer amount must be greater than zero');
+    err.status = 400;
+    throw err;
+  }
+  if (!fromSchoolId || !toSchoolId || fromSchoolId === toSchoolId) {
+    const err = new Error('Invalid transfer wallets');
+    err.status = 400;
+    throw err;
+  }
+
+  const db = await getDb();
+  await ensureWallet(fromSchoolId);
+  await ensureWallet(toSchoolId);
+
+  const fromWallet = await getWallet(fromSchoolId);
+  if (fromWallet.available_balance < amount) {
+    const err = new Error(
+      `Not enough wallet balance. Need GHS ${(amount / 100).toFixed(2)}, available GHS ${(fromWallet.available_balance / 100).toFixed(2)}.`
+    );
+    err.status = 400;
+    err.code = 'WALLET_INSUFFICIENT';
+    throw err;
+  }
+
+  const debitRef = `${reference}_out`;
+  const creditRef = `${reference}_in`;
+  const timestamp = nowIso();
+
+  await db.run('BEGIN');
+  try {
+    await db.run(
+      `UPDATE school_wallets
+       SET available_balance = available_balance - ?, updated_at = ?
+       WHERE school_id = ?`,
+      [amount, timestamp, fromSchoolId]
+    );
+    await db.run(
+      `UPDATE school_wallets
+       SET available_balance = available_balance + ?, updated_at = ?
+       WHERE school_id = ?`,
+      [amount, timestamp, toSchoolId]
+    );
+
+    await db.run(
+      `INSERT INTO wallet_transactions (
+        id, school_id, type, amount, fee, status, channel, account_id, reference,
+        provider_reference, description, metadata, created_at, updated_at
+      ) VALUES (?, ?, 'debit', ?, 0, 'success', 'internal', NULL, ?, NULL, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        fromSchoolId,
+        amount,
+        debitRef,
+        description || 'Internal transfer out',
+        JSON.stringify({ ...metadata, direction: 'out', counterpart: toSchoolId }),
+        timestamp,
+        timestamp,
+      ]
+    );
+    await db.run(
+      `INSERT INTO wallet_transactions (
+        id, school_id, type, amount, fee, status, channel, account_id, reference,
+        provider_reference, description, metadata, created_at, updated_at
+      ) VALUES (?, ?, 'credit', ?, 0, 'success', 'internal', NULL, ?, NULL, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        toSchoolId,
+        amount,
+        creditRef,
+        description || 'Internal transfer in',
+        JSON.stringify({ ...metadata, direction: 'in', counterpart: fromSchoolId }),
+        timestamp,
+        timestamp,
+      ]
+    );
+    await db.run('COMMIT');
+  } catch (err) {
+    await db.run('ROLLBACK');
+    throw err;
+  }
+
+  return {
+    from_wallet: await getWallet(fromSchoolId),
+    to_wallet: await getWallet(toSchoolId),
+    reference,
+    amount_minor: amount,
+  };
+}

@@ -49,6 +49,8 @@ import {
 } from './authSecurity.js';
 import { initSchoolWalletStore } from './schoolWalletStore.js';
 import { registerWalletRoutes } from './walletRoutes.js';
+import { initPlatformSmsStore } from './platformSmsStore.js';
+import { registerSmsBillingRoutes, settleSmsPayment } from './smsBilling.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -318,7 +320,7 @@ const validateImage = validateLogo;
 
 const insertStudentRecord = async (record) => {
   const payload = { ...record };
-  const optionalColumns = ['photo_url'];
+  const optionalColumns = ['photo_url', 'parent_phone', 'house_address', 'date_of_birth', 'parent_email', 'roll_number'];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase.from('students').insert([payload]).select().single();
@@ -344,7 +346,7 @@ const insertStudentRecord = async (record) => {
 
 const updateStudentRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['photo_url'];
+  const optionalColumns = ['photo_url', 'parent_phone', 'house_address', 'date_of_birth', 'parent_email', 'roll_number'];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase
@@ -402,55 +404,83 @@ const authTokenPayload = () => ({
 let emailTransporter = null;
 let emailReady = false;
 
+const getEmailUser = () =>
+  String(process.env.EMAIL_USER || process.env.BROADCAST_EMAIL || '')
+    .trim()
+    .toLowerCase();
+
+const getEmailPassword = () =>
+  // Gmail app passwords are often copied with spaces — strip them
+  String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '').trim();
+
 const hasValidEmailConfig = () => {
-  const emailUser = process.env.EMAIL_USER || '';
-  const emailPass = process.env.EMAIL_PASSWORD || '';
-  return emailUser && emailPass && 
-         emailUser !== 'your-email@gmail.com' && 
-         emailPass !== 'your-app-password';
+  const emailUser = getEmailUser();
+  const emailPass = getEmailPassword();
+  const placeholderUsers = new Set([
+    'your-email@gmail.com',
+    'your-kusiraymond208@gmail.com',
+  ]);
+  return Boolean(
+    emailUser &&
+      emailPass &&
+      !placeholderUsers.has(emailUser) &&
+      emailPass !== 'your-app-password' &&
+      emailUser.includes('@')
+  );
 };
 
-if (hasValidEmailConfig()) {
+const initEmailTransporter = () => {
+  emailTransporter = null;
+  emailReady = false;
+
+  if (!hasValidEmailConfig()) {
+    console.warn(
+      'Email credentials not configured. Set EMAIL_USER and EMAIL_PASSWORD in backend/.env to enable email delivery.'
+    );
+    return;
+  }
+
+  const emailUser = getEmailUser();
+  const emailPass = getEmailPassword();
+
   const emailTransportOptions = process.env.EMAIL_HOST
     ? {
         host: process.env.EMAIL_HOST,
         port: Number(process.env.EMAIL_PORT || 587),
         secure: process.env.EMAIL_SECURE === 'true',
         auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD,
+          user: emailUser,
+          pass: emailPass,
         },
       }
     : {
         service: process.env.EMAIL_SERVICE || 'gmail',
         auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD,
+          user: emailUser,
+          pass: emailPass,
         },
       };
 
   emailTransporter = nodemailer.createTransport(emailTransportOptions);
 
-  // Test email transporter on startup with timeout
   const verifyTimeout = setTimeout(() => {
     console.warn('Email verification timeout - continuing without email service');
     emailReady = false;
-  }, 5000);
+  }, 8000);
 
-  emailTransporter.verify((error, success) => {
+  emailTransporter.verify((error) => {
     clearTimeout(verifyTimeout);
     if (error) {
       emailReady = false;
       console.warn('Email service is not ready:', error.message);
     } else {
       emailReady = true;
-      console.log('Email service ready');
+      console.log(`Email service ready (${emailUser})`);
     }
   });
-} else {
-  console.warn('Email credentials not configured. Set EMAIL_USER and EMAIL_PASSWORD in .env to enable email delivery.');
-  emailReady = false;
-}
+};
+
+initEmailTransporter();
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
@@ -723,6 +753,157 @@ app.get('/api/super-admin/schools', authenticateToken, requireSuperAdmin, async 
   } catch (error) {
     console.error('Super admin schools error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/super-admin/email-status', authenticateToken, requireSuperAdmin, (req, res) => {
+  res.json({
+    configured: hasValidEmailConfig(),
+    ready: Boolean(emailReady && emailTransporter),
+    from: hasValidEmailConfig() ? getEmailUser() : null,
+  });
+});
+
+const escapeHtml = (value = '') =>
+  String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+app.post('/api/super-admin/broadcast-email', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    if (!emailReady || !emailTransporter) {
+      return res.status(503).json({
+        error:
+          'Email is not configured or ready. Set EMAIL_USER and EMAIL_PASSWORD (app password) in backend/.env, then restart the server.',
+      });
+    }
+
+    const {
+      subject,
+      message,
+      schoolIds,
+      selectAll,
+      attachment,
+    } = req.body || {};
+
+    const cleanSubject = String(subject || '').trim();
+    const cleanMessage = String(message || '').trim();
+
+    if (!cleanSubject) {
+      return res.status(400).json({ error: 'Subject is required' });
+    }
+    if (!cleanMessage && !attachment?.contentBase64) {
+      return res.status(400).json({ error: 'Provide a message and/or attach a file' });
+    }
+
+    let mailAttachment = null;
+    if (attachment?.contentBase64) {
+      const filename = String(attachment.filename || 'attachment').slice(0, 180);
+      const contentType = String(attachment.contentType || 'application/octet-stream');
+      const base64 = String(attachment.contentBase64).replace(/^data:[^;]+;base64,/, '');
+      const buffer = Buffer.from(base64, 'base64');
+      if (!buffer.length) {
+        return res.status(400).json({ error: 'Attachment file is empty or invalid' });
+      }
+      if (buffer.length > 3 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Attachment must be 3MB or smaller' });
+      }
+      mailAttachment = {
+        filename,
+        contentType,
+        content: buffer,
+      };
+    }
+
+    const { data: schoolAccounts, error } = await fetchSchoolAccounts({
+      orderBy: 'name',
+      ascending: true,
+    });
+    if (error) {
+      return res.status(500).json({ error: error.message || 'Failed to load schools' });
+    }
+
+    let recipients = schoolAccounts || [];
+    if (!selectAll) {
+      const ids = Array.isArray(schoolIds) ? schoolIds.map(String) : [];
+      if (!ids.length) {
+        return res.status(400).json({ error: 'Select at least one school, or choose all schools' });
+      }
+      recipients = recipients.filter((school) => ids.includes(String(school.id)));
+    }
+
+    recipients = recipients.filter((school) => school?.email && getSchoolRole(school) !== 'super_admin');
+
+    if (!recipients.length) {
+      return res.status(400).json({ error: 'No school admin emails found for the selection' });
+    }
+
+    const fromAddress = getEmailUser();
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
+        <div style="background-color: white; padding: 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+          <h2 style="color: #111827; margin-top: 0;">Message from NEXUS Platform Admin</h2>
+          <p style="color: #6b7280; margin-top: 0;">This email was sent to your school admin account.</p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <div style="color: #374151; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(cleanMessage).replace(/\n/g, '<br>')}</div>
+          ${
+            mailAttachment
+              ? `<p style="margin-top: 20px; color: #6b7280; font-size: 13px;">A file is attached: <strong>${escapeHtml(mailAttachment.filename)}</strong></p>`
+              : ''
+          }
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="color: #9ca3af; font-size: 12px; margin-bottom: 0;">NEXUS · Platform notification</p>
+        </div>
+      </div>
+    `;
+
+    const results = [];
+    for (const school of recipients) {
+      try {
+        await emailTransporter.sendMail({
+          from: fromAddress,
+          to: school.email,
+          subject: cleanSubject,
+          text: cleanMessage || `(See attached file: ${mailAttachment?.filename || 'attachment'})`,
+          html: htmlBody,
+          attachments: mailAttachment
+            ? [
+                {
+                  filename: mailAttachment.filename,
+                  content: mailAttachment.content,
+                  contentType: mailAttachment.contentType,
+                },
+              ]
+            : undefined,
+        });
+        results.push({ schoolId: school.id, email: school.email, name: school.name, status: 'sent' });
+      } catch (emailError) {
+        console.error(`Broadcast email failed for ${school.email}:`, emailError.message);
+        results.push({
+          schoolId: school.id,
+          email: school.email,
+          name: school.name,
+          status: 'failed',
+          error: emailError.message,
+        });
+      }
+    }
+
+    const sent = results.filter((r) => r.status === 'sent').length;
+    const failed = results.filter((r) => r.status === 'failed').length;
+
+    res.json({
+      sent,
+      failed,
+      total: results.length,
+      results,
+    });
+  } catch (error) {
+    console.error('Broadcast email error:', error);
+    res.status(500).json({ error: error.message || 'Failed to send broadcast email' });
   }
 });
 
@@ -999,6 +1180,12 @@ app.delete('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin,
 
 // Health check endpoint
 registerWalletRoutes(app, { authenticateToken, enforcePlanApproval });
+registerSmsBillingRoutes(app, {
+  authenticateToken,
+  enforcePlanApproval,
+  requireSuperAdmin,
+  supabase,
+});
 
 app.get('/api/health', async (req, res) => {
   try {
@@ -1040,6 +1227,57 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// ============ PUBLIC STUDENT ID (phone camera QR) ============
+
+app.get('/api/public/id/:barcode', async (req, res) => {
+  try {
+    let barcode = req.params.barcode || '';
+    try {
+      barcode = decodeURIComponent(barcode);
+    } catch {
+      // already decoded
+    }
+    barcode = barcode.trim();
+    if (!barcode) {
+      return res.status(400).json({ error: 'Invalid student code' });
+    }
+
+    const { data: student, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('barcode', barcode)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const { data: school } = await supabase
+      .from('schools')
+      .select('name, logo_url')
+      .eq('id', student.school_id)
+      .maybeSingle();
+
+    const withPhoto = mergeStudentPhoto(student);
+
+    res.json({
+      name: withPhoto.name,
+      class: withPhoto.class,
+      photo_url: withPhoto.photo_url || null,
+      parent_phone: withPhoto.parent_phone || null,
+      parent_email: withPhoto.parent_email || null,
+      house_address: withPhoto.house_address || null,
+      date_of_birth: withPhoto.date_of_birth || null,
+      school_name: school?.name || 'School',
+      school_logo_url: school?.logo_url || null,
+    });
+  } catch (error) {
+    console.error('Public student ID error:', error);
+    res.status(500).json({ error: 'Failed to load student ID' });
+  }
+});
+
 // ============ STUDENT ROUTES ============
 
 // Get all students for a school
@@ -1061,7 +1299,26 @@ app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res
 // Add new student
 app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, class: className, parentEmail, rollNumber, photo } = req.body;
+    const {
+      name,
+      class: className,
+      parentEmail,
+      parentPhone,
+      houseAddress,
+      dateOfBirth,
+      rollNumber,
+      photo,
+    } = req.body;
+
+    if (!name?.trim()) {
+      return res.status(400).json({ error: 'Student name is required' });
+    }
+    if (!className?.trim()) {
+      return res.status(400).json({ error: 'Class is required' });
+    }
+    if (!parentPhone?.trim()) {
+      return res.status(400).json({ error: 'Parent phone number is required for SMS' });
+    }
 
     const photoError = validateImage(photo);
     if (photoError) {
@@ -1072,10 +1329,13 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
 
     const record = {
       school_id: req.user.schoolId,
-      name,
+      name: name.trim(),
       class: className,
-      parent_email: parentEmail,
-      roll_number: rollNumber,
+      parent_email: parentEmail?.trim() || null,
+      parent_phone: parentPhone.trim(),
+      house_address: houseAddress?.trim() || null,
+      date_of_birth: dateOfBirth || null,
+      roll_number: rollNumber?.trim() || null,
       barcode,
       created_at: new Date(),
     };
@@ -1102,13 +1362,36 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
 app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, class: className, parentEmail, rollNumber, photo, photo_url: photoUrl } = req.body;
+    const {
+      name,
+      class: className,
+      parentEmail,
+      parent_email,
+      parentPhone,
+      parent_phone,
+      houseAddress,
+      house_address,
+      dateOfBirth,
+      date_of_birth,
+      rollNumber,
+      roll_number,
+      photo,
+      photo_url: photoUrl,
+    } = req.body;
 
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (className !== undefined) updates.class = className;
-    if (parentEmail !== undefined) updates.parent_email = parentEmail;
-    if (rollNumber !== undefined) updates.roll_number = rollNumber;
+    const nextParentEmail = parentEmail !== undefined ? parentEmail : parent_email;
+    if (nextParentEmail !== undefined) updates.parent_email = nextParentEmail;
+    const nextParentPhone = parentPhone !== undefined ? parentPhone : parent_phone;
+    if (nextParentPhone !== undefined) updates.parent_phone = nextParentPhone;
+    const nextHouse = houseAddress !== undefined ? houseAddress : house_address;
+    if (nextHouse !== undefined) updates.house_address = nextHouse;
+    const nextDob = dateOfBirth !== undefined ? dateOfBirth : date_of_birth;
+    if (nextDob !== undefined) updates.date_of_birth = nextDob || null;
+    const nextRoll = rollNumber !== undefined ? rollNumber : roll_number;
+    if (nextRoll !== undefined) updates.roll_number = nextRoll;
 
     const nextPhoto = photo !== undefined ? photo : photoUrl;
     if (nextPhoto !== undefined) {
@@ -1507,7 +1790,29 @@ app.delete('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (
 
 // ============ ATTENDANCE ROUTES ============
 
-const getAttendanceCode = (body) => (body?.qrCode || body?.barcode || '').trim() || null;
+const getAttendanceCode = (body) => {
+  const raw = (body?.qrCode || body?.barcode || '').trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    const match = url.pathname.match(/\/id\/([^/]+)\/?$/);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+  } catch {
+    // not a URL
+  }
+
+  const pathMatch = raw.match(/\/id\/([^/?#\s]+)/);
+  if (pathMatch?.[1]) {
+    try {
+      return decodeURIComponent(pathMatch[1]);
+    } catch {
+      return pathMatch[1];
+    }
+  }
+
+  return raw;
+};
 
 const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   let { data: student } = await supabase
@@ -1839,11 +2144,12 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       recipientPhone,
       message,
       deliveryChannel = 'sms',
+      confirmSmsPayment = false,
     } = req.body;
 
     const { data: schoolAccount, error: schoolError } = await supabase
       .from('schools')
-      .select('payment_plan')
+      .select('id, name, payment_plan')
       .eq('id', req.user.schoolId)
       .single();
 
@@ -1859,6 +2165,33 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
     }
     if (channel === 'email' && !hasPlanFeature(planId, 'messages-email')) {
       return res.status(403).json({ error: 'Bulk email is not included in your plan. Upgrade to Enterprise.' });
+    }
+
+    let smsSettlement = null;
+    if (channel === 'sms') {
+      if (!confirmSmsPayment) {
+        return res.status(400).json({
+          error: 'Confirm SMS send first. You need enough prepaid school SMS units (convert from School Wallet).',
+          code: 'SMS_CONFIRM_REQUIRED',
+        });
+      }
+      try {
+        smsSettlement = await settleSmsPayment({
+          supabase,
+          schoolId: req.user.schoolId,
+          schoolName: schoolAccount.name,
+          message,
+          sendMode,
+          recipients,
+          recipientPhone,
+        });
+      } catch (settleErr) {
+        const status = settleErr.status || 500;
+        return res.status(status).json({
+          error: settleErr.message || 'SMS payment failed',
+          code: settleErr.code || 'SMS_PAYMENT_FAILED',
+        });
+      }
     }
 
     const messageRecord = {
@@ -1897,7 +2230,9 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
         sendMode === 'Individual'
           ? recipientPhone || recipientEmail
           : `${recipients || 'Parents'} group`;
-      console.log(`[SMS] Bulk message queued for ${smsTarget}: ${message.substring(0, 80)}...`);
+      console.log(
+        `[SMS] Units consumed & queued for ${smsTarget} (${smsSettlement?.quote?.units_required || '?'} units; school left ${smsSettlement?.school_sms_units}): ${String(message).substring(0, 80)}...`
+      );
     }
 
     if (channel === 'email' && emailReady && emailTransporter) {
@@ -1920,7 +2255,7 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       for (const toEmail of validEmails) {
         try {
           await emailTransporter.sendMail({
-            from: process.env.EMAIL_USER,
+            from: getEmailUser(),
             to: toEmail,
             subject: `Message from ${senderName} (${senderRole})`,
             html: `
@@ -1934,7 +2269,7 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
                     ${message.replace(/\n/g, '<br>')}
                   </div>
                   <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
-                  <p style="color: #999; font-size: 12px; margin-bottom: 0;">This is an automated message from Schootype School Management System</p>
+                  <p style="color: #999; font-size: 12px; margin-bottom: 0;">This is an automated message from NEXUS</p>
                 </div>
               </div>
             `,
@@ -1949,7 +2284,10 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       console.debug('Email transporter not configured. Skipping email delivery.');
     }
 
-    res.json(newMessage);
+    res.json({
+      ...newMessage,
+      sms_billing: smsSettlement || undefined,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2093,6 +2431,8 @@ async function initializeDatabase() {
     console.log('Auth security store ready');
     await initSchoolWalletStore();
     console.log('School wallet store ready');
+    await initPlatformSmsStore();
+    console.log('Platform SMS store ready');
     await seedSuperAdmin();
     return true;
   } catch (err) {

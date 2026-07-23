@@ -12,7 +12,7 @@ import {
   Trash2,
   Wallet,
 } from 'lucide-react';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 import { useAuth } from '../contexts/authcontext';
 
 const emptyForm = {

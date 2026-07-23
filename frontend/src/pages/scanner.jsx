@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Layout from '../components/layout';
 import axios from 'axios';
 import { QrCode, CheckCircle, XCircle, Scan, Link2, Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
+import { extractAttendanceCode } from '../utils/studentIdQr';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 
@@ -40,8 +41,9 @@ const Scanner = () => {
   }, []);
 
   const handleSubmit = async (codeValue = null) => {
-    const valueToSubmit = codeValue || scanCode;
-    if (!valueToSubmit.trim()) return;
+    const raw = codeValue || scanCode;
+    const valueToSubmit = extractAttendanceCode(raw);
+    if (!valueToSubmit) return;
 
     setLoading(true);
     setResult(null);

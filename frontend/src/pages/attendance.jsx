@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 import axios from 'axios';
 import { Calendar as CalendarIcon, Filter, CheckCircle, XCircle } from 'lucide-react';
 import { format } from 'date-fns';

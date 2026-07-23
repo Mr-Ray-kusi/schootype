@@ -11,6 +11,8 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS sms_month_reset TEXT;
 
 -- Extend students
 ALTER TABLE students ADD COLUMN IF NOT EXISTS parent_phone TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS house_address TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS date_of_birth DATE;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee NUMERIC DEFAULT 0;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS fee_status TEXT DEFAULT 'unpaid';
 

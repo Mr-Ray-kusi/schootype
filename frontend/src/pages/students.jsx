@@ -3,7 +3,8 @@ import { useLocation } from 'react-router-dom';
 import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
-import { Edit2, Trash2, Search, Mail, GraduationCap, Hash, User } from 'lucide-react';
+import { buildStudentIdUrl } from '../utils/studentIdQr';
+import { Edit2, Trash2, Search, Hash, User, Phone, MapPin } from 'lucide-react';
 
 const Students = () => {
   const [students, setStudents] = useState([]);
@@ -69,7 +70,15 @@ const Students = () => {
   const handleUpdate = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`/api/students/${editingStudent.id}`, editingStudent);
+      await axios.put(`/api/students/${editingStudent.id}`, {
+        name: editingStudent.name,
+        class: editingStudent.class,
+        parentEmail: editingStudent.parent_email,
+        parentPhone: editingStudent.parent_phone,
+        houseAddress: editingStudent.house_address,
+        dateOfBirth: editingStudent.date_of_birth,
+        rollNumber: editingStudent.roll_number,
+      });
       setEditingStudent(null);
       fetchStudents();
     } catch (error) {
@@ -128,7 +137,7 @@ const Students = () => {
 
         {editingStudent && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-md w-full">
+            <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
               <h2 className="text-xl font-bold text-white mb-4">Edit Student</h2>
               <form onSubmit={handleUpdate} className="space-y-4">
                 <input
@@ -147,11 +156,32 @@ const Students = () => {
                   placeholder="Class"
                 />
                 <input
+                  type="date"
+                  value={editingStudent.date_of_birth ? String(editingStudent.date_of_birth).slice(0, 10) : ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, date_of_birth: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                />
+                <input
+                  type="tel"
+                  value={editingStudent.parent_phone || ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, parent_phone: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                  placeholder="Parent phone"
+                  required
+                />
+                <input
                   type="email"
                   value={editingStudent.parent_email || ''}
                   onChange={(e) => setEditingStudent({ ...editingStudent, parent_email: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-500 rounded-lg"
                   placeholder="Parent Email"
+                />
+                <textarea
+                  value={editingStudent.house_address || ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, house_address: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                  placeholder="House address"
+                  rows={2}
                 />
                 <input
                   type="text"
@@ -177,86 +207,96 @@ const Students = () => {
           </div>
         )}
 
-        <div id="list-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div
+          id="list-section"
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 320px))' }}
+        >
           {filteredStudents.map((student) => (
             <article
               key={student.id}
-              className="bg-slate-800 border border-slate-600 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg hover:border-primary-500/40 transition-all"
+              className="bg-slate-800 border border-slate-600 rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:border-primary-500/40 transition-all w-full max-w-[320px]"
             >
-              {/* Profile header */}
               <div className="flex gap-0">
-                <div className="w-36 sm:w-40 shrink-0 bg-slate-700/50 flex items-center justify-center p-4 border-r border-slate-600">
+                <div className="w-28 shrink-0 bg-slate-700/50 flex items-center justify-center p-2 border-r border-slate-600">
                   {student.photo_url ? (
                     <img
                       src={student.photo_url}
                       alt={student.name}
-                      className="w-full aspect-[3/4] max-h-44 object-cover rounded-xl border-2 border-slate-500 shadow-md"
+                      className="w-full aspect-[3/4] object-cover rounded-lg border border-slate-500"
                     />
                   ) : (
-                    <div className="w-full aspect-[3/4] max-h-44 rounded-xl bg-primary-500/20 border-2 border-primary-500/30 flex flex-col items-center justify-center gap-2">
-                      <User className="w-12 h-12 text-primary-400" />
-                      <span className="text-2xl font-bold text-primary-300">
+                    <div className="flex w-full aspect-[3/4] flex-col items-center justify-center rounded-lg bg-primary-500/20 border border-primary-500/30">
+                      <span className="text-xl font-bold text-primary-300">
                         {student.name?.charAt(0)?.toUpperCase() || '?'}
                       </span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex-1 min-w-0 p-5 flex flex-col">
+                <div className="flex-1 min-w-0 p-2.5 flex flex-col">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="text-xl font-bold text-white truncate">{student.name}</h3>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-semibold text-white leading-snug break-words">
+                        {student.name}
+                      </h3>
                       {student.class && (
-                        <span className="inline-block mt-2 px-2.5 py-0.5 text-xs font-medium rounded-full bg-primary-500/20 text-primary-300 border border-primary-500/30">
+                        <span className="inline-block mt-1 px-1.5 py-0.5 text-[9px] font-medium rounded-full bg-primary-500/20 text-primary-300 border border-primary-500/30">
                           {student.class}
                         </span>
                       )}
                     </div>
-                    <div className="flex gap-1 shrink-0">
+                    <div className="flex flex-col gap-0.5 shrink-0">
                       <button
                         onClick={() => handleEdit(student)}
-                        className="p-2 rounded-lg text-primary-400 hover:bg-primary-500/20 transition-colors"
+                        className="p-1 rounded-md text-primary-400 hover:bg-primary-500/20 transition-colors"
                         title="Edit"
                       >
-                        <Edit2 className="w-4 h-4" />
+                        <Edit2 className="w-3 h-3" />
                       </button>
                       <button
                         onClick={() => handleDelete(student.id)}
-                        className="p-2 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors"
+                        className="p-1 rounded-md text-red-400 hover:bg-red-500/20 transition-colors"
                         title="Delete"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-4 space-y-2.5 flex-1">
-                    <div className="flex items-center gap-2.5 text-sm text-slate-300">
-                      <Hash className="w-4 h-4 text-slate-400 shrink-0" />
-                      <span className="truncate">
-                        Roll No: <span className="text-slate-100 font-medium">{student.roll_number || 'N/A'}</span>
-                      </span>
+                  <div className="mt-1.5 space-y-1 flex-1 text-[10px] text-slate-300">
+                    <div className="flex items-center gap-1 truncate">
+                      <Hash className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                      <span className="truncate">{student.roll_number || 'N/A'}</span>
                     </div>
-                    <div className="flex items-center gap-2.5 text-sm text-slate-300">
-                      <GraduationCap className="w-4 h-4 text-slate-400 shrink-0" />
-                      <span className="truncate">
-                        Class: <span className="text-slate-100 font-medium">{student.class || 'Not assigned'}</span>
-                      </span>
-                    </div>
-                    {student.parent_email && (
-                      <div className="flex items-center gap-2.5 text-sm text-slate-300">
-                        <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className="truncate text-slate-100">{student.parent_email}</span>
+                    {student.parent_phone && (
+                      <div className="flex items-center gap-1 truncate">
+                        <Phone className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                        <span className="truncate">{student.parent_phone}</span>
+                      </div>
+                    )}
+                    {student.house_address && (
+                      <div className="flex items-start gap-1">
+                        <MapPin className="w-2.5 h-2.5 text-slate-500 shrink-0 mt-0.5" />
+                        <span className="line-clamp-2">{student.house_address}</span>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* QR code section */}
-              <div className="border-t border-slate-600 bg-slate-900/50 px-5 py-4">
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">Attendance QR Code</p>
-                <AttendanceQrCode value={student.barcode} name={student.name} size={148} />
+              <div className="border-t border-slate-600 bg-slate-900/50 px-2.5 py-2">
+                <p className="text-[9px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">
+                  Student QR ID
+                </p>
+                <AttendanceQrCode
+                  value={buildStudentIdUrl(student.barcode)}
+                  name={student.name}
+                  size={80}
+                  containerClassName="bg-white rounded-md p-1.5"
+                  buttonClassName="mt-1.5 w-full flex items-center justify-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-md transition-colors text-[10px] font-medium"
+                  downloadLabel="Download QR"
+                />
               </div>
             </article>
           ))}

@@ -50,7 +50,7 @@ const SelectPlan = () => {
       <header className="border-b border-slate-700">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-2">
           <School className="w-7 h-7 text-primary-400" />
-          <span className="text-lg font-bold text-white">SchoolMS</span>
+          <span className="text-lg font-bold text-white">NEXUS</span>
         </div>
       </header>
 
@@ -106,7 +106,7 @@ const SelectPlan = () => {
               {loading ? 'Submitting...' : 'Submit plan & go to dashboard'}
             </button>
             <Link to="/" className="text-slate-300 hover:text-slate-200 text-sm">
-              Back to plans overview
+              Back to home
             </Link>
           </div>
         </form>

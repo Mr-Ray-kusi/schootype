@@ -34,12 +34,17 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Syne', 'system-ui', 'sans-serif'],
+        sans: ['DM Sans', 'system-ui', 'sans-serif'],
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',
         'slide-up': 'slideUp 0.3s ease-out',
         'slide-down': 'slideDown 0.3s ease-out',
+        'hero-fade': 'heroFade 1s ease-out both',
+        'hero-rise': 'heroRise 0.9s ease-out 0.15s both',
+        'hero-rise-late': 'heroRise 0.9s ease-out 0.35s both',
+        'ken-burns': 'kenBurns 28s ease-in-out infinite alternate',
       },
       keyframes: {
         fadeIn: {
@@ -53,6 +58,18 @@ module.exports = {
         slideDown: {
           '0%': { transform: 'translateY(-20px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        heroFade: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        heroRise: {
+          '0%': { opacity: '0', transform: 'translateY(18px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        kenBurns: {
+          '0%': { transform: 'scale(1)' },
+          '100%': { transform: 'scale(1.08)' },
         },
       },
     },

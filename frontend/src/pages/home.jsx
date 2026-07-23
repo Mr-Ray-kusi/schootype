@@ -1,8 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import { useEffect } from 'react';
-import { PLAN_LIST } from '../constants/plans';
-import { Check, School, LogIn } from 'lucide-react';
 
 const Home = () => {
   const { token, school, loading } = useAuth();
@@ -22,97 +20,96 @@ const Home = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-300">
-        Loading...
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 font-sans text-slate-300">
+        Loading…
+      </div>
+    );
+  }
+
+  if (token) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 font-sans text-slate-300">
+        Redirecting…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-50">
-      <header className="border-b border-slate-700 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <School className="w-8 h-8 text-primary-400" />
-            <span className="text-xl font-bold text-white">SchoolMS</span>
-          </div>
-          <div className="flex items-center gap-3">
+    <div className="relative min-h-screen overflow-hidden bg-slate-950 font-sans text-white">
+      {/* Full-bleed student background */}
+      <div className="absolute inset-0">
+        <img
+          src="/hero-students.jpg"
+          alt=""
+          className="h-full w-full object-cover animate-ken-burns"
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(105deg, rgba(2, 12, 27, 0.92) 0%, rgba(2, 12, 27, 0.78) 42%, rgba(2, 12, 27, 0.45) 70%, rgba(2, 12, 27, 0.55) 100%)',
+          }}
+        />
+        <div
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage:
+              'radial-gradient(ellipse 50% 40% at 15% 80%, rgba(14, 165, 233, 0.25), transparent), radial-gradient(ellipse 40% 35% at 85% 20%, rgba(34, 197, 94, 0.12), transparent)',
+          }}
+        />
+      </div>
+
+      <div className="relative z-10 flex min-h-screen flex-col">
+        <header className="animate-hero-fade flex items-center justify-between px-6 py-6 md:px-10 lg:px-14">
+          <Link to="/" className="font-display text-2xl font-extrabold tracking-tight text-white md:text-3xl">
+            NEXUS
+          </Link>
+          <nav className="flex items-center gap-3 md:gap-4">
             <Link
               to="/login"
-              className="flex items-center gap-2 px-4 py-2 text-slate-100 hover:text-white transition-colors"
+              className="rounded-full px-4 py-2 text-sm font-medium text-white/90 transition hover:bg-white/10 hover:text-white"
             >
-              <LogIn className="w-4 h-4" />
-              Login
+              Sign in
             </Link>
             <Link
-              to="/signup"
-              className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium transition-colors"
+              to="/plans"
+              className="rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition hover:bg-sky-400"
             >
-              Sign Up
+              Sign up
             </Link>
-          </div>
-        </div>
-      </header>
+          </nav>
+        </header>
 
-      <main>
-        <section className="max-w-6xl mx-auto px-6 py-16 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight">
-            Smart School Management
-            <span className="block text-primary-400 mt-2">Choose the plan that fits your school</span>
-          </h1>
-        </section>
+        <main className="flex flex-1 flex-col justify-center px-6 pb-16 pt-8 md:px-10 lg:px-14 lg:pb-24">
+          <div className="max-w-2xl">
+            <p className="animate-hero-fade font-display text-4xl font-extrabold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
+              NEXUS
+            </p>
+            <h1 className="animate-hero-rise mt-5 font-display text-2xl font-bold leading-snug tracking-tight text-white/95 sm:text-3xl md:text-4xl">
+              The central connection point for all your school academic activities
+            </h1>
+            <p className="animate-hero-rise-late mt-5 max-w-lg text-base leading-relaxed text-slate-200/90 sm:text-lg">
+              Track students and staff, mark attendance with QR codes, send SMS or email,
+              manage fees and wallets — everything your school needs, connected in one place.
+            </p>
 
-        <section className="max-w-6xl mx-auto px-6 pb-20">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {PLAN_LIST.map((plan) => (
-              <div
-                key={plan.id}
-                className={`relative rounded-2xl border p-8 flex flex-col ${
-                  plan.highlighted
-                    ? 'border-primary-500 bg-slate-800 shadow-lg shadow-primary-500/10 scale-[1.02]'
-                    : 'border-slate-600 bg-slate-800/50'
-                }`}
+            <div className="animate-hero-rise-late mt-10 flex flex-wrap items-center gap-4">
+              <Link
+                to="/plans"
+                className="inline-flex items-center justify-center rounded-full bg-sky-500 px-7 py-3.5 text-sm font-semibold text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400 hover:shadow-sky-400/40"
               >
-                {plan.highlighted && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-primary-600 text-white text-xs font-semibold rounded-full">
-                    Most Popular
-                  </span>
-                )}
-                <h3 className="text-xl font-bold text-white">{plan.name}</h3>
-                <p className="text-slate-300 text-sm mt-2">{plan.description}</p>
-                <div className="mt-6">
-                  <span className="text-4xl font-bold text-white">${plan.price}</span>
-                  <span className="text-slate-300">/{plan.period}</span>
-                </div>
-                <ul className="mt-8 space-y-3 flex-1">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-slate-200">
-                      <Check className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-8">
-                  <Link
-                    to={`/signup?plan=${plan.id}`}
-                    className={`block w-full text-center py-3 rounded-lg font-medium transition-colors ${
-                      plan.highlighted
-                        ? 'bg-primary-600 hover:bg-primary-700 text-white'
-                        : 'bg-slate-700 hover:bg-slate-600 text-white'
-                    }`}
-                  >
-                    Get Started
-                  </Link>
-                </div>
-              </div>
-            ))}
+                Get started
+              </Link>
+              <Link
+                to="/login"
+                className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10"
+              >
+                Sign in
+              </Link>
+            </div>
           </div>
-        </section>
-      </main>
-
-      <footer className="border-t border-slate-700 py-8 text-center text-slate-400 text-sm">
-        © {new Date().getFullYear()} SchoolMS. All rights reserved.
-      </footer>
+        </main>
+      </div>
     </div>
   );
 };

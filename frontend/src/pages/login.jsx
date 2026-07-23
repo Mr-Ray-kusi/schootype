@@ -1,52 +1,29 @@
 import React, { useState } from 'react';
-
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
-
 import toast from 'react-hot-toast';
-
-import { School } from 'lucide-react';
-
-
+import { ArrowLeft } from 'lucide-react';
 
 const Login = () => {
-
   const [email, setEmail] = useState('');
-
   const [password, setPassword] = useState('');
-
   const [loading, setLoading] = useState(false);
-
   const { login } = useAuth();
-
   const navigate = useNavigate();
 
-  const [searchParams] = useSearchParams();
-
-  const planParam = searchParams.get('plan');
-
-
-
   const handleSubmit = async (e) => {
-
     e.preventDefault();
-
     setLoading(true);
 
     try {
-
       const data = await login(email, password);
-
       toast.success('Login successful!');
-
       navigate(getPostAuthPath(data.school));
-
     } catch (error) {
       const data = error.response?.data;
       const message =
-        data?.error
-        || (error.request && !error.response
+        data?.error ||
+        (error.request && !error.response
           ? 'Cannot connect to server. Start the backend: cd backend && npm run dev'
           : 'Login failed');
       if (error.response?.status === 429 && data?.retryAfter) {
@@ -54,178 +31,96 @@ const Login = () => {
       } else {
         toast.error(message);
       }
-
     } finally {
-
       setLoading(false);
-
     }
-
   };
 
-
-
-  const signupLink = planParam ? `/signup?plan=${planParam}` : '/signup';
-
-
-
   return (
+    <div className="relative min-h-screen overflow-hidden bg-slate-950 font-sans text-white">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 55% 40% at 100% 0%, rgba(14, 165, 233, 0.14), transparent 55%), #020617',
+        }}
+      />
 
-    <div className="min-h-screen flex items-center justify-center bg-slate-900">
-
-      <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md">
-
-        <div className="text-center mb-8">
-
-          <Link to="/" className="inline-flex items-center gap-2 text-primary-300 hover:text-primary-200 mb-4">
-
-            <School className="w-6 h-6" />
-
-            <span className="font-semibold">SchoolMS</span>
-
-          </Link>
-
-          <h1 className="text-2xl font-bold text-white">Login to your account</h1>
-
-          {planParam && (
-
-            <p className="text-sm text-primary-300 mt-2 capitalize">
-
-              Plan selected: {planParam}
-
-            </p>
-
-          )}
-
-        </div>
-
-
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-
-          <div>
-
-            <label className="block text-sm font-medium text-slate-100 mb-2">
-
-              Email Address
-
-            </label>
-
-            <input
-
-              type="email"
-
-              value={email}
-
-              onChange={(e) => setEmail(e.target.value)}
-
-              className="input"
-
-              required
-
-              placeholder="admin@school.com"
-
-            />
-
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <Link to="/" className="font-display text-2xl font-extrabold tracking-tight text-white">
+              NEXUS
+            </Link>
+            <h1 className="mt-6 font-display text-3xl font-bold text-white">Sign in</h1>
+            <p className="mt-2 text-sm text-slate-400">Access your school admin dashboard</p>
           </div>
 
-
-
-          <div>
-
-            <label className="block text-sm font-medium text-slate-100 mb-2">
-
-              Password
-
-            </label>
-
-            <input
-
-              type="password"
-
-              value={password}
-
-              onChange={(e) => setPassword(e.target.value)}
-
-              className="input"
-
-              required
-
-              placeholder="••••••••"
-
-            />
-
-          </div>
-
-
-
-          <button
-
-            type="submit"
-
-            disabled={loading}
-
-            className="btn-primary w-full disabled:opacity-50"
-
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-5 rounded-3xl border border-slate-700/80 bg-slate-900/60 p-6 md:p-8"
           >
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-200">Email address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input"
+                required
+                placeholder="admin@school.com"
+              />
+            </div>
 
-            {loading ? 'Logging in...' : 'Login'}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-200">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input"
+                required
+                placeholder="••••••••"
+              />
+            </div>
 
-          </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-full bg-sky-500 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:bg-sky-400 disabled:opacity-50"
+            >
+              {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
 
-        </form>
+          <p className="mt-6 text-center text-sm text-slate-400">
+            Don&apos;t have an account?{' '}
+            <Link to="/plans" className="font-medium text-sky-400 hover:text-sky-300">
+              Sign up
+            </Link>
+          </p>
+          <p className="mt-3 text-center">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to home
+            </Link>
+          </p>
 
-
-
-        <p className="text-center mt-6 text-slate-300">
-
-          Don't have an account?{' '}
-
-          <Link to={signupLink} className="text-primary-300 hover:text-primary-200 hover:underline">
-
-            Sign up
-
-          </Link>
-
-        </p>
-
-
-
-        <p className="text-center mt-3">
-
-          <Link to="/" className="text-sm text-slate-400 hover:text-slate-300">
-
-            ← Back to payment plans
-
-          </Link>
-
-        </p>
-
-
-
-        {import.meta.env.DEV && (
-
-          <div className="mt-6 p-4 bg-slate-700/80 rounded-lg border border-slate-600 text-xs text-slate-300">
-
-            <p className="font-medium text-slate-200 mb-2">Dev super admin</p>
-
-            <p>Email: superadmin@school.com</p>
-
-            <p>Password: SuperAdmin123!</p>
-
-          </div>
-
-        )}
-
+          {import.meta.env.DEV && (
+            <div className="mt-8 rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-xs text-slate-400">
+              <p className="mb-2 font-medium text-slate-300">Dev super admin</p>
+              <p>Email: superadmin@school.com</p>
+              <p>Password: SuperAdmin123!</p>
+            </div>
+          )}
+        </div>
       </div>
-
     </div>
-
   );
-
 };
 
-
-
 export default Login;
-

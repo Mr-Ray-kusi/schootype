@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import { extractAttendanceCode } from '../utils/studentIdQr';
 import { CheckCircle, XCircle, Camera, Loader2 } from 'lucide-react';
 
 const SCAN_COOLDOWN_MS = 2500;
@@ -29,7 +30,10 @@ const MobileScanner = () => {
     readerRef.current = null;
   };
 
-  const markAttendance = async (attendanceCode) => {
+  const markAttendance = async (rawCode) => {
+    const attendanceCode = extractAttendanceCode(rawCode);
+    if (!attendanceCode) return;
+
     scanLockRef.current = true;
     stopScanner();
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 
 const initialTeacherSalary = [
   { id: 1, name: 'Mrs. Funke', role: 'Math Teacher', monthlySalary: 150000, status: 'Due', dueDate: '2026-06-10' },

@@ -3,6 +3,7 @@ import { Printer } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import QrCodeBlock from './QrCodeBlock';
 import StudentDesignKit from './StudentDesignKit';
+import { buildStudentIdUrl } from '../utils/studentIdQr';
 
 export const CARD_WIDTH = '3.370in';
 export const CARD_HEIGHT = '2.125in';
@@ -219,7 +220,7 @@ export const IdCardBack = ({ student, school, qrRef }) => {
           <div className="shrink-0 bg-white border-2 border-gray-200 rounded-sm p-1">
             <QrCodeBlock
               ref={qrRef}
-              value={student.barcode}
+              value={buildStudentIdUrl(student.barcode)}
               size={64}
               level="M"
               paddingClass="p-0.5"

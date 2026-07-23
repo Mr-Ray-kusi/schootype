@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 
 const studentReports = [
   { id: 1, name: 'Aisha Ali', class: 'Grade 1', assessment: 'Excellent', attitude: 'Very positive', score: 92 },

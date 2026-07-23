@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import Layout from '../components/Layout';
+import Layout from '../components/layout';
 import PlanPendingBanner from '../components/PlanPendingBanner';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';

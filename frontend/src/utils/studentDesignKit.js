@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { qrValueToPngBlob } from './qrCodeExport';
+import { buildStudentIdUrl } from './studentIdQr';
 
 const CARD_SIZE = { widthInches: 3.370, heightInches: 2.125 };
 
@@ -132,7 +133,7 @@ export async function buildStudentDesignKitFiles(student, school) {
   };
 
   if (student.barcode) {
-    const qrBlob = await qrValueToPngBlob(student.barcode, 600);
+    const qrBlob = await qrValueToPngBlob(buildStudentIdUrl(student.barcode), 600);
     files['qr-code.png'] = qrBlob;
   }
 

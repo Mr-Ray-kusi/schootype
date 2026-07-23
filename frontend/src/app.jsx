@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Home from './pages/home';
 import Login from './pages/login';
 import Signup from './pages/sigup';
+import Plans from './pages/plans';
 import SelectPlan from './pages/select-plan';
 import Dashboard from './pages/Dashboard';
 import Students from './pages/students';
@@ -21,6 +22,9 @@ import BankSettings from './pages/bank-settings';
 import SchoolWallet from './pages/school-wallet';
 import SuperAdmin from './pages/super-admin';
 import SuperAdminSchool from './pages/super-admin-school';
+import SuperAdminBroadcast from './pages/super-admin-broadcast';
+import SuperAdminSms from './pages/super-admin-sms';
+import StudentPublicId from './pages/student-public-id';
 import { AuthProvider, useAuth } from './contexts/authcontext';
 
 const LoadingScreen = () => (
@@ -93,7 +97,10 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/plans" element={<Plans />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/id/:barcode" element={<StudentPublicId />} />
+          <Route path="/scan/:token" element={<MobileScanner />} />
           <Route path="/select-plan" element={
             <SelectPlanRoute><SelectPlan /></SelectPlanRoute>
           } />
@@ -111,6 +118,12 @@ function App() {
           } />
           <Route path="/super-admin/platform-wallet" element={
             <SuperAdminRoute><SchoolWallet /></SuperAdminRoute>
+          } />
+          <Route path="/super-admin/email-schools" element={
+            <SuperAdminRoute><SuperAdminBroadcast /></SuperAdminRoute>
+          } />
+          <Route path="/super-admin/sms" element={
+            <SuperAdminRoute><SuperAdminSms /></SuperAdminRoute>
           } />
           <Route path="/students" element={
             <SchoolAdminRoute><PlanFeatureRoute feature="students"><Students /></PlanFeatureRoute></SchoolAdminRoute>
@@ -149,7 +162,6 @@ function App() {
               </PlanFeatureRoute>
             </SchoolAdminRoute>
           } />
-          <Route path="/scan/:token" element={<MobileScanner />} />
           <Route path="/scanner" element={
             <SchoolAdminRoute><PlanFeatureRoute feature="scanner"><Scanner /></PlanFeatureRoute></SchoolAdminRoute>
           } />

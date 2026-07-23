@@ -9,6 +9,7 @@ import {
   formatDetailsText,
 } from '../utils/studentDesignKit';
 import { qrValueToPngBlob } from '../utils/qrCodeExport';
+import { buildStudentIdUrl } from '../utils/studentIdQr';
 
 const DetailField = ({ label, value }) => (
   <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
@@ -49,7 +50,7 @@ const StudentDesignKit = ({ student, school }) => {
       alert('No QR code available for this student.');
       return;
     }
-    const blob = await qrValueToPngBlob(student.barcode, 600);
+    const blob = await qrValueToPngBlob(buildStudentIdUrl(student.barcode), 600);
     triggerBlobDownload(blob, `${safeName}-qr-code.png`);
   };
 
@@ -112,7 +113,7 @@ const StudentDesignKit = ({ student, school }) => {
             </div>
             <div className="flex-1 flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-200 min-h-[140px] mb-3">
               {student.barcode ? (
-                <QrCodeBlock value={student.barcode} size={110} level="M" paddingClass="p-2" />
+                <QrCodeBlock value={buildStudentIdUrl(student.barcode)} size={110} level="M" paddingClass="p-2" />
               ) : (
                 <p className="text-xs text-gray-400">No barcode assigned</p>
               )}
