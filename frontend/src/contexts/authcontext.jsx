@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { hasFeature as planHasFeature } from '../constants/plans';
 
 const AuthContext = createContext();
 
@@ -142,19 +143,25 @@ export const AuthProvider = ({ children }) => {
   };
 
   const isSuperAdmin = school?.role === 'super_admin';
-  const isPlanApproved = school?.plan_approved === true;
-  const isSubscriptionActive = school?.subscription_active !== false;
+  const isPlanApproved = isSuperAdmin || school?.plan_approved === true;
+  const isSubscriptionActive = isSuperAdmin || school?.subscription_active !== false;
 
   const includesPlanFeature = (featureKey) => {
     if (isSuperAdmin) return true;
-    return school?.pending_plan_features?.includes(featureKey) ?? false;
+    if (!featureKey) return false;
+    // Prefer live API features, but fall back to the client plan definition so
+    // newly added keys (e.g. bank-settings) still appear after a backend restart lag.
+    if (school?.pending_plan_features?.includes(featureKey)) return true;
+    return planHasFeature(school?.payment_plan, featureKey);
   };
 
   const hasFeature = (featureKey) => {
     if (isSuperAdmin) return true;
+    if (!featureKey) return false;
     if (!isPlanApproved) return false;
     if (!isSubscriptionActive) return false;
-    return school?.plan_features?.includes(featureKey) ?? false;
+    if (school?.plan_features?.includes(featureKey)) return true;
+    return planHasFeature(school?.payment_plan, featureKey);
   };
 
   const hasMessaging = hasFeature('messages-sms') || hasFeature('messages-email');

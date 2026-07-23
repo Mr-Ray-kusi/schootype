@@ -47,6 +47,8 @@ import {
   recordSignupAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
+import { initSchoolWalletStore } from './schoolWalletStore.js';
+import { registerWalletRoutes } from './walletRoutes.js';
 
 dotenv.config();
 
@@ -992,6 +994,8 @@ app.delete('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin,
 });
 
 // Health check endpoint
+registerWalletRoutes(app, { authenticateToken, enforcePlanApproval });
+
 app.get('/api/health', async (req, res) => {
   try {
     const dbHealth = await supabase
@@ -2073,6 +2077,8 @@ async function initializeDatabase() {
     console.log('Person photo store ready');
     await initAuthSecurityStore();
     console.log('Auth security store ready');
+    await initSchoolWalletStore();
+    console.log('School wallet store ready');
     await seedSuperAdmin();
     return true;
   } catch (err) {

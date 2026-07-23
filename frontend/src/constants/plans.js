@@ -11,6 +11,7 @@ export const PAYMENT_PLANS = {
       'Staff profiles & role management',
       'Non-staff support team records',
       'Quick student enrollment form',
+      'School wallet, bank & MoMo settings',
       'Up to 175 students & 15 staff',
     ],
     featureKeys: [
@@ -19,6 +20,8 @@ export const PAYMENT_PLANS = {
       'add-student',
       'staff',
       'non-staff',
+      'bank-settings',
+      'school-wallet',
     ],
     limits: { maxStudents: 175, maxStaff: 15, maxNonStaff: 10 },
     highlighted: false,
@@ -36,6 +39,7 @@ export const PAYMENT_PLANS = {
       'Attendance filters, export & print',
       'Dashboard attendance charts',
       'Bulk SMS messaging to parents & staff',
+      'School wallet deposits & withdrawals',
       'Up to 450 students & 35 staff',
     ],
     featureKeys: [
@@ -47,6 +51,8 @@ export const PAYMENT_PLANS = {
       'attendance',
       'scanner',
       'messages-sms',
+      'bank-settings',
+      'school-wallet',
     ],
     limits: { maxStudents: 450, maxStaff: 35, maxNonStaff: 25 },
     highlighted: true,
@@ -64,6 +70,7 @@ export const PAYMENT_PLANS = {
       'Report cards & teacher result uploads',
       'Fees paid — salary & payment tracking',
       'Fees unpaid — overdue alerts & reminders',
+      'School wallet with Paystack bank & MoMo',
       'Unlimited students, staff & non-staff',
     ],
     featureKeys: [
@@ -80,6 +87,8 @@ export const PAYMENT_PLANS = {
       'report-cards',
       'fees-paid',
       'fees-unpaid',
+      'bank-settings',
+      'school-wallet',
     ],
     limits: { maxStudents: null, maxStaff: null, maxNonStaff: null },
     highlighted: false,
@@ -109,6 +118,8 @@ export const FEATURE_LABELS = {
   'report-cards': 'Report Cards',
   'fees-paid': 'Fees Paid',
   'fees-unpaid': 'Fees Unpaid',
+  'bank-settings': 'Bank Settings',
+  'school-wallet': 'School Wallet',
 };
 
 export const ROUTE_FEATURE_MAP = {
@@ -124,6 +135,8 @@ export const ROUTE_FEATURE_MAP = {
   '/report-cards': 'report-cards',
   '/fees-paid': 'fees-paid',
   '/fees-unpaid': 'fees-unpaid',
+  '/bank-settings': 'bank-settings',
+  '/school-wallet': 'school-wallet',
 };
 
 export const SYSTEM_CAPABILITY_GROUPS = [
@@ -141,7 +154,7 @@ export const SYSTEM_CAPABILITY_GROUPS = [
   },
   {
     title: 'Academics & Finance',
-    items: ['Class organization', 'Report cards & teacher uploads', 'Salary & fees tracking'],
+    items: ['Class organization', 'Report cards & teacher uploads', 'Salary & fees tracking', 'School wallet & MoMo/bank payouts'],
   },
 ];
 

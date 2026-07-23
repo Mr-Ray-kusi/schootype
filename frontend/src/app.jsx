@@ -17,6 +17,8 @@ import Classes from './pages/classes';
 import ReportCards from './pages/report-cards';
 import FeesPaid from './pages/fees-paid';
 import FeesUnpaid from './pages/fees-unpaid';
+import BankSettings from './pages/bank-settings';
+import SchoolWallet from './pages/school-wallet';
 import SuperAdmin from './pages/super-admin';
 import SuperAdminSchool from './pages/super-admin-school';
 import { AuthProvider, useAuth } from './contexts/authcontext';
@@ -114,6 +116,12 @@ function App() {
           } />
           <Route path="/fees-unpaid" element={
             <SchoolAdminRoute><PlanFeatureRoute feature="fees-unpaid"><FeesUnpaid /></PlanFeatureRoute></SchoolAdminRoute>
+          } />
+          <Route path="/bank-settings" element={
+            <SchoolAdminRoute><PlanFeatureRoute feature="bank-settings"><BankSettings /></PlanFeatureRoute></SchoolAdminRoute>
+          } />
+          <Route path="/school-wallet" element={
+            <SchoolAdminRoute><PlanFeatureRoute feature="school-wallet"><SchoolWallet /></PlanFeatureRoute></SchoolAdminRoute>
           } />
           <Route path="/messages" element={
             <SchoolAdminRoute>

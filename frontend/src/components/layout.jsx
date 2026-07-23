@@ -40,6 +40,10 @@ import {
 
   Lock,
 
+  Landmark,
+
+  Wallet,
+
 } from 'lucide-react';
 
 import toast from 'react-hot-toast';
@@ -129,6 +133,10 @@ const Layout = ({ children }) => {
       title: 'Finance',
 
       items: [
+
+        { name: 'Bank Settings', href: '/bank-settings', icon: Landmark, featureKey: 'bank-settings' },
+
+        { name: 'School Wallet', href: '/school-wallet', icon: Wallet, featureKey: 'school-wallet' },
 
         { name: 'Fees Paid', href: '/fees-paid', icon: DollarSign, featureKey: 'fees-paid' },
 
@@ -268,11 +276,11 @@ const Layout = ({ children }) => {
 
                   {section.items.map((item) => {
 
-                    const isLocked = !isPlanApproved && (item.featureKeys
+                    const isLocked = !isSuperAdmin && !isPlanApproved && (item.featureKeys
 
                       ? !item.featureKeys.some((key) => hasFeature(key))
 
-                      : !hasFeature(item.featureKey));
+                      : Boolean(item.featureKey) && !hasFeature(item.featureKey));
 
                     const itemClasses = `flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
 
