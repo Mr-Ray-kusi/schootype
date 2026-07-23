@@ -33,6 +33,22 @@ async function paystackRequest(path, { method = 'GET', body } = {}) {
   });
 
   const payload = await response.json().catch(() => ({}));
+
+  // MoMo charge success responses use message "Charge attempted" with data.status
+  // like pay_offline / pending / send_otp — that is NOT a failure.
+  const chargeStarted =
+    path === '/charge' &&
+    payload?.data &&
+    (payload.status === true ||
+      String(payload.message || '').toLowerCase() === 'charge attempted');
+
+  if (chargeStarted) {
+    return {
+      ...payload.data,
+      _paystack_message: payload.message || null,
+    };
+  }
+
   if (!response.ok || payload.status === false) {
     const err = new Error(payload.message || `Paystack request failed (${response.status})`);
     err.code = 'PAYSTACK_API_ERROR';
@@ -127,11 +143,23 @@ export async function chargeMobileMoney({
       reference,
       metadata,
       mobile_money: {
-        phone: String(phone),
+        phone: normalizeGhanaPhone(phone),
         provider: String(provider).toLowerCase(),
       },
     },
   });
+}
+
+/** Ghana local format Paystack expects, e.g. 0551234567 */
+export function normalizeGhanaPhone(phone) {
+  let digits = String(phone || '').replace(/\D/g, '');
+  if (digits.startsWith('233') && digits.length >= 12) {
+    digits = `0${digits.slice(3)}`;
+  }
+  if (digits.length === 9) {
+    digits = `0${digits}`;
+  }
+  return digits;
 }
 
 export async function verifyTransaction(reference) {
@@ -161,7 +189,16 @@ export async function initiateTransfer({
 export function momoProviderFromBankCode(bankCode) {
   const code = String(bankCode || '').toUpperCase();
   if (code === 'MTN' || code.includes('MTN')) return 'mtn';
-  if (code === 'ATL' || code.includes('AIRTEL') || code.includes('AT ')) return 'atl';
-  if (code === 'VOD' || code.includes('VOD' ) || code.includes('TELECEL') || code.includes('TIGO')) return 'vod';
+  // Paystack accepts atl (docs) and some bank lists use ATL / AIRTELTIGO / TGO
+  if (
+    code === 'ATL' ||
+    code === 'TGO' ||
+    code.includes('AIRTEL') ||
+    code.includes('TIGO') ||
+    code.includes('AT ')
+  ) {
+    return 'atl';
+  }
+  if (code === 'VOD' || code.includes('VOD') || code.includes('TELECEL')) return 'vod';
   return String(bankCode || '').toLowerCase();
 }

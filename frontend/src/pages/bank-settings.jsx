@@ -99,7 +99,11 @@ const BankSettings = () => {
 
     setSaving(true);
     try {
-      const { data } = await axios.post('/api/wallet/accounts', form);
+      const payload = {
+        ...form,
+        label: form.account_name.trim() || defaultLabel(form.type),
+      };
+      const { data } = await axios.post('/api/wallet/accounts', payload);
       toast.success('Account saved');
       if (data.warning) toast(data.warning, { icon: 'ℹ️' });
       setForm({
@@ -166,7 +170,7 @@ const BankSettings = () => {
 
             <Link
               to={walletPath}
-              className="group inline-flex items-center justify-center gap-2 self-start rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-900/30 transition hover:bg-primary-500"
+              className="group inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-900/30 transition hover:bg-primary-500"
             >
               <Wallet className="h-4 w-4" />
               {isSuperAdmin ? 'Platform Wallet' : 'School Wallet'}
@@ -175,209 +179,212 @@ const BankSettings = () => {
           </div>
 
           <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
-            <span
-              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${
-                paystackConfigured
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                  : 'border-amber-500/30 bg-amber-500/10 text-amber-100'
-              }`}
-            >
+            {isSuperAdmin && (
               <span
-                className={`h-2 w-2 rounded-full ${
-                  paystackConfigured ? 'bg-emerald-400' : 'bg-amber-400'
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${
+                  paystackConfigured
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                    : 'border-amber-500/30 bg-amber-500/10 text-amber-100'
                 }`}
-              />
-              {paystackConfigured ? 'Paystack connected' : 'Paystack keys missing'}
-            </span>
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    paystackConfigured ? 'bg-emerald-400' : 'bg-amber-400'
+                  }`}
+                />
+                {paystackConfigured ? 'Paystack connected' : 'Paystack keys missing'}
+              </span>
+            )}
             <span className="text-slate-400">
-              {loading ? 'Loading accounts…' : `${accounts.length} saved account${accounts.length === 1 ? '' : 's'}`}
+              {loading
+                ? 'Loading accounts…'
+                : `${accounts.length} saved account${accounts.length === 1 ? '' : 's'}`}
             </span>
           </div>
         </header>
 
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
+        <div className="grid items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
           <section className="animate-[fadeIn_0.55s_ease-out]">
             <form
               onSubmit={handleSubmit}
-              className="space-y-6 border-t border-slate-700/80 pt-6"
+              className="flex h-full flex-col rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8"
             >
-              <div>
-                <h2 className="text-lg font-semibold text-white">Add account</h2>
-                <p className="mt-1 text-sm text-slate-400">
-                  Choose MoMo or bank, then enter the details Paystack will use.
-                </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Add account
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Choose MoMo or bank, then enter the details Paystack will use.
+                  </p>
+                </div>
+                <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
               </div>
 
-              <div
-                role="tablist"
-                aria-label="Account type"
-                className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-700 bg-slate-950/50 p-1.5"
-              >
-                {[
-                  {
-                    id: 'mobile_money',
-                    label: 'Mobile Money',
-                    hint: 'MTN, Telecel, AirtelTigo',
-                    icon: Smartphone,
-                  },
-                  {
-                    id: 'bank',
-                    label: 'Bank account',
-                    hint: 'Ghana bank transfer',
-                    icon: Building2,
-                  },
-                ].map((opt) => {
-                  const active = form.type === opt.id;
-                  const Icon = opt.icon;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => handleTypeChange(opt.id)}
-                      className={`rounded-xl px-4 py-3 text-left transition ${
-                        active
-                          ? 'bg-slate-800 text-white shadow-md ring-1 ring-primary-500/40'
-                          : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <Icon className={`h-4 w-4 ${active ? 'text-primary-300' : ''}`} />
-                        <span className="text-sm font-semibold">{opt.label}</span>
-                      </span>
-                      <span className="mt-1 block text-xs text-slate-500">{opt.hint}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Display label
-                  </label>
-                  <input
-                    value={form.label}
-                    onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
-                    placeholder={isMomo ? 'Main MoMo wallet' : 'Operations bank account'}
-                    className={fieldClass}
-                  />
+              <div className="mt-6 flex flex-1 flex-col space-y-5">
+                <div
+                  role="tablist"
+                  aria-label="Account type"
+                  className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-700 bg-slate-950/50 p-1.5"
+                >
+                  {[
+                    {
+                      id: 'mobile_money',
+                      label: 'Mobile Money',
+                      hint: 'MTN, Telecel, AirtelTigo',
+                      icon: Smartphone,
+                    },
+                    {
+                      id: 'bank',
+                      label: 'Bank account',
+                      hint: 'Ghana bank transfer',
+                      icon: Building2,
+                    },
+                  ].map((opt) => {
+                    const active = form.type === opt.id;
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => handleTypeChange(opt.id)}
+                        className={`rounded-xl px-4 py-3 text-left transition ${
+                          active
+                            ? 'bg-slate-800 text-white shadow-md ring-1 ring-primary-500/40'
+                            : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <Icon className={`h-4 w-4 ${active ? 'text-primary-300' : ''}`} />
+                          <span className="text-sm font-semibold">{opt.label}</span>
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">{opt.hint}</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="sm:col-span-2">
-                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
-                    {isMomo ? 'MoMo provider' : 'Bank'}
-                  </label>
-                  {providerOptions.length > 0 ? (
-                    <select
-                      value={form.bank_code}
-                      onChange={(e) => handleBankSelect(e.target.value)}
-                      className={fieldClass}
-                    >
-                      <option value="">Select…</option>
-                      {providerOptions.map((bank) => (
-                        <option key={`${bank.code}-${bank.name}`} value={bank.code}>
-                          {bank.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <>
-                      <input
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                      {isMomo ? 'MoMo provider' : 'Bank'}
+                    </label>
+                    {providerOptions.length > 0 ? (
+                      <select
                         value={form.bank_code}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            bank_code: e.target.value,
-                            bank_name: e.target.value,
-                          }))
-                        }
-                        placeholder={isMomo ? 'e.g. MTN' : 'Bank code'}
+                        onChange={(e) => handleBankSelect(e.target.value)}
                         className={fieldClass}
-                      />
-                      <p className="mt-2 text-xs text-slate-500">
-                        Provider list unavailable — enter the Paystack code manually.
-                      </p>
-                    </>
-                  )}
+                      >
+                        <option value="">Select…</option>
+                        {providerOptions.map((bank) => (
+                          <option key={`${bank.code}-${bank.name}`} value={bank.code}>
+                            {bank.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <>
+                        <input
+                          value={form.bank_code}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              bank_code: e.target.value,
+                              bank_name: e.target.value,
+                            }))
+                          }
+                          placeholder={isMomo ? 'e.g. MTN' : 'Bank code'}
+                          className={fieldClass}
+                        />
+                        <p className="mt-2 text-xs text-slate-500">
+                          Provider list unavailable — enter the Paystack code manually.
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                      Account Name
+                    </label>
+                    <input
+                      value={form.account_name}
+                      onChange={(e) => setForm((p) => ({ ...p, account_name: e.target.value }))}
+                      placeholder="Name on account"
+                      className={fieldClass}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                      {isMomo ? 'MoMo number' : 'Account number'}
+                    </label>
+                    <input
+                      value={form.account_number}
+                      onChange={(e) => setForm((p) => ({ ...p, account_number: e.target.value }))}
+                      placeholder={isMomo ? '0551234567' : '0123456789'}
+                      className={fieldClass}
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Account name
-                  </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-700/70 bg-slate-950/40 px-4 py-3 transition hover:border-slate-600">
                   <input
-                    value={form.account_name}
-                    onChange={(e) => setForm((p) => ({ ...p, account_name: e.target.value }))}
-                    placeholder="Name on account"
-                    className={fieldClass}
+                    type="checkbox"
+                    checked={form.is_default}
+                    onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-500 bg-slate-900 text-primary-600 focus:ring-primary-500"
                   />
-                </div>
+                  <span>
+                    <span className="block text-sm font-medium text-slate-100">Use as default</span>
+                    <span className="mt-0.5 block text-xs text-slate-400">
+                      Prefill this account when loading or withdrawing money.
+                    </span>
+                  </span>
+                </label>
 
-                <div>
-                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
-                    {isMomo ? 'MoMo number' : 'Account number'}
-                  </label>
-                  <input
-                    value={form.account_number}
-                    onChange={(e) => setForm((p) => ({ ...p, account_number: e.target.value }))}
-                    placeholder={isMomo ? '0551234567' : '0123456789'}
-                    className={fieldClass}
-                  />
+                <div className="mt-auto pt-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/20 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving ? (
+                      'Saving…'
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Save account
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-700/70 bg-slate-950/40 px-4 py-3 transition hover:border-slate-600">
-                <input
-                  type="checkbox"
-                  checked={form.is_default}
-                  onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-500 bg-slate-900 text-primary-600 focus:ring-primary-500"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-100">
-                    Use as default
-                  </span>
-                  <span className="mt-0.5 block text-xs text-slate-400">
-                    Prefill this account when loading or withdrawing money.
-                  </span>
-                </span>
-              </label>
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/20 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[200px]"
-              >
-                {saving ? (
-                  'Saving…'
-                ) : (
-                  <>
-                    <Check className="h-4 w-4" />
-                    Save account
-                  </>
-                )}
-              </button>
             </form>
           </section>
 
-          <section className="animate-[fadeIn_0.7s_ease-out]">
-            <div className="border-t border-slate-700/80 pt-6 lg:sticky lg:top-6">
-              <div className="flex items-center justify-between gap-3">
+          <section className="animate-[fadeIn_0.55s_ease-out]">
+            <div className="flex h-full flex-col rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Saved accounts</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Saved accounts
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-400">
                     Available for deposits and withdrawals.
                   </p>
                 </div>
-                <Landmark className="h-5 w-5 text-slate-500" />
+                <span className="text-xs text-slate-500">
+                  {accounts.length} saved
+                </span>
               </div>
 
-              <div className="mt-6 space-y-3">
+              <div className="mt-6 flex-1 space-y-3 overflow-y-auto" style={{ maxHeight: '520px' }}>
                 {loading ? (
                   <div className="space-y-3">
-                    {[0, 1].map((i) => (
+                    {[0, 1, 2].map((i) => (
                       <div
                         key={i}
                         className="h-24 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40"
@@ -385,21 +392,20 @@ const BankSettings = () => {
                     ))}
                   </div>
                 ) : !accounts.length ? (
-                  <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-950/30 px-6 py-14 text-center">
-                    <Smartphone className="mx-auto h-8 w-8 text-slate-500" />
+                  <div className="flex h-full min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-600 bg-slate-950/30 px-6 py-12 text-center">
+                    <Smartphone className="h-8 w-8 text-slate-500" />
                     <p className="mt-4 text-sm font-medium text-slate-300">No accounts yet</p>
                     <p className="mt-2 text-sm text-slate-500">
                       Add a MoMo or bank account on the left to get started.
                     </p>
                   </div>
                 ) : (
-                  accounts.map((account, index) => {
+                  accounts.map((account) => {
                     const momo = account.type === 'mobile_money';
                     return (
                       <article
                         key={account.id}
-                        className="group rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4 transition hover:border-slate-500/80 hover:bg-slate-900/80"
-                        style={{ animationDelay: `${index * 40}ms` }}
+                        className="group rounded-2xl border border-slate-700/80 bg-slate-950/40 p-4 transition hover:border-slate-500/80 hover:bg-slate-950/70"
                       >
                         <div className="flex items-start gap-3">
                           <div
@@ -436,7 +442,7 @@ const BankSettings = () => {
                               {account.account_number}
                             </p>
 
-                            <div className="mt-3 flex flex-wrap gap-2 opacity-90 transition group-hover:opacity-100">
+                            <div className="mt-3 flex flex-wrap gap-2">
                               {!account.is_default && (
                                 <button
                                   type="button"

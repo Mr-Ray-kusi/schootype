@@ -3,7 +3,6 @@ import {
   listBanks,
   resolveAccountNumber,
   createTransferRecipient,
-  initializeTransaction,
   chargeMobileMoney,
   verifyTransaction,
   initiateTransfer,
@@ -11,6 +10,7 @@ import {
   toMinorUnits,
   fromMinorUnits,
   momoProviderFromBankCode,
+  normalizeGhanaPhone,
 } from './paystack.js';
 import {
   ensureWallet,
@@ -49,9 +49,15 @@ function formatTransaction(tx) {
 }
 
 function handlePaystackError(res, err) {
+  const rawMessage = err.message || 'Paystack request failed';
+  // Never show Paystack's internal success phrasing as an error toast
+  const friendly =
+    /charge attempted/i.test(rawMessage)
+      ? 'Payment prompt sent. Approve it on your phone to complete the deposit.'
+      : rawMessage;
   const status = err.status || 500;
-  return res.status(status).json({
-    error: err.message || 'Paystack request failed',
+  return res.status(status >= 400 ? status : 502).json({
+    error: friendly,
     code: err.code || 'PAYSTACK_ERROR',
     details: err.payload || undefined,
   });
@@ -218,7 +224,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
   app.post('/api/wallet/deposit', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
-      const { account_id, amount, callback_url } = req.body || {};
+      const { account_id, amount } = req.body || {};
       const amountMajor = Number(amount);
 
       if (!account_id) return res.status(400).json({ error: 'account_id is required' });
@@ -227,12 +233,32 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       }
 
       const account = await getWalletAccount(schoolId, account_id);
-      if (!account) return res.status(404).json({ error: 'Select a saved bank or MoMo account first' });
+      if (!account) return res.status(404).json({ error: 'Select a saved MoMo account first' });
+
+      if (account.type !== 'mobile_money') {
+        return res.status(400).json({
+          error: 'Wallet deposits are MoMo only. Select a Mobile Money account, then confirm the payment on your phone.',
+        });
+      }
 
       const { currency, configured } = getPaystackConfig();
       if (!configured) {
         return res.status(503).json({
           error: 'Paystack is not configured. Add PAYSTACK_SECRET_KEY to backend/.env',
+        });
+      }
+
+      const provider = account.provider || momoProviderFromBankCode(account.bank_code);
+      if (!provider) {
+        return res.status(400).json({
+          error: 'MoMo provider is missing. Re-save this account in Bank Settings.',
+        });
+      }
+
+      const phone = normalizeGhanaPhone(account.account_number);
+      if (!/^0\d{9}$/.test(phone)) {
+        return res.status(400).json({
+          error: 'MoMo number looks invalid. Use a Ghana number like 0551234567.',
         });
       }
 
@@ -243,110 +269,79 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         school_id: schoolId,
         account_id: account.id,
         wallet_action: 'deposit',
+        channel: 'mobile_money',
+        phone,
+        provider,
       };
 
       await createWalletTransaction(schoolId, {
         type: 'deposit',
         amount: amountMinor,
         status: 'pending',
-        channel: account.type,
+        channel: 'mobile_money',
         account_id: account.id,
         reference,
-        description: `Deposit from ${account.label || account.bank_name || account.type}`,
+        description: `MoMo deposit from ${account.label || account.bank_name || phone}`,
         metadata,
       });
 
-      if (account.type === 'mobile_money') {
-        const provider = account.provider || momoProviderFromBankCode(account.bank_code);
-        try {
-          const charge = await chargeMobileMoney({
-            email,
-            amountMinor,
-            currency,
-            phone: account.account_number,
-            provider,
-            reference,
-            metadata,
-          });
-
-          await updateWalletTransaction(reference, {
-            provider_reference: charge?.reference || reference,
-            metadata: {
-              display_text: charge?.display_text,
-              paystack_status: charge?.status,
-            },
-          });
-
-          return res.json({
-            mode: 'mobile_money',
-            reference,
-            status: charge?.status || 'pay_offline',
-            display_text:
-              charge?.display_text ||
-              'Approve the MoMo prompt on your phone to complete the deposit.',
-            transaction: formatTransaction(await getWalletTransactionByReference(reference)),
-          });
-        } catch (momoErr) {
-          console.warn('Direct MoMo charge unavailable, falling back to Paystack checkout:', momoErr.message);
-          const init = await initializeTransaction({
-            email,
-            amountMinor,
-            currency,
-            reference,
-            callbackUrl: callback_url || undefined,
-            channels: ['mobile_money'],
-            metadata: {
-              ...metadata,
-              momo_phone: account.account_number,
-              momo_provider: provider,
-            },
-          });
-
-          await updateWalletTransaction(reference, {
-            provider_reference: init?.reference || reference,
-            metadata: {
-              authorization_url: init?.authorization_url,
-              access_code: init?.access_code,
-              fallback: 'checkout_mobile_money',
-            },
-          });
-
-          return res.json({
-            mode: 'bank',
-            reference,
-            authorization_url: init?.authorization_url,
-            access_code: init?.access_code,
-            public_key: getPaystackConfig().publicKey || null,
-            transaction: formatTransaction(await getWalletTransactionByReference(reference)),
-          });
-        }
-      }
-
-      const init = await initializeTransaction({
+      const charge = await chargeMobileMoney({
         email,
         amountMinor,
         currency,
+        phone,
+        provider,
         reference,
-        callbackUrl: callback_url || undefined,
-        channels: ['bank', 'bank_transfer', 'card'],
         metadata,
       });
 
+      const paystackStatus = charge?.status || 'pay_offline';
+      const displayText =
+        charge?.display_text ||
+        `A payment prompt was sent to ${phone}. Open the MoMo message on your phone and approve to complete the deposit.`;
+
+      // "Charge attempted" is Paystack's success message for starting MoMo — never surface it as an error.
+      const awaitingConfirmation = !['success', 'failed', 'timeout', 'abandoned'].includes(
+        String(paystackStatus).toLowerCase()
+      );
+
       await updateWalletTransaction(reference, {
-        provider_reference: init?.reference || reference,
+        provider_reference: charge?.reference || reference,
         metadata: {
-          authorization_url: init?.authorization_url,
-          access_code: init?.access_code,
+          display_text: displayText,
+          paystack_status: paystackStatus,
+          paystack_message: charge?._paystack_message || null,
+          phone,
+          provider,
         },
       });
 
+      if (String(paystackStatus).toLowerCase() === 'success') {
+        await creditDeposit(reference);
+      }
+
+      if (String(paystackStatus).toLowerCase() === 'failed') {
+        await updateWalletTransaction(reference, { status: 'failed' });
+        return res.status(400).json({
+          error: displayText || 'MoMo payment failed. Try again.',
+          reference,
+          status: paystackStatus,
+        });
+      }
+
       return res.json({
-        mode: 'bank',
+        mode: 'mobile_money',
         reference,
-        authorization_url: init?.authorization_url,
-        access_code: init?.access_code,
-        public_key: getPaystackConfig().publicKey || null,
+        status: paystackStatus,
+        awaiting_confirmation: awaitingConfirmation,
+        display_text: displayText,
+        phone,
+        provider,
         transaction: formatTransaction(await getWalletTransactionByReference(reference)),
+        wallet:
+          String(paystackStatus).toLowerCase() === 'success'
+            ? formatMoney(await getWallet(schoolId))
+            : undefined,
       });
     } catch (err) {
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
