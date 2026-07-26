@@ -125,7 +125,7 @@ const Signup = () => {
             </p>
             <h1 className="mt-3 font-display text-3xl font-bold text-white">Create your account</h1>
             <p className="mt-2 text-sm text-slate-300">
-              {selectedPlan.name} — ${selectedPlan.price}/{selectedPlan.period}
+              {selectedPlan.name} — ₵{selectedPlan.price}/{selectedPlan.period}
             </p>
             <Link
               to="/plans"

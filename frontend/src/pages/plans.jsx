@@ -72,7 +72,7 @@ const Plans = () => {
                 <h2 className="font-display text-xl font-bold text-white">{plan.name}</h2>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{plan.description}</p>
                 <p className="mt-6">
-                  <span className="font-display text-4xl font-bold text-white">${plan.price}</span>
+                  <span className="font-display text-4xl font-bold text-white">₵{plan.price}</span>
                   <span className="text-slate-400">/{plan.period}</span>
                 </p>
                 <ul className="mt-6 flex-1 space-y-2.5">

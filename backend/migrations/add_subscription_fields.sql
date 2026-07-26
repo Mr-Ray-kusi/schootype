@@ -1,2 +1,7 @@
--- Subscription billing fields stored in SQLite school_extras:
--- next_payment_due, last_payment_at, subscription_frozen
+-- Schools subscription / billing fields now live on Supabase Postgres.
+-- Apply: database/supabase_core_billing.sql
+--
+-- Columns on schools:
+--   scanner_token, next_payment_due, last_payment_at, subscription_frozen,
+--   subscription_started_at, total_paid
+-- Payment history: subscription_payments

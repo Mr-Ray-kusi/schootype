@@ -1,4 +1,7 @@
 -- Run this in your Supabase SQL editor to enable all new features
+--
+-- Also required for billing / wallets / SMS on Postgres:
+--   database/supabase_core_billing.sql
 
 -- Extend schools table
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS logo_url TEXT;

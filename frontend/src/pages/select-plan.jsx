@@ -83,7 +83,7 @@ const SelectPlan = () => {
                 />
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-lg font-bold text-white">{plan.name}</h3>
-                  <span className="text-primary-400 font-semibold">${plan.price}/mo</span>
+                  <span className="text-primary-400 font-semibold">₵{plan.price}/mo</span>
                 </div>
                 <ul className="space-y-2">
                   {plan.features.map((feature) => (

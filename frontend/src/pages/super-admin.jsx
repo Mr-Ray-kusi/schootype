@@ -22,7 +22,7 @@ const subscriptionBadge = (school) => {
 };
 
 const formatMoney = (amount) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount || 0);
+  new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(amount || 0);
 
 const SuperAdmin = () => {
   const { school } = useAuth();
@@ -166,7 +166,7 @@ const SuperAdmin = () => {
                       </span>
                       <span className="text-sm text-slate-200">
                         {item.plan_name || 'No plan'}
-                        {item.plan_price ? ` · $${item.plan_price}/mo` : ''}
+                        {item.plan_price ? ` · ₵${item.plan_price}/mo` : ''}
                       </span>
                       <span className={`px-2 py-0.5 text-xs rounded-full capitalize ${statusStyles[status] || statusStyles.none}`}>
                         {status === 'none' ? 'awaiting plan' : status}

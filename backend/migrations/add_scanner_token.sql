@@ -1,2 +1,2 @@
--- Scanner token is stored in SQLite school_extras (see schoolPlanStore.js).
--- Each school gets a unique token for the mobile attendance scanner link.
+-- Scanner tokens are stored on schools.scanner_token in Supabase.
+-- Apply: database/supabase_core_billing.sql

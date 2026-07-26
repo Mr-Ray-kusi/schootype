@@ -23,7 +23,7 @@ import {
 import toast from 'react-hot-toast';
 
 const formatMoney = (amount) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount || 0);
+  new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(amount || 0);
 
 const statusStyles = {
   approved: 'bg-green-500/20 text-green-300 border-green-500/30',

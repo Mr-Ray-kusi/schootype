@@ -28,7 +28,7 @@ const PlanPendingBanner = () => {
           <p className="text-sm text-slate-200 mt-1">
             {isRejected
               ? `Your ${school.plan_name || 'selected'} plan was not approved. Contact the platform admin.`
-              : `Your ${school.plan_name || 'selected'} plan${planPrice ? ` ($${planPrice}/mo)` : ''} is pending review. Features below are locked until a super admin approves your account.`}
+              : `Your ${school.plan_name || 'selected'} plan${planPrice ? ` (₵${planPrice}/mo)` : ''} is pending review. Features below are locked until a super admin approves your account.`}
           </p>
           {school.pending_plan_features?.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">

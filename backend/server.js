@@ -3,8 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+import { supabase } from './supabaseClient.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature } from './plans.js';
 import {
@@ -154,7 +154,20 @@ const findSchoolByEmail = async (email) => {
 
 const insertSchoolRecord = async (record) => {
   const payload = { ...record };
-  const optionalColumns = ['role', 'initial_password', 'payment_plan', 'plan_selected_at', 'plan_status', 'logo_url'];
+  const optionalColumns = [
+    'role',
+    'initial_password',
+    'payment_plan',
+    'plan_selected_at',
+    'plan_status',
+    'logo_url',
+    'scanner_token',
+    'next_payment_due',
+    'last_payment_at',
+    'subscription_frozen',
+    'subscription_started_at',
+    'total_paid',
+  ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase.from('schools').insert([payload]).select().single();
@@ -184,7 +197,20 @@ const insertSchoolRecord = async (record) => {
 
 const updateSchoolRecord = async (id, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['role', 'initial_password', 'payment_plan', 'plan_selected_at', 'plan_status', 'logo_url'];
+  const optionalColumns = [
+    'role',
+    'initial_password',
+    'payment_plan',
+    'plan_selected_at',
+    'plan_status',
+    'logo_url',
+    'scanner_token',
+    'next_payment_due',
+    'last_payment_at',
+    'subscription_frozen',
+    'subscription_started_at',
+    'total_paid',
+  ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase
@@ -213,7 +239,20 @@ const updateSchoolRecord = async (id, updates) => {
   return { data: null, error: { message: 'Failed to update school record' } };
 };
 
-const SCHOOL_OPTIONAL_COLUMNS = ['role', 'initial_password', 'payment_plan', 'plan_selected_at', 'plan_status', 'logo_url'];
+const SCHOOL_OPTIONAL_COLUMNS = [
+  'role',
+  'initial_password',
+  'payment_plan',
+  'plan_selected_at',
+  'plan_status',
+  'logo_url',
+  'scanner_token',
+  'next_payment_due',
+  'last_payment_at',
+  'subscription_frozen',
+  'subscription_started_at',
+  'total_paid',
+];
 
 const fetchSchoolAccounts = async ({ orderBy = 'created_at', ascending = false } = {}) => {
   const baseColumns = ['id', 'name', 'email', 'created_at'];
@@ -376,12 +415,6 @@ const updateStudentRecord = async (id, schoolId, updates) => {
   return { data: null, error: { message: 'Failed to update student record' } };
 };
 
-// Supabase initialization
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
-
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
@@ -462,17 +495,15 @@ const initEmailTransporter = () => {
       };
 
   emailTransporter = nodemailer.createTransport(emailTransportOptions);
-
-  const verifyTimeout = setTimeout(() => {
-    console.warn('Email verification timeout - continuing without email service');
-    emailReady = false;
-  }, 8000);
+  // Allow sends once credentials exist; SMTP verify can be slow or flaky.
+  emailReady = true;
+  console.log(`Email transporter configured (${emailUser}) — verifying SMTP…`);
 
   emailTransporter.verify((error) => {
-    clearTimeout(verifyTimeout);
     if (error) {
       emailReady = false;
-      console.warn('Email service is not ready:', error.message);
+      console.warn('Email SMTP verify failed:', error.message);
+      console.warn('Broadcast email will stay disabled until EMAIL_USER / EMAIL_PASSWORD are valid.');
     } else {
       emailReady = true;
       console.log(`Email service ready (${emailUser})`);
@@ -576,7 +607,20 @@ app.post('/api/auth/signup', async (req, res) => {
 
     if (schoolError || !school) {
       console.error('School creation error:', schoolError);
-      return res.status(500).json({ error: 'Failed to create school. Please try again.' });
+      const rlsBlocked =
+        schoolError?.code === '42501' ||
+        String(schoolError?.message || '').toLowerCase().includes('row-level security');
+      if (rlsBlocked) {
+        return res.status(500).json({
+          error:
+            'Supabase blocked school creation (RLS). Run database/supabase_backend_access.sql in the Supabase SQL editor, or set SUPABASE_SERVICE_ROLE_KEY in backend/.env, then restart.',
+        });
+      }
+      return res.status(500).json({
+        error: schoolError?.message
+          ? `Failed to create school: ${schoolError.message}`
+          : 'Failed to create school. Please try again.',
+      });
     }
 
     await recordSignupAttempt(clientIp);
@@ -623,16 +667,54 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    const { data: school, error: schoolError } = await supabase
+    // Prefer exact match; fall back to case-insensitive if needed
+    let { data: school, error: schoolError } = await supabase
       .from('schools')
       .select('*')
       .eq('email', email)
       .maybeSingle();
 
-    const hashToVerify = school?.password_hash || DUMMY_PASSWORD_HASH;
-    const isValidPassword = await bcrypt.compare(password, hashToVerify);
+    if (!school && !schoolError) {
+      const fallback = await supabase
+        .from('schools')
+        .select('*')
+        .ilike('email', email)
+        .maybeSingle();
+      school = fallback.data;
+      schoolError = fallback.error;
+    }
 
-    if (schoolError || !school || !isValidPassword) {
+    if (schoolError) {
+      console.error('Login lookup error:', schoolError);
+      return res.status(500).json({ error: 'Login failed. Please try again.' });
+    }
+
+    let isValidPassword = false;
+    if (school?.password_hash) {
+      try {
+        isValidPassword = await bcrypt.compare(password, school.password_hash);
+      } catch (compareErr) {
+        console.warn('bcrypt compare failed, will try initial_password fallback:', compareErr.message);
+        isValidPassword = false;
+      }
+    }
+
+    // Repair path: older/partial rows may only have initial_password
+    if (!isValidPassword && school?.initial_password && String(school.initial_password) === String(password)) {
+      isValidPassword = true;
+      try {
+        const repairedHash = await bcrypt.hash(password, 10);
+        await supabase
+          .from('schools')
+          .update({ password_hash: repairedHash })
+          .eq('id', school.id);
+        school = { ...school, password_hash: repairedHash };
+      } catch (repairErr) {
+        console.warn('Failed to repair password_hash:', repairErr.message);
+      }
+    }
+
+    if (!school || !isValidPassword) {
       await recordLoginFailure(email, clientIp);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -2424,19 +2506,32 @@ async function initializeDatabase() {
     }
     console.log('Database setup complete');
     await initSchoolPlanStore();
-    console.log('School plan store ready');
+    console.log('School plan store ready (Supabase)');
     await initStudentPhotoStore();
     console.log('Person photo store ready');
     await initAuthSecurityStore();
     console.log('Auth security store ready');
-    await initSchoolWalletStore();
-    console.log('School wallet store ready');
-    await initPlatformSmsStore();
-    console.log('Platform SMS store ready');
+    try {
+      await initSchoolWalletStore();
+      console.log('School wallet store ready');
+    } catch (walletErr) {
+      console.warn('School wallet store unavailable:', walletErr.message || walletErr);
+      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
+    }
+    try {
+      await initPlatformSmsStore();
+      console.log('Platform SMS store ready');
+    } catch (smsErr) {
+      console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
+      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
+    }
     await seedSuperAdmin();
     return true;
   } catch (err) {
     console.error('Database setup failed:', err.message || err);
+    if (String(err.message || '').includes('supabase_core_billing.sql')) {
+      console.error('\nApply database/supabase_core_billing.sql in the Supabase SQL editor, then restart.\n');
+    }
     return false;
   }
 }

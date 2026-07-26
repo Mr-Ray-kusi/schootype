@@ -1,79 +1,154 @@
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
 import { randomBytes } from 'crypto';
+import { supabase } from './supabaseClient.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
-const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
-
-const OPTIONAL_COLUMNS = [
+const SCHOOL_EXTRA_FIELDS = [
+  'payment_plan',
+  'plan_status',
+  'plan_selected_at',
+  'initial_password',
+  'logo_url',
   'scanner_token',
   'next_payment_due',
   'last_payment_at',
   'subscription_frozen',
   'subscription_started_at',
   'total_paid',
-  'payment_records',
 ];
 
-let dbPromise = null;
 const cache = new Map();
 
-async function getDb() {
-  if (!dbPromise) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    dbPromise = open({
-      filename: DB_PATH,
-      driver: sqlite3.Database,
-    }).then(async (db) => {
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS school_extras (
-          school_id TEXT PRIMARY KEY,
-          payment_plan TEXT,
-          plan_status TEXT,
-          plan_selected_at TEXT,
-          initial_password TEXT,
-          logo_url TEXT,
-          scanner_token TEXT,
-          next_payment_due TEXT,
-          last_payment_at TEXT,
-          subscription_frozen INTEGER DEFAULT 0,
-          subscription_started_at TEXT,
-          total_paid REAL DEFAULT 0,
-          payment_records TEXT
-        )
-      `);
-      for (const column of OPTIONAL_COLUMNS) {
-        try {
-          if (column === 'subscription_frozen') {
-            await db.exec(`ALTER TABLE school_extras ADD COLUMN subscription_frozen INTEGER DEFAULT 0`);
-          } else if (column === 'total_paid') {
-            await db.exec(`ALTER TABLE school_extras ADD COLUMN total_paid REAL DEFAULT 0`);
-          } else {
-            await db.exec(`ALTER TABLE school_extras ADD COLUMN ${column} TEXT`);
-          }
-        } catch {
-          // column already exists
-        }
-      }
-      return db;
-    });
+const isMissingColumnError = (error, column) => {
+  const msg = String(error?.message || error?.details || error?.hint || '');
+  return (
+    msg.includes(column) &&
+    (msg.includes('does not exist') ||
+      msg.includes('Could not find') ||
+      msg.includes('schema cache') ||
+      error?.code === 'PGRST204')
+  );
+};
+
+const toDateOnly = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  try {
+    return new Date(value).toISOString().slice(0, 10);
+  } catch {
+    return null;
   }
-  return dbPromise;
+};
+
+const normalizeExtras = (row = {}) => ({
+  school_id: row.id || row.school_id,
+  payment_plan: row.payment_plan || null,
+  plan_status: row.plan_status || null,
+  plan_selected_at: row.plan_selected_at || null,
+  initial_password: row.initial_password || null,
+  logo_url: row.logo_url || null,
+  scanner_token: row.scanner_token || null,
+  next_payment_due: toDateOnly(row.next_payment_due),
+  last_payment_at: toDateOnly(row.last_payment_at),
+  subscription_frozen: Boolean(row.subscription_frozen),
+  subscription_started_at: toDateOnly(row.subscription_started_at),
+  total_paid: Number(row.total_paid) || 0,
+  payment_records: Array.isArray(row.payment_records) ? row.payment_records : [],
+});
+
+async function updateSchoolColumns(schoolId, updates) {
+  const payload = { ...updates };
+  const optional = [...SCHOOL_EXTRA_FIELDS];
+
+  for (let attempt = 0; attempt <= optional.length; attempt++) {
+    const { data, error } = await supabase
+      .from('schools')
+      .update(payload)
+      .eq('id', schoolId)
+      .select('*')
+      .maybeSingle();
+
+    if (!error) {
+      return { data, error: null };
+    }
+
+    const missingColumn = optional.find(
+      (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+    );
+
+    if (missingColumn) {
+      delete payload[missingColumn];
+      continue;
+    }
+
+    return { data: null, error };
+  }
+
+  return { data: null, error: { message: 'Failed to update school subscription fields' } };
+}
+
+async function loadPaymentRecords(schoolId) {
+  const { data, error } = await supabase
+    .from('subscription_payments')
+    .select('amount, plan, plan_name, created_at, status')
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    if (isMissingColumnError(error, 'subscription_payments') || error.code === '42P01') {
+      return [];
+    }
+    console.warn('Failed to load subscription payments:', error.message);
+    return [];
+  }
+
+  return (data || []).map((row) => ({
+    amount: Number(row.amount) || 0,
+    plan_id: row.plan || null,
+    plan_name: row.plan_name || row.plan || null,
+    recorded_at: row.created_at,
+    status: row.status || 'approved',
+  }));
 }
 
 export async function initSchoolPlanStore() {
-  const db = await getDb();
-  const rows = await db.all('SELECT * FROM school_extras');
   cache.clear();
-  rows.forEach((row) => cache.set(row.school_id, row));
+
+  const { data: schools, error } = await supabase.from('schools').select('*');
+  if (error) {
+    throw new Error(`School plan store init failed: ${error.message}`);
+  }
+
+  const { data: payments, error: payError } = await supabase
+    .from('subscription_payments')
+    .select('school_id, amount, plan, plan_name, created_at, status')
+    .order('created_at', { ascending: false });
+
+  if (payError && !(isMissingColumnError(payError, 'subscription_payments') || payError.code === '42P01')) {
+    console.warn('subscription_payments unavailable:', payError.message);
+  }
+
+  const paymentsBySchool = new Map();
+  for (const row of payments || []) {
+    const list = paymentsBySchool.get(row.school_id) || [];
+    list.push({
+      amount: Number(row.amount) || 0,
+      plan_id: row.plan || null,
+      plan_name: row.plan_name || row.plan || null,
+      recorded_at: row.created_at,
+      status: row.status || 'approved',
+    });
+    paymentsBySchool.set(row.school_id, list);
+  }
+
+  for (const school of schools || []) {
+    const extras = normalizeExtras(school);
+    extras.payment_records = paymentsBySchool.get(school.id) || [];
+    cache.set(school.id, extras);
+  }
 }
 
 export function parsePaymentRecords(extras) {
   if (!extras?.payment_records) return [];
+  if (Array.isArray(extras.payment_records)) return extras.payment_records;
   try {
     const records = JSON.parse(extras.payment_records);
     return Array.isArray(records) ? records : [];
@@ -89,9 +164,7 @@ export function getSchoolExtrasSync(schoolId) {
 export function mergeSchoolWithExtras(school) {
   if (!school) return school;
 
-  const extras = getSchoolExtrasSync(school.id);
-  if (!extras) return school;
-
+  const extras = getSchoolExtrasSync(school.id) || {};
   const paymentPlan = school.payment_plan || extras.payment_plan || null;
 
   return {
@@ -101,19 +174,24 @@ export function mergeSchoolWithExtras(school) {
     plan_selected_at: school.plan_selected_at || extras.plan_selected_at || null,
     initial_password: school.initial_password || extras.initial_password || null,
     logo_url: school.logo_url || extras.logo_url || null,
-    scanner_token: extras.scanner_token || null,
-    next_payment_due: extras.next_payment_due || null,
-    last_payment_at: extras.last_payment_at || null,
-    subscription_frozen: extras.subscription_frozen === 1,
-    subscription_started_at: extras.subscription_started_at || null,
-    total_paid: Number(extras.total_paid) || 0,
+    scanner_token: school.scanner_token || extras.scanner_token || null,
+    next_payment_due: toDateOnly(school.next_payment_due || extras.next_payment_due),
+    last_payment_at: toDateOnly(school.last_payment_at || extras.last_payment_at),
+    subscription_frozen: Boolean(
+      school.subscription_frozen !== undefined && school.subscription_frozen !== null
+        ? school.subscription_frozen
+        : extras.subscription_frozen
+    ),
+    subscription_started_at: toDateOnly(
+      school.subscription_started_at || extras.subscription_started_at
+    ),
+    total_paid: Number(school.total_paid ?? extras.total_paid) || 0,
     payment_records: parsePaymentRecords(extras),
   };
 }
 
 export async function upsertSchoolExtras(schoolId, extras) {
-  const db = await getDb();
-  const existing = cache.get(schoolId) || {};
+  const existing = cache.get(schoolId) || { school_id: schoolId, payment_records: [] };
 
   const merged = {
     school_id: schoolId,
@@ -127,70 +205,88 @@ export async function upsertSchoolExtras(schoolId, extras) {
     scanner_token:
       extras.scanner_token !== undefined ? extras.scanner_token : existing.scanner_token || null,
     next_payment_due:
-      extras.next_payment_due !== undefined ? extras.next_payment_due : existing.next_payment_due || null,
+      extras.next_payment_due !== undefined
+        ? toDateOnly(extras.next_payment_due)
+        : existing.next_payment_due || null,
     last_payment_at:
-      extras.last_payment_at !== undefined ? extras.last_payment_at : existing.last_payment_at || null,
+      extras.last_payment_at !== undefined
+        ? toDateOnly(extras.last_payment_at)
+        : existing.last_payment_at || null,
     subscription_frozen:
       extras.subscription_frozen !== undefined
-        ? extras.subscription_frozen
-          ? 1
-          : 0
-        : existing.subscription_frozen || 0,
+        ? Boolean(extras.subscription_frozen)
+        : Boolean(existing.subscription_frozen),
     subscription_started_at:
       extras.subscription_started_at !== undefined
-        ? extras.subscription_started_at
+        ? toDateOnly(extras.subscription_started_at)
         : existing.subscription_started_at || null,
     total_paid:
       extras.total_paid !== undefined ? Number(extras.total_paid) : Number(existing.total_paid) || 0,
-    payment_records:
-      extras.payment_records !== undefined
-        ? extras.payment_records
-        : existing.payment_records || null,
+    payment_records: existing.payment_records || [],
   };
 
-  await db.run(
-    `INSERT INTO school_extras (
-      school_id, payment_plan, plan_status, plan_selected_at, initial_password,
-      logo_url, scanner_token, next_payment_due, last_payment_at, subscription_frozen,
-      subscription_started_at, total_paid, payment_records
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(school_id) DO UPDATE SET
-      payment_plan = excluded.payment_plan,
-      plan_status = excluded.plan_status,
-      plan_selected_at = excluded.plan_selected_at,
-      initial_password = COALESCE(excluded.initial_password, school_extras.initial_password),
-      logo_url = COALESCE(excluded.logo_url, school_extras.logo_url),
-      scanner_token = COALESCE(excluded.scanner_token, school_extras.scanner_token),
-      next_payment_due = COALESCE(excluded.next_payment_due, school_extras.next_payment_due),
-      last_payment_at = COALESCE(excluded.last_payment_at, school_extras.last_payment_at),
-      subscription_frozen = excluded.subscription_frozen,
-      subscription_started_at = COALESCE(excluded.subscription_started_at, school_extras.subscription_started_at),
-      total_paid = COALESCE(excluded.total_paid, school_extras.total_paid),
-      payment_records = COALESCE(excluded.payment_records, school_extras.payment_records)`,
-    [
-      merged.school_id,
-      merged.payment_plan,
-      merged.plan_status,
-      merged.plan_selected_at,
-      merged.initial_password,
-      merged.logo_url,
-      merged.scanner_token,
-      merged.next_payment_due,
-      merged.last_payment_at,
-      merged.subscription_frozen,
-      merged.subscription_started_at,
-      merged.total_paid,
-      merged.payment_records,
-    ]
-  );
+  const schoolUpdate = {
+    payment_plan: merged.payment_plan,
+    plan_status: merged.plan_status,
+    plan_selected_at: merged.plan_selected_at,
+    initial_password: merged.initial_password,
+    logo_url: merged.logo_url,
+    scanner_token: merged.scanner_token,
+    next_payment_due: merged.next_payment_due,
+    last_payment_at: merged.last_payment_at,
+    subscription_frozen: merged.subscription_frozen,
+    subscription_started_at: merged.subscription_started_at,
+    total_paid: merged.total_paid,
+  };
+
+  const { error } = await updateSchoolColumns(schoolId, schoolUpdate);
+  if (error) {
+    throw new Error(error.message || 'Failed to upsert school subscription fields on Supabase');
+  }
+
+  // Optional: append a payment history row when caller passes serialized records
+  if (extras.payment_records !== undefined) {
+    let records = extras.payment_records;
+    if (typeof records === 'string') {
+      try {
+        records = JSON.parse(records);
+      } catch {
+        records = [];
+      }
+    }
+    if (Array.isArray(records) && records.length) {
+      const newest = records[0];
+      const alreadyCached = (existing.payment_records || []).some(
+        (r) => r.recorded_at === newest.recorded_at && Number(r.amount) === Number(newest.amount)
+      );
+      if (!alreadyCached && newest) {
+        const { error: payError } = await supabase.from('subscription_payments').insert([
+          {
+            school_id: schoolId,
+            plan: newest.plan_id || merged.payment_plan,
+            plan_name: newest.plan_name || null,
+            amount: Number(newest.amount) || 0,
+            currency: 'GHS',
+            status: 'approved',
+            created_at: newest.recorded_at || new Date().toISOString(),
+            approved_at: newest.recorded_at || new Date().toISOString(),
+          },
+        ]);
+        if (payError && !(isMissingColumnError(payError, 'subscription_payments') || payError.code === '42P01')) {
+          console.warn('Failed to insert subscription payment:', payError.message);
+        }
+      }
+      merged.payment_records = records;
+    }
+  } else {
+    merged.payment_records = await loadPaymentRecords(schoolId);
+  }
 
   cache.set(schoolId, merged);
   return merged;
 }
 
 export async function deleteSchoolExtras(schoolId) {
-  const db = await getDb();
-  await db.run('DELETE FROM school_extras WHERE school_id = ?', [schoolId]);
   cache.delete(schoolId);
 }
 
@@ -204,9 +300,19 @@ export function getScannerTokenSync(schoolId) {
 
 export async function getSchoolIdByScannerToken(token) {
   if (!token) return null;
-  const db = await getDb();
-  const row = await db.get('SELECT school_id FROM school_extras WHERE scanner_token = ?', [token]);
-  return row?.school_id || null;
+
+  const { data, error } = await supabase
+    .from('schools')
+    .select('id')
+    .eq('scanner_token', token)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Scanner token lookup failed:', error.message);
+    return null;
+  }
+
+  return data?.id || null;
 }
 
 export async function ensureScannerToken(schoolId) {

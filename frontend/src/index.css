@@ -114,3 +114,26 @@
 .animate-fade-in {
   animation: fade-in 0.3s ease-out;
 }
+
+/* Landing floating navbar — bypass global dark .bg-white overrides */
+.landing-nav {
+  background-color: #ffffff !important;
+  color: #0f172a;
+}
+
+.landing-nav-rail {
+  background-color: #f3f4f6 !important;
+}
+
+.landing-nav-logo {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 55%, #6366f1 100%);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
+}
+
+.landing-nav-cta {
+  background: linear-gradient(90deg, #7c3aed 0%, #8b5cf6 50%, #6366f1 100%);
+}
+
+.landing-nav-menu {
+  background-color: #ffffff !important;
+}
