@@ -571,18 +571,22 @@ const initEmailTransporter = () => {
   emailTransporter = nodemailer.createTransport(emailTransportOptions);
   // Allow sends once credentials exist; SMTP verify can be slow or flaky.
   emailReady = true;
-  console.log(`Email transporter configured (${emailUser}) — verifying SMTP…`);
+  console.log(`Email transporter configured (${emailUser})`);
 
-  emailTransporter.verify((error) => {
-    if (error) {
-      emailReady = false;
-      console.warn('Email SMTP verify failed:', error.message);
-      console.warn('Broadcast email will stay disabled until EMAIL_USER / EMAIL_PASSWORD are valid.');
-    } else {
-      emailReady = true;
-      console.log(`Email service ready (${emailUser})`);
-    }
-  });
+  // Don't block serverless cold starts on Gmail SMTP verify.
+  if (!process.env.VERCEL) {
+    console.log(`Email transporter verifying SMTP for ${emailUser}…`);
+    emailTransporter.verify((error) => {
+      if (error) {
+        emailReady = false;
+        console.warn('Email SMTP verify failed:', error.message);
+        console.warn('Broadcast email will stay disabled until EMAIL_USER / EMAIL_PASSWORD are valid.');
+      } else {
+        emailReady = true;
+        console.log(`Email service ready (${emailUser})`);
+      }
+    });
+  }
 };
 
 initEmailTransporter();
@@ -2595,10 +2599,15 @@ async function seedSuperAdmin() {
     return;
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-
   try {
     const existing = await findSchoolByEmail(email);
+
+    // Avoid expensive bcrypt + update on every Vercel cold start.
+    if (existing && getSchoolRole(existing) === 'super_admin') {
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const syncUpdates = {
       name,
@@ -2666,19 +2675,22 @@ async function initializeDatabase() {
     console.log('Person photo store ready');
     await initAuthSecurityStore();
     console.log('Auth security store ready');
-    try {
-      await initSchoolWalletStore();
-      console.log('School wallet store ready');
-    } catch (walletErr) {
-      console.warn('School wallet store unavailable:', walletErr.message || walletErr);
-      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
-    }
-    try {
-      await initPlatformSmsStore();
-      console.log('Platform SMS store ready');
-    } catch (smsErr) {
-      console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
-      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
+    // Wallet/SMS local stores are unavailable on Vercel — skip probing them there.
+    if (!process.env.VERCEL) {
+      try {
+        await initSchoolWalletStore();
+        console.log('School wallet store ready');
+      } catch (walletErr) {
+        console.warn('School wallet store unavailable:', walletErr.message || walletErr);
+        console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
+      }
+      try {
+        await initPlatformSmsStore();
+        console.log('Platform SMS store ready');
+      } catch (smsErr) {
+        console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
+        console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
+      }
     }
     await seedSuperAdmin();
     return true;

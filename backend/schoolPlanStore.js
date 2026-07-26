@@ -112,6 +112,12 @@ async function loadPaymentRecords(schoolId) {
 export async function initSchoolPlanStore() {
   cache.clear();
 
+  // On Vercel, skip preloading every school into memory — that made cold starts slow.
+  // Plan fields are read from the schools row (and filled into cache on demand).
+  if (process.env.VERCEL) {
+    return;
+  }
+
   const { data: schools, error } = await supabase.from('schools').select('*');
   if (error) {
     throw new Error(`School plan store init failed: ${error.message}`);
