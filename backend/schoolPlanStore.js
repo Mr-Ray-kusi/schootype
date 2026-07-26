@@ -239,9 +239,18 @@ export async function upsertSchoolExtras(schoolId, extras) {
     total_paid: merged.total_paid,
   };
 
-  const { error } = await updateSchoolColumns(schoolId, schoolUpdate);
+  const { data, error } = await updateSchoolColumns(schoolId, schoolUpdate);
   if (error) {
-    throw new Error(error.message || 'Failed to upsert school subscription fields on Supabase');
+    // Keep serving plan/subscription fields from memory when Supabase schema/RLS
+    // cannot store them yet (missing columns or blocked updates).
+    console.warn(
+      'School extras DB update failed; using in-memory cache until SQL migrations are applied:',
+      error.message || error
+    );
+  } else if (!data) {
+    console.warn(
+      'School extras DB update returned no row (often RLS). Using in-memory cache; run database/supabase_backend_access.sql or set SUPABASE_SERVICE_ROLE_KEY.'
+    );
   }
 
   // Optional: append a payment history row when caller passes serialized records

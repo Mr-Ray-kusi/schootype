@@ -166,12 +166,13 @@ const getSchoolRole = (school) => {
 };
 
 const isMissingColumnError = (error, column) => {
-  const msg = error?.message || '';
+  const msg = String(error?.message || error?.details || error?.hint || '');
   return (
-    msg.includes(`'${column}'`) ||
-    msg.includes(`"${column}"`) ||
-    msg.includes(`.${column} does not exist`) ||
-    msg.includes(`column ${column} does not exist`)
+    (msg.includes(column) &&
+      (msg.includes('does not exist') ||
+        msg.includes('Could not find') ||
+        msg.includes('schema cache'))) ||
+    error?.code === 'PGRST204'
   );
 };
 
@@ -247,14 +248,30 @@ const updateSchoolRecord = async (id, updates) => {
   ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+    if (!Object.keys(payload).length) {
+      const { data, error } = await supabase.from('schools').select('*').eq('id', id).maybeSingle();
+      return { data, error };
+    }
+
     const { data, error } = await supabase
       .from('schools')
       .update(payload)
       .eq('id', id)
-      .select()
-      .single();
+      .select('*')
+      .maybeSingle();
 
     if (!error) {
+      // RLS can "succeed" with 0 rows — treat as failure so callers can fall back.
+      if (!data) {
+        return {
+          data: null,
+          error: {
+            message:
+              'School update returned no row. Run database/supabase_backend_access.sql (disable RLS) or use SUPABASE_SERVICE_ROLE_KEY.',
+            code: 'NO_ROW',
+          },
+        };
+      }
       return { data, error: null };
     }
 
@@ -825,34 +842,47 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment plan' });
     }
 
-    const { data: school, error } = await updateSchoolRecord(req.user.schoolId, {
+    const planUpdates = {
+      payment_plan: paymentPlan,
+      plan_selected_at: new Date().toISOString(),
+      plan_status: 'pending',
+    };
+
+    const { data: updatedSchool, error } = await updateSchoolRecord(req.user.schoolId, {
       payment_plan: paymentPlan,
       plan_selected_at: new Date(),
       plan_status: 'pending',
     });
 
-    if (error || !school) {
-      console.error('Select plan update failed:', error);
-      return res.status(500).json({ error: 'Failed to save payment plan' });
-    }
-
-    await upsertSchoolExtras(req.user.schoolId, {
-      payment_plan: paymentPlan,
-      plan_status: 'pending',
-      plan_selected_at: new Date().toISOString(),
-    });
+    // Always persist to the extras/cache layer so plan selection still works
+    // when schools.payment_plan columns are missing in Supabase.
+    await upsertSchoolExtras(req.user.schoolId, planUpdates);
 
     const { data: currentSchool, error: fetchError } = await supabase
       .from('schools')
       .select('*')
       .eq('id', req.user.schoolId)
-      .single();
+      .maybeSingle();
 
     if (fetchError || !currentSchool) {
-      return res.status(500).json({ error: 'Failed to load school after plan update' });
+      console.error('Select plan reload failed:', fetchError || error);
+      return res.status(500).json({
+        error:
+          'Failed to load school after plan update. Confirm SUPABASE_SERVICE_ROLE_KEY and that the school row exists.',
+      });
     }
 
-    res.json({ school: formatSchool(currentSchool) });
+    const formatted = formatSchool(updatedSchool || currentSchool);
+    if (!formatted.payment_plan) {
+      console.error('Select plan did not stick:', error);
+      return res.status(500).json({
+        error:
+          'Failed to save payment plan. In Supabase SQL editor, run database/supabase_core_billing.sql then database/supabase_backend_access.sql, and ensure SUPABASE_SERVICE_ROLE_KEY is set in Vercel.',
+        detail: error?.message || null,
+      });
+    }
+
+    res.json({ school: formatted });
   } catch (error) {
     console.error('Select plan error:', error);
     res.status(500).json({ error: 'Internal server error' });
