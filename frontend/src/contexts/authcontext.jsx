@@ -14,6 +14,18 @@ export const getPostAuthPath = (school) => {
 
 const isAuthRoute = (url = '') => url.includes('/api/auth/login') || url.includes('/api/auth/signup');
 
+const readCachedSchool = () => {
+  try {
+    const raw = localStorage.getItem('school');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    localStorage.removeItem('school');
+    return null;
+  }
+};
+
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [school, setSchool] = useState(null);
@@ -53,6 +65,7 @@ export const AuthProvider = ({ children }) => {
     const validateToken = async () => {
       const storedToken = localStorage.getItem('token');
       const expiresAt = localStorage.getItem('tokenExpiresAt');
+      const cachedSchool = readCachedSchool();
 
       if (storedToken && expiresAt && Date.now() > Number(expiresAt)) {
         clearSession();
@@ -60,21 +73,34 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      if (storedToken) {
-        try {
-          axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-          const response = await axios.get('/api/auth/verify');
+      if (!storedToken) {
+        setLoading(false);
+        return;
+      }
 
-          setToken(storedToken);
-          if (response.data.school) {
-            persistSchool(response.data.school);
-          } else {
-            clearSession();
-          }
-        } catch {
+      // Restore immediately so a refresh does not bounce to login while the API wakes.
+      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+      setToken(storedToken);
+      if (cachedSchool) {
+        setSchool(cachedSchool);
+      }
+
+      try {
+        const response = await axios.get('/api/auth/verify', { timeout: 45000 });
+        if (response.data?.school) {
+          persistSchool(response.data.school);
+        } else if (!cachedSchool) {
+          // Token accepted but no school payload and nothing cached.
+          clearSession();
+        }
+      } catch (error) {
+        const status = error.response?.status;
+        // Only force logout on real auth failures — not cold starts / network blips.
+        if (status === 401 || status === 403) {
           clearSession();
         }
       }
+
       setLoading(false);
     };
 
@@ -95,7 +121,8 @@ export const AuthProvider = ({ children }) => {
       (error) => {
         const status = error.response?.status;
         const url = error.config?.url || '';
-        if (status === 401 && !isAuthRoute(url)) {
+        // Don't logout on verify retries or transient API errors.
+        if (status === 401 && !isAuthRoute(url) && !url.includes('/api/auth/verify')) {
           clearSession();
         }
         return Promise.reject(error);
@@ -137,7 +164,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const refreshSchool = async () => {
-    const response = await axios.get('/api/auth/verify');
+    const response = await axios.get('/api/auth/verify', { timeout: 45000 });
     if (response.data.school) {
       persistSchool(response.data.school);
     }
