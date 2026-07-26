@@ -57,7 +57,11 @@ import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env'), override: true });
+dotenv.config({
+  path: path.join(__dirname, '.env'),
+  // On Vercel, platform env vars must win over any bundled .env file.
+  override: !process.env.VERCEL,
+});
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('__login_timing_dummy__', 10);
 const IS_PRODUCTION = Boolean(process.env.VERCEL) || process.env.NODE_ENV === 'production';

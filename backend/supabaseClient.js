@@ -4,7 +4,10 @@ import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '.env'), override: true });
+dotenv.config({
+  path: path.join(__dirname, '.env'),
+  override: !process.env.VERCEL,
+});
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey =
