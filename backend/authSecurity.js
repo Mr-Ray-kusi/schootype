@@ -1,8 +1,7 @@
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { openLocalDb } from './localDb.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -21,10 +20,7 @@ let dbPromise = null;
 async function getDb() {
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    dbPromise = open({
-      filename: DB_PATH,
-      driver: sqlite3.Database,
-    }).then(async (db) => {
+    dbPromise = Promise.resolve(openLocalDb(DB_PATH)).then(async (db) => {
       await db.exec(`
         CREATE TABLE IF NOT EXISTS login_failures (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
