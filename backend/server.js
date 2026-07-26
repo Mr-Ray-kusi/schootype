@@ -1376,6 +1376,7 @@ app.get('/api/health', async (req, res) => {
       status: 'ok',
       timestamp: new Date().toISOString(),
       database: databaseHealthy ? 'connected' : 'error',
+      path: req.url,
       email: {
         configured: Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
         ready: emailReady,
@@ -1390,6 +1391,7 @@ app.get('/api/health', async (req, res) => {
     res.status(500).json({
       status: 'error',
       database: 'failed',
+      path: req.url,
       email: {
         configured: Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
         ready: emailReady,

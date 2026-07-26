@@ -5,12 +5,14 @@
   "outputDirectory": "frontend/dist",
   "framework": null,
   "functions": {
-    "api/[[...path]].js": {
+    "api/index.js": {
       "maxDuration": 30,
       "includeFiles": "backend/**"
     }
   },
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/api", "destination": "/api/index" },
+    { "source": "/api/(.*)", "destination": "/api/index?__p=$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

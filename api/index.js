@@ -1,6 +1,6 @@
 /**
- * Vercel catch-all for /api and /api/*.
- * Dynamic import so load failures return JSON instead of a blank FUNCTION_INVOCATION_FAILED.
+ * Single Vercel function entry for all /api/* traffic (via vercel.json rewrite).
+ * Incoming paths are passed as ?__p=auth/login so Express /api/* routes still match.
  */
 export default async function handler(req, res) {
   try {
@@ -17,6 +17,21 @@ export default async function handler(req, res) {
       );
       return;
     }
+
+    const rawUrl = String(req.url || '/');
+    const qIndex = rawUrl.indexOf('?');
+    const search = qIndex >= 0 ? rawUrl.slice(qIndex + 1) : '';
+    const params = new URLSearchParams(search);
+    const forwardedPath = params.get('__p');
+    params.delete('__p');
+    const remaining = params.toString();
+
+    if (forwardedPath != null && forwardedPath !== '') {
+      req.url = `/api/${forwardedPath.replace(/^\/+/, '')}${remaining ? `?${remaining}` : ''}`;
+    } else if (!rawUrl.startsWith('/api')) {
+      req.url = `/api${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+    }
+
     return mod.default(req, res);
   } catch (err) {
     console.error('API boot error:', err);

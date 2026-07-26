@@ -25,6 +25,7 @@ import SuperAdminSchool from './pages/super-admin-school';
 import SuperAdminBroadcast from './pages/super-admin-broadcast';
 import SuperAdminSms from './pages/super-admin-sms';
 import StudentPublicId from './pages/student-public-id';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './contexts/authcontext';
 
 const LoadingScreen = () => (
@@ -92,86 +93,88 @@ const SelectPlanRoute = ({ children }) => {
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/plans" element={<Plans />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/id/:barcode" element={<StudentPublicId />} />
-          <Route path="/scan/:token" element={<MobileScanner />} />
-          <Route path="/select-plan" element={
-            <SelectPlanRoute><SelectPlan /></SelectPlanRoute>
-          } />
-          <Route path="/dashboard" element={
-            <SchoolAdminRoute><Dashboard /></SchoolAdminRoute>
-          } />
-          <Route path="/super-admin" element={
-            <SuperAdminRoute><SuperAdmin /></SuperAdminRoute>
-          } />
-          <Route path="/super-admin/schools/:schoolId" element={
-            <SuperAdminRoute><SuperAdminSchool /></SuperAdminRoute>
-          } />
-          <Route path="/super-admin/bank-settings" element={
-            <SuperAdminRoute><BankSettings /></SuperAdminRoute>
-          } />
-          <Route path="/super-admin/platform-wallet" element={
-            <SuperAdminRoute><SchoolWallet /></SuperAdminRoute>
-          } />
-          <Route path="/super-admin/email-schools" element={
-            <SuperAdminRoute><SuperAdminBroadcast /></SuperAdminRoute>
-          } />
-          <Route path="/super-admin/sms" element={
-            <SuperAdminRoute><SuperAdminSms /></SuperAdminRoute>
-          } />
-          <Route path="/students" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="students"><Students /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/staff" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="staff"><Staff /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/non-staff" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="non-staff"><NonStaff /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/attendance" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="attendance"><Attendance /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/classes" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="classes"><Classes /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/report-cards" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="report-cards"><ReportCards /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/fees-paid" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="fees-paid"><FeesPaid /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/fees-unpaid" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="fees-unpaid"><FeesUnpaid /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/bank-settings" element={
-            <FinanceRoute feature="bank-settings"><BankSettings /></FinanceRoute>
-          } />
-          <Route path="/school-wallet" element={
-            <FinanceRoute feature="school-wallet"><SchoolWallet /></FinanceRoute>
-          } />
-          <Route path="/messages" element={
-            <SchoolAdminRoute>
-              <PlanFeatureRoute features={['messages-sms', 'messages-email']}>
-                <Messages />
-              </PlanFeatureRoute>
-            </SchoolAdminRoute>
-          } />
-          <Route path="/scanner" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="scanner"><Scanner /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="/add-student" element={
-            <SchoolAdminRoute><PlanFeatureRoute feature="add-student"><AddStudent /></PlanFeatureRoute></SchoolAdminRoute>
-          } />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Router>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <Router>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/plans" element={<Plans />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/id/:barcode" element={<StudentPublicId />} />
+            <Route path="/scan/:token" element={<MobileScanner />} />
+            <Route path="/select-plan" element={
+              <SelectPlanRoute><SelectPlan /></SelectPlanRoute>
+            } />
+            <Route path="/dashboard" element={
+              <SchoolAdminRoute><Dashboard /></SchoolAdminRoute>
+            } />
+            <Route path="/super-admin" element={
+              <SuperAdminRoute><SuperAdmin /></SuperAdminRoute>
+            } />
+            <Route path="/super-admin/schools/:schoolId" element={
+              <SuperAdminRoute><SuperAdminSchool /></SuperAdminRoute>
+            } />
+            <Route path="/super-admin/bank-settings" element={
+              <SuperAdminRoute><BankSettings /></SuperAdminRoute>
+            } />
+            <Route path="/super-admin/platform-wallet" element={
+              <SuperAdminRoute><SchoolWallet /></SuperAdminRoute>
+            } />
+            <Route path="/super-admin/email-schools" element={
+              <SuperAdminRoute><SuperAdminBroadcast /></SuperAdminRoute>
+            } />
+            <Route path="/super-admin/sms" element={
+              <SuperAdminRoute><SuperAdminSms /></SuperAdminRoute>
+            } />
+            <Route path="/students" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="students"><Students /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/staff" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="staff"><Staff /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/non-staff" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="non-staff"><NonStaff /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/attendance" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="attendance"><Attendance /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/classes" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="classes"><Classes /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/report-cards" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="report-cards"><ReportCards /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/fees-paid" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="fees-paid"><FeesPaid /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/fees-unpaid" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="fees-unpaid"><FeesUnpaid /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/bank-settings" element={
+              <FinanceRoute feature="bank-settings"><BankSettings /></FinanceRoute>
+            } />
+            <Route path="/school-wallet" element={
+              <FinanceRoute feature="school-wallet"><SchoolWallet /></FinanceRoute>
+            } />
+            <Route path="/messages" element={
+              <SchoolAdminRoute>
+                <PlanFeatureRoute features={['messages-sms', 'messages-email']}>
+                  <Messages />
+                </PlanFeatureRoute>
+              </SchoolAdminRoute>
+            } />
+            <Route path="/scanner" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="scanner"><Scanner /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="/add-student" element={
+              <SchoolAdminRoute><PlanFeatureRoute feature="add-student"><AddStudent /></PlanFeatureRoute></SchoolAdminRoute>
+            } />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </Router>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 
