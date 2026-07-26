@@ -246,11 +246,17 @@ const StudentCard = ({ student, onPrint }) => {
     if (!printContent) return;
 
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      window.alert('Please allow pop-ups to print the student ID card.');
+      return;
+    }
+
+    const safeTitle = String(student?.name || 'Student').replace(/[<>&"'`]/g, '');
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Student ID - ${student.name}</title>
+          <title>Student ID - ${safeTitle}</title>
           <style>
             @page { size: ${CARD_WIDTH} ${CARD_HEIGHT}; margin: 0; }
             * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }

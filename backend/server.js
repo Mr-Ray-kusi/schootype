@@ -53,17 +53,47 @@ import { initPlatformSmsStore } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment } from './smsBilling.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env'), override: true });
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('__login_timing_dummy__', 10);
+const IS_PRODUCTION = Boolean(process.env.VERCEL) || process.env.NODE_ENV === 'production';
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+
+const allowedOrigins = String(
+  process.env.CORS_ORIGINS ||
+    'http://localhost:3000,http://localhost:3001,http://localhost:3002,https://schootype.vercel.app'
+)
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+  })
+);
+
+app.use(
+  express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      if (req.originalUrl?.startsWith('/api/webhooks/paystack')) {
+        req.rawBody = buf;
+      }
+    },
+  })
+);
 
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB
 
@@ -104,9 +134,8 @@ const formatSchool = (school, { includeCredentials = false } = {}) => {
     payment_records: merged.payment_records || [],
   };
 
-  if (includeCredentials) {
-    formatted.initial_password = merged.initial_password || null;
-  }
+  // Never return plaintext passwords — includeCredentials kept for API compat only.
+  void includeCredentials;
 
   return formatted;
 };
@@ -116,11 +145,12 @@ const getSuperAdminEmails = () => {
     process.env.DEV_SUPER_ADMIN_EMAIL,
     process.env.SUPER_ADMIN_EMAIL,
     ...(process.env.SUPER_ADMIN_EMAILS || '').split(','),
-    'superadmin@school.com',
-  ]
-    .filter(Boolean)
-    .map((e) => e.trim().toLowerCase());
-  return [...new Set(emails)];
+  ];
+  // Local/dev convenience only — production must set SUPER_ADMIN_EMAIL(S) explicitly.
+  if (!IS_PRODUCTION) {
+    emails.push('superadmin@school.com');
+  }
+  return [...new Set(emails.filter(Boolean).map((e) => e.trim().toLowerCase()))];
 };
 
 const isSuperAdminEmail = (email) => getSuperAdminEmails().includes(email?.toLowerCase());
@@ -286,11 +316,26 @@ const fetchSchoolAccounts = async ({ orderBy = 'created_at', ascending = false }
   return { data: null, error: { message: 'Failed to fetch school accounts' } };
 };
 
-const requireSuperAdmin = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
-    return res.status(403).json({ error: 'Super admin access required' });
+const requireSuperAdmin = async (req, res, next) => {
+  try {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Service unavailable' });
+    }
+    const { data: school, error } = await supabase
+      .from('schools')
+      .select('id, email, role')
+      .eq('id', req.user.schoolId)
+      .maybeSingle();
+
+    if (error || !school || getSchoolRole(school) !== 'super_admin') {
+      return res.status(403).json({ error: 'Super admin access required' });
+    }
+    req.user.role = 'super_admin';
+    next();
+  } catch (err) {
+    console.error('Super admin auth check failed:', err.message);
+    return res.status(503).json({ error: 'Service unavailable' });
   }
-  next();
 };
 
 const enforcePlanApproval = async (req, res, next) => {
@@ -417,9 +462,17 @@ const updateStudentRecord = async (id, schoolId, updates) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+const JWT_SECRET_IS_WEAK =
+  !process.env.JWT_SECRET || JWT_SECRET === 'your-secret-key-change-this' || JWT_SECRET.length < 32;
 
-if (!process.env.JWT_SECRET || JWT_SECRET === 'your-secret-key-change-this') {
-  console.warn('WARNING: Using default JWT_SECRET. Set JWT_SECRET in backend/.env for production.');
+if (JWT_SECRET_IS_WEAK) {
+  const message =
+    'JWT_SECRET is missing or too weak. Set a strong JWT_SECRET (32+ chars) in backend/.env or Vercel env vars.';
+  if (IS_PRODUCTION) {
+    console.error(message);
+  } else {
+    console.warn(`WARNING: ${message}`);
+  }
 }
 
 const signAuthToken = (school) => {
@@ -585,7 +638,6 @@ app.post('/api/auth/signup', async (req, res) => {
       name: schoolName.trim(),
       email,
       password_hash: hashedPassword,
-      initial_password: password,
       role: 'admin',
       created_at: new Date(),
     };
@@ -629,7 +681,6 @@ app.post('/api/auth/signup', async (req, res) => {
       payment_plan: paymentPlan || null,
       plan_status: paymentPlan ? 'pending' : null,
       plan_selected_at: paymentPlan ? new Date().toISOString() : null,
-      initial_password: password,
       logo_url: logo || null,
     });
 
@@ -690,25 +741,24 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     let isValidPassword = false;
-    if (school?.password_hash) {
-      try {
-        isValidPassword = await bcrypt.compare(password, school.password_hash);
-      } catch (compareErr) {
-        console.warn('bcrypt compare failed, will try initial_password fallback:', compareErr.message);
-        isValidPassword = false;
-      }
+    try {
+      // Always compare to keep response timing similar for unknown emails.
+      isValidPassword = await bcrypt.compare(password, school?.password_hash || DUMMY_PASSWORD_HASH);
+    } catch (compareErr) {
+      console.warn('bcrypt compare failed, will try initial_password fallback:', compareErr.message);
+      isValidPassword = false;
     }
 
-    // Repair path: older/partial rows may only have initial_password
+    // One-time repair for legacy rows that only stored plaintext initial_password.
     if (!isValidPassword && school?.initial_password && String(school.initial_password) === String(password)) {
       isValidPassword = true;
       try {
         const repairedHash = await bcrypt.hash(password, 10);
         await supabase
           .from('schools')
-          .update({ password_hash: repairedHash })
+          .update({ password_hash: repairedHash, initial_password: null })
           .eq('id', school.id);
-        school = { ...school, password_hash: repairedHash };
+        school = { ...school, password_hash: repairedHash, initial_password: null };
       } catch (repairErr) {
         console.warn('Failed to repair password_hash:', repairErr.message);
       }
@@ -777,6 +827,11 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       plan_status: 'pending',
     });
 
+    if (error || !school) {
+      console.error('Select plan update failed:', error);
+      return res.status(500).json({ error: 'Failed to save payment plan' });
+    }
+
     await upsertSchoolExtras(req.user.schoolId, {
       payment_plan: paymentPlan,
       plan_status: 'pending',
@@ -802,22 +857,50 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
 
 // ============ SUPER ADMIN ROUTES ============
 
-const buildSchoolWithStats = async (school) => {
-  const [students, staff, nonStaff] = await Promise.all([
-    supabase.from('students').select('id', { count: 'exact' }).eq('school_id', school.id),
-    supabase.from('staffs').select('id', { count: 'exact' }).eq('school_id', school.id),
-    supabase.from('nonstaffs').select('id', { count: 'exact' }).eq('school_id', school.id),
-  ]);
+const buildSchoolWithStats = async (school, countMaps = null) => {
+  let studentsCount = 0;
+  let staffCount = 0;
+  let nonStaffCount = 0;
+
+  if (countMaps) {
+    studentsCount = countMaps.students[school.id] || 0;
+    staffCount = countMaps.staff[school.id] || 0;
+    nonStaffCount = countMaps.nonStaff[school.id] || 0;
+  } else {
+    const [students, staff, nonStaff] = await Promise.all([
+      supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', school.id),
+      supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', school.id),
+      supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', school.id),
+    ]);
+    studentsCount = students.count || 0;
+    staffCount = staff.count || 0;
+    nonStaffCount = nonStaff.count || 0;
+  }
 
   return {
-    ...formatSchool(school, { includeCredentials: true }),
+    ...formatSchool(school),
     created_at: school.created_at,
     stats: {
-      students: students.count || 0,
-      staff: staff.count || 0,
-      nonStaff: nonStaff.count || 0,
+      students: studentsCount,
+      staff: staffCount,
+      nonStaff: nonStaffCount,
     },
   };
+};
+
+const countRowsBySchoolId = async (table, schoolIds) => {
+  const counts = Object.create(null);
+  if (!schoolIds.length) return counts;
+  const { data, error } = await supabase.from(table).select('school_id').in('school_id', schoolIds);
+  if (error) {
+    console.warn(`countRowsBySchoolId(${table}):`, error.message);
+    return counts;
+  }
+  for (const row of data || []) {
+    const id = row.school_id;
+    counts[id] = (counts[id] || 0) + 1;
+  }
+  return counts;
 };
 
 app.get('/api/super-admin/schools', authenticateToken, requireSuperAdmin, async (req, res) => {
@@ -826,10 +909,18 @@ app.get('/api/super-admin/schools', authenticateToken, requireSuperAdmin, async 
 
     if (error) {
       console.error('Super admin schools fetch error:', error.message || error);
-      return res.status(500).json({ error: error.message || 'Failed to fetch schools' });
+      return res.status(500).json({ error: 'Failed to fetch schools' });
     }
 
-    const schoolsWithStats = await Promise.all((schools || []).map(buildSchoolWithStats));
+    const list = schools || [];
+    const schoolIds = list.map((school) => school.id);
+    const [students, staff, nonStaff] = await Promise.all([
+      countRowsBySchoolId('students', schoolIds),
+      countRowsBySchoolId('staffs', schoolIds),
+      countRowsBySchoolId('nonstaffs', schoolIds),
+    ]);
+    const countMaps = { students, staff, nonStaff };
+    const schoolsWithStats = await Promise.all(list.map((school) => buildSchoolWithStats(school, countMaps)));
 
     res.json(schoolsWithStats);
   } catch (error) {
@@ -1347,10 +1438,7 @@ app.get('/api/public/id/:barcode', async (req, res) => {
       name: withPhoto.name,
       class: withPhoto.class,
       photo_url: withPhoto.photo_url || null,
-      parent_phone: withPhoto.parent_phone || null,
-      parent_email: withPhoto.parent_email || null,
-      house_address: withPhoto.house_address || null,
-      date_of_birth: withPhoto.date_of_birth || null,
+      roll_number: withPhoto.roll_number || null,
       school_name: school?.name || 'School',
       school_logo_url: school?.logo_url || null,
     });
@@ -1407,7 +1495,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       return res.status(400).json({ error: photoError });
     }
 
-    const barcode = `${req.user.schoolId}-STU-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const barcode = `${req.user.schoolId}-STU-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
     const record = {
       school_id: req.user.schoolId,
@@ -2011,6 +2099,9 @@ app.get('/api/scanner/link', authenticateToken, enforcePlanApproval, async (req,
       .select('*')
       .eq('id', req.user.schoolId)
       .maybeSingle();
+    if (!school) {
+      return res.status(404).json({ error: 'School not found' });
+    }
     const merged = mergeSchoolWithExtras(school);
 
     if (!hasPlanFeature(merged.payment_plan, 'scanner')) {
@@ -2020,7 +2111,8 @@ app.get('/api/scanner/link', authenticateToken, enforcePlanApproval, async (req,
     const token = await ensureScannerToken(req.user.schoolId);
     res.json({ token, schoolName: merged.name });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Scanner link error:', error);
+    res.status(500).json({ error: 'Failed to load scanner link' });
   }
 });
 
@@ -2031,6 +2123,9 @@ app.post('/api/scanner/regenerate', authenticateToken, enforcePlanApproval, asyn
       .select('*')
       .eq('id', req.user.schoolId)
       .maybeSingle();
+    if (!school) {
+      return res.status(404).json({ error: 'School not found' });
+    }
     const merged = mergeSchoolWithExtras(school);
 
     if (!hasPlanFeature(merged.payment_plan, 'scanner')) {
@@ -2040,7 +2135,8 @@ app.post('/api/scanner/regenerate', authenticateToken, enforcePlanApproval, asyn
     const token = await regenerateScannerToken(req.user.schoolId);
     res.json({ token });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Scanner regenerate error:', error);
+    res.status(500).json({ error: 'Failed to regenerate scanner link' });
   }
 });
 
@@ -2339,16 +2435,16 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
           await emailTransporter.sendMail({
             from: getEmailUser(),
             to: toEmail,
-            subject: `Message from ${senderName} (${senderRole})`,
+            subject: `Message from ${escapeHtml(senderName)} (${escapeHtml(senderRole || 'Admin')})`,
             html: `
               <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
                 <div style="background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                   <h2 style="color: #333; margin-top: 0;">New Message from School</h2>
-                  <p><strong>From:</strong> ${senderName} (${senderRole})</p>
-                  <p><strong>Recipient Group:</strong> ${recipients || 'Direct Message'}</p>
+                  <p><strong>From:</strong> ${escapeHtml(senderName)} (${escapeHtml(senderRole || 'Admin')})</p>
+                  <p><strong>Recipient Group:</strong> ${escapeHtml(recipients || 'Direct Message')}</p>
                   <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
                   <div style="color: #555; line-height: 1.6;">
-                    ${message.replace(/\n/g, '<br>')}
+                    ${escapeHtml(message).replace(/\n/g, '<br>')}
                   </div>
                   <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
                   <p style="color: #999; font-size: 12px; margin-bottom: 0;">This is an automated message from NEXUS</p>
@@ -2449,9 +2545,20 @@ async function seedSuperAdmin() {
     return;
   }
 
+  if (IS_PRODUCTION && !process.env.DEV_SUPER_ADMIN_PASSWORD) {
+    console.warn('Skipping super admin seed in production: set DEV_SUPER_ADMIN_PASSWORD explicitly.');
+    return;
+  }
+
   const email = (process.env.DEV_SUPER_ADMIN_EMAIL || 'superadmin@school.com').trim().toLowerCase();
   const password = process.env.DEV_SUPER_ADMIN_PASSWORD || 'SuperAdmin123!';
   const name = process.env.DEV_SUPER_ADMIN_NAME || 'Super Admin';
+
+  if (IS_PRODUCTION && password === 'SuperAdmin123!') {
+    console.warn('Skipping super admin seed: default password is not allowed in production.');
+    return;
+  }
+
   const hashedPassword = await bcrypt.hash(password, 10);
 
   try {
@@ -2461,7 +2568,7 @@ async function seedSuperAdmin() {
       name,
       email,
       password_hash: hashedPassword,
-      initial_password: password,
+      initial_password: null,
       role: 'super_admin',
     };
 
@@ -2473,8 +2580,7 @@ async function seedSuperAdmin() {
       }
 
       console.log('Dev super admin credentials synced');
-      console.log(`  Email:    ${email}`);
-      console.log(`  Password: ${password}`);
+      console.log(`  Email: ${email}`);
       return;
     }
 
@@ -2489,8 +2595,7 @@ async function seedSuperAdmin() {
     }
 
     console.log('Dev super admin account created');
-    console.log(`  Email:    ${email}`);
-    console.log(`  Password: ${password}`);
+    console.log(`  Email: ${email}`);
   } catch (err) {
     console.error('Super admin seed error:', err.message);
   }
@@ -2498,6 +2603,13 @@ async function seedSuperAdmin() {
 
 async function initializeDatabase() {
   try {
+    if (IS_PRODUCTION && JWT_SECRET_IS_WEAK) {
+      console.error(
+        'Database setup failed: JWT_SECRET must be set to a strong value (32+ characters) in production.'
+      );
+      return false;
+    }
+
     if (!supabase) {
       console.error(
         'Database setup failed: Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).'

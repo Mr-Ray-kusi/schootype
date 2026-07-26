@@ -354,15 +354,23 @@ export async function creditDeposit(reference) {
   await ensureWallet(tx.school_id);
   await db.run('BEGIN');
   try {
+    const marked = await db.run(
+      `UPDATE wallet_transactions SET status = 'success', updated_at = ?
+       WHERE reference = ? AND status <> 'success'`,
+      [nowIso(), reference]
+    );
+    if (!marked.changes) {
+      await db.run('COMMIT');
+      return {
+        wallet: await getWallet(tx.school_id),
+        transaction: await getWalletTransactionByReference(reference),
+      };
+    }
     await db.run(
       `UPDATE school_wallets
        SET available_balance = available_balance + ?, updated_at = ?
        WHERE school_id = ?`,
       [tx.amount, nowIso(), tx.school_id]
-    );
-    await db.run(
-      `UPDATE wallet_transactions SET status = 'success', updated_at = ? WHERE reference = ?`,
-      [nowIso(), reference]
     );
     await db.run('COMMIT');
   } catch (err) {
@@ -382,21 +390,21 @@ export async function creditDeposit(reference) {
 export async function reserveWithdrawal(schoolId, amountMinor) {
   const db = await getDb();
   await ensureWallet(schoolId);
-  const wallet = await getWallet(schoolId);
-  if (wallet.available_balance < amountMinor) {
-    const err = new Error('Insufficient wallet balance');
-    err.status = 400;
-    throw err;
-  }
 
-  await db.run(
+  const updated = await db.run(
     `UPDATE school_wallets
      SET available_balance = available_balance - ?,
          pending_balance = pending_balance + ?,
          updated_at = ?
-     WHERE school_id = ?`,
-    [amountMinor, amountMinor, nowIso(), schoolId]
+     WHERE school_id = ? AND available_balance >= ?`,
+    [amountMinor, amountMinor, nowIso(), schoolId, amountMinor]
   );
+
+  if (!updated.changes) {
+    const err = new Error('Insufficient wallet balance');
+    err.status = 400;
+    throw err;
+  }
 
   return getWallet(schoolId);
 }

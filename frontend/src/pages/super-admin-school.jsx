@@ -6,8 +6,6 @@ import { FEATURE_LABELS } from '../constants/plans';
 import {
   Building2,
   ArrowLeft,
-  Eye,
-  EyeOff,
   Users,
   Briefcase,
   UserCog,
@@ -44,7 +42,6 @@ const SuperAdminSchool = () => {
   const navigate = useNavigate();
   const [school, setSchool] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
   const [updatingApproval, setUpdatingApproval] = useState(false);
   const [recordingPayment, setRecordingPayment] = useState(false);
   const [updatingSubscription, setUpdatingSubscription] = useState(false);
@@ -204,24 +201,9 @@ const SuperAdminSchool = () => {
             </div>
             <div>
               <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Password</p>
-              <div className="flex items-center gap-2">
-                <p className="text-slate-100 font-mono text-sm">
-                  {school.initial_password
-                    ? showPassword
-                      ? school.initial_password
-                      : '••••••••'
-                    : '—'}
-                </p>
-                {school.initial_password && (
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="text-slate-300 hover:text-slate-100"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                )}
-              </div>
+              <p className="text-slate-300 text-sm">
+                Stored as a secure hash only. Use password reset tools if the school admin is locked out.
+              </p>
             </div>
             <div>
               <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Registered</p>

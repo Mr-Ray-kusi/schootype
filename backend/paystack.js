@@ -70,9 +70,16 @@ export function fromMinorUnits(amountMinor) {
 
 export function verifyPaystackSignature(rawBody, signature) {
   const { secretKey } = getPaystackConfig();
-  if (!secretKey || !signature) return false;
+  if (!secretKey || !signature || rawBody == null) return false;
   const hash = crypto.createHmac('sha512', secretKey).update(rawBody).digest('hex');
-  return hash === signature;
+  try {
+    const expected = Buffer.from(hash, 'utf8');
+    const received = Buffer.from(String(signature), 'utf8');
+    if (expected.length !== received.length) return false;
+    return crypto.timingSafeEqual(expected, received);
+  } catch {
+    return false;
+  }
 }
 
 export async function listBanks({ currency = 'GHS', type } = {}) {

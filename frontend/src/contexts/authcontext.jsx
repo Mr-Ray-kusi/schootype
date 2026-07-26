@@ -21,7 +21,11 @@ export const AuthProvider = ({ children }) => {
 
   const persistSchool = (schoolData) => {
     setSchool(schoolData);
-    localStorage.setItem('school', JSON.stringify(schoolData));
+    try {
+      localStorage.setItem('school', JSON.stringify(schoolData));
+    } catch {
+      // ignore quota / private mode failures
+    }
   };
 
   const clearSession = useCallback(() => {
@@ -65,10 +69,7 @@ export const AuthProvider = ({ children }) => {
           if (response.data.school) {
             persistSchool(response.data.school);
           } else {
-            const savedSchool = localStorage.getItem('school');
-            if (savedSchool) {
-              setSchool(JSON.parse(savedSchool));
-            }
+            clearSession();
           }
         } catch {
           clearSession();

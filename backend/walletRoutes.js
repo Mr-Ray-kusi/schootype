@@ -469,7 +469,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
   app.post('/api/webhooks/paystack', async (req, res) => {
     try {
       const signature = req.headers['x-paystack-signature'];
-      const rawBody = JSON.stringify(req.body);
+      const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
       if (!verifyPaystackSignature(rawBody, signature)) {
         return res.status(401).json({ error: 'Invalid signature' });
       }

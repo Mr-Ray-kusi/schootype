@@ -1,20 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { MapPin, Phone, Mail, Calendar, GraduationCap, User } from 'lucide-react';
-
-const formatDob = (value) => {
-  if (!value) return null;
-  try {
-    return new Date(value).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  } catch {
-    return value;
-  }
-};
+import { GraduationCap, User, Hash } from 'lucide-react';
 
 const StudentPublicId = () => {
   const { barcode } = useParams();
@@ -117,50 +104,21 @@ const StudentPublicId = () => {
             )}
           </div>
 
-          <div className="space-y-0 border-t border-slate-700/80 px-6 py-2">
-            {data.parent_phone && (
-              <div className="flex items-start gap-3 border-b border-slate-800 py-4">
-                <Phone className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+          {data.roll_number ? (
+            <div className="border-t border-slate-700/80 px-6 py-4">
+              <div className="flex items-start gap-3">
+                <Hash className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Parent contact</p>
-                  <a href={`tel:${data.parent_phone}`} className="text-slate-100 hover:text-sky-300">
-                    {data.parent_phone}
-                  </a>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Student ID</p>
+                  <p className="text-slate-100">{data.roll_number}</p>
                 </div>
               </div>
-            )}
-            {data.house_address && (
-              <div className="flex items-start gap-3 border-b border-slate-800 py-4">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">House address</p>
-                  <p className="text-slate-100">{data.house_address}</p>
-                </div>
-              </div>
-            )}
-            {data.date_of_birth && (
-              <div className="flex items-start gap-3 border-b border-slate-800 py-4">
-                <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Date of birth</p>
-                  <p className="text-slate-100">{formatDob(data.date_of_birth)}</p>
-                </div>
-              </div>
-            )}
-            {data.parent_email && (
-              <div className="flex items-start gap-3 py-4">
-                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Parent email</p>
-                  <p className="break-all text-slate-100">{data.parent_email}</p>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
 
-        <p className="mt-8 text-center text-xs text-slate-600">
-          Scanned with a phone camera · For attendance use the school scanner
+        <p className="mt-auto pt-8 text-center text-xs text-slate-600">
+          Official student identification · NEXUS
         </p>
       </div>
     </div>
