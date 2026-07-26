@@ -15,6 +15,12 @@ const SCHOOL_EXTRA_FIELDS = [
   'total_paid',
 ];
 
+/** Plan/approval fields must live in Postgres so every Vercel instance sees them. */
+const CRITICAL_PLAN_FIELDS = ['payment_plan', 'plan_status'];
+
+const SCHEMA_HELP =
+  'Run database/supabase_core_billing.sql then database/supabase_backend_access.sql in the Supabase SQL editor, and set SUPABASE_SERVICE_ROLE_KEY on the server.';
+
 const cache = new Map();
 
 const isMissingColumnError = (error, column) => {
@@ -57,8 +63,20 @@ const normalizeExtras = (row = {}) => ({
 async function updateSchoolColumns(schoolId, updates) {
   const payload = { ...updates };
   const optional = [...SCHOOL_EXTRA_FIELDS];
+  const stripped = [];
 
   for (let attempt = 0; attempt <= optional.length; attempt++) {
+    if (!Object.keys(payload).length) {
+      return {
+        data: null,
+        error: {
+          message: `No school columns left to update (missing schema). ${SCHEMA_HELP}`,
+          code: 'MISSING_COLUMNS',
+        },
+        stripped,
+      };
+    }
+
     const { data, error } = await supabase
       .from('schools')
       .update(payload)
@@ -67,7 +85,17 @@ async function updateSchoolColumns(schoolId, updates) {
       .maybeSingle();
 
     if (!error) {
-      return { data, error: null };
+      if (!data) {
+        return {
+          data: null,
+          error: {
+            message: `School update returned no row (often RLS). ${SCHEMA_HELP}`,
+            code: 'NO_ROW',
+          },
+          stripped,
+        };
+      }
+      return { data, error: null, stripped };
     }
 
     const missingColumn = optional.find(
@@ -76,13 +104,18 @@ async function updateSchoolColumns(schoolId, updates) {
 
     if (missingColumn) {
       delete payload[missingColumn];
+      stripped.push(missingColumn);
       continue;
     }
 
-    return { data: null, error };
+    return { data: null, error, stripped };
   }
 
-  return { data: null, error: { message: 'Failed to update school subscription fields' } };
+  return {
+    data: null,
+    error: { message: 'Failed to update school subscription fields' },
+    stripped,
+  };
 }
 
 async function loadPaymentRecords(schoolId) {
@@ -152,6 +185,20 @@ export async function initSchoolPlanStore() {
   }
 }
 
+/** Keep cache aligned with a Postgres schools row (source of truth). */
+export function hydrateExtrasFromSchool(school) {
+  if (!school?.id) return null;
+  const existing = cache.get(school.id) || { school_id: school.id, payment_records: [] };
+  const fromDb = normalizeExtras(school);
+  const merged = {
+    ...existing,
+    ...fromDb,
+    payment_records: existing.payment_records || [],
+  };
+  cache.set(school.id, merged);
+  return merged;
+}
+
 export function parsePaymentRecords(extras) {
   if (!extras?.payment_records) return [];
   if (Array.isArray(extras.payment_records)) return extras.payment_records;
@@ -170,6 +217,7 @@ export function getSchoolExtrasSync(schoolId) {
 export function mergeSchoolWithExtras(school) {
   if (!school) return school;
 
+  // Prefer Postgres columns; cache is only a fallback for the same instance.
   const extras = getSchoolExtrasSync(school.id) || {};
   const paymentPlan = school.payment_plan || extras.payment_plan || null;
 
@@ -196,7 +244,12 @@ export function mergeSchoolWithExtras(school) {
   };
 }
 
-export async function upsertSchoolExtras(schoolId, extras) {
+/**
+ * Persist school plan/subscription extras to Supabase.
+ * Critical plan fields (payment_plan, plan_status) must succeed in Postgres —
+ * silent in-memory-only writes hide schools from super-admin on other instances.
+ */
+export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = {}) {
   const existing = cache.get(schoolId) || { school_id: schoolId, payment_records: [] };
 
   const merged = {
@@ -245,18 +298,36 @@ export async function upsertSchoolExtras(schoolId, extras) {
     total_paid: merged.total_paid,
   };
 
-  const { data, error } = await updateSchoolColumns(schoolId, schoolUpdate);
-  if (error) {
-    // Keep serving plan/subscription fields from memory when Supabase schema/RLS
-    // cannot store them yet (missing columns or blocked updates).
+  const touchingCritical = CRITICAL_PLAN_FIELDS.some((field) => extras[field] !== undefined);
+  const mustPersist = requirePersist !== undefined ? requirePersist : touchingCritical;
+
+  const { data, error, stripped } = await updateSchoolColumns(schoolId, schoolUpdate);
+
+  if (error || !data) {
+    const detail = error?.message || 'update returned no row';
+    if (mustPersist) {
+      throw new Error(`Failed to save school plan/approval in database: ${detail}. ${SCHEMA_HELP}`);
+    }
     console.warn(
       'School extras DB update failed; using in-memory cache until SQL migrations are applied:',
-      error.message || error
+      detail
     );
-  } else if (!data) {
-    console.warn(
-      'School extras DB update returned no row (often RLS). Using in-memory cache; run database/supabase_backend_access.sql or set SUPABASE_SERVICE_ROLE_KEY.'
-    );
+  } else {
+    const fromDb = normalizeExtras(data);
+    Object.assign(merged, fromDb);
+
+    if (touchingCritical) {
+      if (extras.payment_plan !== undefined && extras.payment_plan && !data.payment_plan) {
+        throw new Error(`payment_plan did not persist. ${SCHEMA_HELP}`);
+      }
+      if (extras.plan_status !== undefined && extras.plan_status && data.plan_status !== extras.plan_status) {
+        throw new Error(`plan_status did not persist (got ${data.plan_status}). ${SCHEMA_HELP}`);
+      }
+    }
+  }
+
+  if (mustPersist && stripped.some((column) => CRITICAL_PLAN_FIELDS.includes(column))) {
+    throw new Error(`Schools table is missing plan columns (${stripped.join(', ')}). ${SCHEMA_HELP}`);
   }
 
   // Optional: append a payment history row when caller passes serialized records
@@ -335,12 +406,25 @@ export async function ensureScannerToken(schoolId) {
   if (existing) return existing;
 
   const token = createScannerToken();
-  await upsertSchoolExtras(schoolId, { scanner_token: token });
-  return token;
+  await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: false });
+  return getScannerTokenSync(schoolId) || token;
 }
 
 export async function regenerateScannerToken(schoolId) {
   const token = createScannerToken();
-  await upsertSchoolExtras(schoolId, { scanner_token: token });
+  await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: false });
   return token;
+}
+
+/** Probe whether plan columns exist (for startup warnings). */
+export async function checkPlanSchemaReady() {
+  const { error } = await supabase.from('schools').select('id, payment_plan, plan_status').limit(1);
+  if (!error) return { ready: true, error: null };
+  if (
+    isMissingColumnError(error, 'payment_plan') ||
+    isMissingColumnError(error, 'plan_status')
+  ) {
+    return { ready: false, error };
+  }
+  return { ready: false, error };
 }

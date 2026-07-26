@@ -24,6 +24,8 @@ import {
   getSchoolIdByScannerToken,
   getSchoolExtrasSync,
   parsePaymentRecords,
+  hydrateExtrasFromSchool,
+  checkPlanSchemaReady,
 } from './schoolPlanStore.js';
 import {
   initStudentPhotoStore,
@@ -102,6 +104,7 @@ app.use(
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB
 
 const formatSchool = (school, { includeCredentials = false } = {}) => {
+  if (school?.id) hydrateExtrasFromSchool(school);
   const merged = mergeSchoolWithExtras(school);
   const paymentPlan = merged.payment_plan || null;
   const planStatus = paymentPlan ? (merged.plan_status || 'pending') : null;
@@ -187,6 +190,9 @@ const findSchoolByEmail = async (email) => {
   return data;
 };
 
+const PLAN_SCHEMA_HELP =
+  'Run database/supabase_core_billing.sql then database/supabase_backend_access.sql in the Supabase SQL editor, and set SUPABASE_SERVICE_ROLE_KEY on the server.';
+
 const insertSchoolRecord = async (record) => {
   const payload = { ...record };
   const optionalColumns = [
@@ -203,16 +209,32 @@ const insertSchoolRecord = async (record) => {
     'subscription_started_at',
     'total_paid',
   ];
+  const requiredPlanFields = ['payment_plan', 'plan_status'].filter(
+    (column) => record[column] !== undefined && record[column] !== null
+  );
+  const stripped = [];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase.from('schools').insert([payload]).select().single();
 
     if (!error) {
-      return { data, error: null };
+      const missingPlan = requiredPlanFields.filter((column) => !data?.[column]);
+      if (missingPlan.length) {
+        // Roll back half-created accounts so they don't appear without approval state.
+        await supabase.from('schools').delete().eq('id', data.id);
+        return {
+          data: null,
+          error: {
+            message: `Schools table is missing required plan columns (${missingPlan.join(', ')}). ${PLAN_SCHEMA_HELP}`,
+            code: 'MISSING_PLAN_COLUMNS',
+          },
+        };
+      }
+      return { data, error: null, stripped };
     }
 
     if (error.code === '23505') {
-      return { data: null, error: { ...error, duplicate: true } };
+      return { data: null, error: { ...error, duplicate: true }, stripped };
     }
 
     const missingColumn = optionalColumns.find(
@@ -220,14 +242,25 @@ const insertSchoolRecord = async (record) => {
     );
 
     if (missingColumn) {
+      if (requiredPlanFields.includes(missingColumn)) {
+        return {
+          data: null,
+          error: {
+            message: `Schools table is missing ${missingColumn}. ${PLAN_SCHEMA_HELP}`,
+            code: 'MISSING_PLAN_COLUMNS',
+          },
+          stripped,
+        };
+      }
       delete payload[missingColumn];
+      stripped.push(missingColumn);
       continue;
     }
 
-    return { data: null, error };
+    return { data: null, error, stripped };
   }
 
-  return { data: null, error: { message: 'Failed to create school record' } };
+  return { data: null, error: { message: 'Failed to create school record' }, stripped };
 };
 
 const updateSchoolRecord = async (id, updates) => {
@@ -342,11 +375,21 @@ const requireSuperAdmin = async (req, res, next) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Service unavailable' });
     }
-    const { data: school, error } = await supabase
+
+    let { data: school, error } = await supabase
       .from('schools')
       .select('id, email, role')
       .eq('id', req.user.schoolId)
       .maybeSingle();
+
+    // Older schemas may not have role — still allow via SUPER_ADMIN_EMAIL allowlist.
+    if (error && isMissingColumnError(error, 'role')) {
+      ({ data: school, error } = await supabase
+        .from('schools')
+        .select('id, email')
+        .eq('id', req.user.schoolId)
+        .maybeSingle());
+    }
 
     if (error || !school || getSchoolRole(school) !== 'super_admin') {
       return res.status(403).json({ error: 'Super admin access required' });
@@ -647,8 +690,8 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: logoError });
     }
 
-    if (paymentPlan && !VALID_PLAN_IDS.includes(paymentPlan)) {
-      return res.status(400).json({ error: 'Invalid payment plan' });
+    if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
+      return res.status(400).json({ error: 'A valid payment plan is required to create an account' });
     }
 
     const existingSchool = await findSchoolByEmail(email);
@@ -665,14 +708,12 @@ app.post('/api/auth/signup', async (req, res) => {
       password_hash: hashedPassword,
       role: 'admin',
       created_at: new Date(),
+      payment_plan: paymentPlan,
+      plan_selected_at: new Date(),
+      plan_status: 'pending',
     };
     if (logo) {
       schoolRecord.logo_url = logo;
-    }
-    if (paymentPlan) {
-      schoolRecord.payment_plan = paymentPlan;
-      schoolRecord.plan_selected_at = new Date();
-      schoolRecord.plan_status = 'pending';
     }
 
     const { data: school, error: schoolError } = await insertSchoolRecord(schoolRecord);
@@ -702,12 +743,29 @@ app.post('/api/auth/signup', async (req, res) => {
 
     await recordSignupAttempt(clientIp);
 
-    await upsertSchoolExtras(school.id, {
-      payment_plan: paymentPlan || null,
-      plan_status: paymentPlan ? 'pending' : null,
-      plan_selected_at: paymentPlan ? new Date().toISOString() : null,
-      logo_url: logo || null,
-    });
+    try {
+      await upsertSchoolExtras(school.id, {
+        payment_plan: paymentPlan,
+        plan_status: 'pending',
+        plan_selected_at: new Date().toISOString(),
+        logo_url: logo || null,
+      });
+    } catch (persistError) {
+      console.error('Signup plan persist failed:', persistError.message);
+      await supabase.from('schools').delete().eq('id', school.id);
+      await deleteSchoolExtras(school.id);
+      return res.status(500).json({
+        error: persistError.message || `Failed to save plan for approval. ${PLAN_SCHEMA_HELP}`,
+      });
+    }
+
+    if (!school.payment_plan || school.plan_status !== 'pending') {
+      await supabase.from('schools').delete().eq('id', school.id);
+      await deleteSchoolExtras(school.id);
+      return res.status(500).json({
+        error: `Failed to save plan for super-admin approval. ${PLAN_SCHEMA_HELP}`,
+      });
+    }
 
     const token = signAuthToken(school);
 
@@ -858,9 +916,22 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       plan_status: 'pending',
     });
 
-    // Always persist to the extras/cache layer so plan selection still works
-    // when schools.payment_plan columns are missing in Supabase.
-    await upsertSchoolExtras(req.user.schoolId, planUpdates);
+    if (error || !updatedSchool?.payment_plan || updatedSchool.plan_status !== 'pending') {
+      console.error('Select plan DB update failed:', error);
+      return res.status(500).json({
+        error: `Failed to save payment plan for approval. ${PLAN_SCHEMA_HELP}`,
+        detail: error?.message || null,
+      });
+    }
+
+    try {
+      await upsertSchoolExtras(req.user.schoolId, planUpdates);
+    } catch (persistError) {
+      console.error('Select plan extras persist failed:', persistError.message);
+      return res.status(500).json({
+        error: persistError.message || `Failed to save payment plan. ${PLAN_SCHEMA_HELP}`,
+      });
+    }
 
     const { data: currentSchool, error: fetchError } = await supabase
       .from('schools')
@@ -876,20 +947,21 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       });
     }
 
-    const formatted = formatSchool(updatedSchool || currentSchool);
-    if (!formatted.payment_plan) {
-      console.error('Select plan did not stick:', error);
+    // Verify Postgres row itself — do not trust in-memory cache alone.
+    if (!currentSchool.payment_plan || currentSchool.plan_status !== 'pending') {
+      console.error('Select plan did not persist on schools row:', {
+        payment_plan: currentSchool.payment_plan,
+        plan_status: currentSchool.plan_status,
+      });
       return res.status(500).json({
-        error:
-          'Failed to save payment plan. In Supabase SQL editor, run database/supabase_core_billing.sql then database/supabase_backend_access.sql, and ensure SUPABASE_SERVICE_ROLE_KEY is set in Vercel.',
-        detail: error?.message || null,
+        error: `Failed to save payment plan. ${PLAN_SCHEMA_HELP}`,
       });
     }
 
-    res.json({ school: formatted });
+    res.json({ school: formatSchool(currentSchool) });
   } catch (error) {
     console.error('Select plan error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
@@ -1169,13 +1241,17 @@ app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async
     let totalRevenue = 0;
     let revenueThisMonth = 0;
     let activeSubscriptions = 0;
+    let pendingApprovals = 0;
 
     for (const school of schoolAccounts || []) {
       const merged = mergeSchoolWithExtras(school);
       totalRevenue += merged.total_paid || 0;
 
-      if ((merged.plan_status || 'pending') === 'approved') {
+      const status = merged.payment_plan ? merged.plan_status || 'pending' : 'none';
+      if (status === 'approved') {
         activeSubscriptions += 1;
+      } else if (status === 'pending' || status === 'none') {
+        pendingApprovals += 1;
       }
 
       for (const record of merged.payment_records || []) {
@@ -1193,6 +1269,7 @@ app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async
       totalRevenue,
       revenueThisMonth,
       activeSubscriptions,
+      pendingApprovals,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1244,11 +1321,24 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
         Object.assign(extrasUpdate, initializeSubscription());
       }
     }
-    await upsertSchoolExtras(req.params.id, extrasUpdate);
-
-    await updateSchoolRecord(req.params.id, {
+    const { data: statusRow, error: statusError } = await updateSchoolRecord(req.params.id, {
       plan_status: status,
     });
+
+    if (statusError || !statusRow || statusRow.plan_status !== status) {
+      return res.status(500).json({
+        error: `Failed to update approval status in database. ${PLAN_SCHEMA_HELP}`,
+        detail: statusError?.message || null,
+      });
+    }
+
+    try {
+      await upsertSchoolExtras(req.params.id, extrasUpdate);
+    } catch (persistError) {
+      return res.status(500).json({
+        error: persistError.message || `Failed to update approval status. ${PLAN_SCHEMA_HELP}`,
+      });
+    }
 
     const { data: updatedSchool } = await supabase
       .from('schools')
@@ -1256,7 +1346,13 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
       .eq('id', req.params.id)
       .maybeSingle();
 
-    res.json(await buildSchoolWithStats(updatedSchool || existingSchool));
+    if (!updatedSchool || updatedSchool.plan_status !== status) {
+      return res.status(500).json({
+        error: `Approval status did not persist. ${PLAN_SCHEMA_HELP}`,
+      });
+    }
+
+    res.json(await buildSchoolWithStats(updatedSchool));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2671,6 +2767,20 @@ async function initializeDatabase() {
     console.log('Database setup complete');
     await initSchoolPlanStore();
     console.log('School plan store ready (Supabase)');
+
+    const planSchema = await checkPlanSchemaReady();
+    if (!planSchema.ready) {
+      console.warn(
+        `Plan/approval columns missing or unreadable on schools (${planSchema.error?.message || 'unknown'}). ${PLAN_SCHEMA_HELP}`
+      );
+    }
+
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.warn(
+        'SUPABASE_SERVICE_ROLE_KEY is not set — using anon key. Super-admin school lists and plan writes may fail if RLS is enabled. Prefer the service role key, or run database/supabase_backend_access.sql.'
+      );
+    }
+
     await initStudentPhotoStore();
     console.log('Person photo store ready');
     await initAuthSecurityStore();

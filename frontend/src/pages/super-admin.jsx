@@ -63,7 +63,13 @@ const SuperAdmin = () => {
     ? [
         { title: 'Total Revenue', value: formatMoney(overview.totalRevenue), icon: DollarSign, color: 'bg-emerald-500', subtitle: 'All recorded payments' },
         { title: 'Revenue This Month', value: formatMoney(overview.revenueThisMonth), icon: TrendingUp, color: 'bg-primary-500', subtitle: 'Subscription payments' },
-        { title: 'Registered Schools', value: overview.totalSchools, icon: Building2, color: 'bg-primary-600', subtitle: `${overview.activeSubscriptions || 0} active subscriptions` },
+        {
+          title: 'Registered Schools',
+          value: overview.totalSchools,
+          icon: Building2,
+          color: 'bg-primary-600',
+          subtitle: `${overview.pendingApprovals || 0} awaiting approval · ${overview.activeSubscriptions || 0} active`,
+        },
       ]
     : [];
 
