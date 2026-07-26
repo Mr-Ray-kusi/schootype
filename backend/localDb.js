@@ -1,15 +1,29 @@
 import fs from 'fs';
 import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 /**
  * Thin async wrapper around Node's built-in node:sqlite so local stores
- * keep await db.exec / db.run / db.get / db.all without native npm addons
- * like sqlite3 (prebuild-install) or better-sqlite3.
+ * keep await db.exec / db.run / db.get / db.all without native npm addons.
  *
- * Requires Node.js 22.5+ (tested on Node 24).
+ * On Vercel (and any host without node:sqlite), callers should skip this and
+ * use in-memory fallbacks — requiring node:sqlite at module load crashes the
+ * whole serverless function.
  */
 export function openLocalDb(dbPath) {
+  if (process.env.VERCEL) {
+    throw new Error('Local SQLite is not available on Vercel; use in-memory store fallbacks');
+  }
+
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = require('node:sqlite'));
+  } catch (err) {
+    throw new Error(`node:sqlite unavailable: ${err.message}`);
+  }
+
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {

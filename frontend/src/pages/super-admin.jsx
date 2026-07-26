@@ -41,17 +41,18 @@ const SuperAdmin = () => {
         axios.get('/api/super-admin/overview'),
         axios.get('/api/super-admin/schools'),
       ]);
-      setOverview(overviewRes.data);
-      setSchools(schoolsRes.data);
+      setOverview(overviewRes.data && typeof overviewRes.data === 'object' ? overviewRes.data : null);
+      setSchools(Array.isArray(schoolsRes.data) ? schoolsRes.data : []);
     } catch (error) {
       console.error('Error fetching super admin data:', error);
+      setSchools([]);
       toast.error(error.response?.data?.error || 'Failed to load school accounts');
     } finally {
       setLoading(false);
     }
   };
 
-  const sortedSchools = [...schools].sort((a, b) => {
+  const sortedSchools = (Array.isArray(schools) ? schools : []).slice().sort((a, b) => {
     const order = { pending: 0, rejected: 1, approved: 2 };
     const aStatus = a.plan_status || (a.payment_plan ? 'pending' : 'none');
     const bStatus = b.plan_status || (b.payment_plan ? 'pending' : 'none');

@@ -2498,6 +2498,13 @@ async function seedSuperAdmin() {
 
 async function initializeDatabase() {
   try {
+    if (!supabase) {
+      console.error(
+        'Database setup failed: Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).'
+      );
+      return false;
+    }
+
     // Perform a lightweight test query to verify Supabase connectivity.
     const { data, error } = await supabase.from('schools').select('id').limit(1);
     if (error) {

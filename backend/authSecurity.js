@@ -5,6 +5,7 @@ import { getDataDir } from './dataPaths.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
+const useMemory = Boolean(process.env.VERCEL);
 
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILED_PER_EMAIL = 5;
@@ -15,8 +16,11 @@ const MAX_SIGNUPS_PER_IP = 5;
 const MIN_PASSWORD_LENGTH = 8;
 
 let dbPromise = null;
+const memoryLoginFailures = [];
+const memorySignupAttempts = [];
 
 async function getDb() {
+  if (useMemory) return null;
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     dbPromise = Promise.resolve(openLocalDb(DB_PATH)).then(async (db) => {
@@ -43,6 +47,7 @@ async function getDb() {
 }
 
 export async function initAuthSecurityStore() {
+  if (useMemory) return;
   await getDb();
 }
 
@@ -82,10 +87,39 @@ export function validatePasswordStrength(password) {
 
 export async function checkLoginAllowed(email, ip) {
   const db = await getDb();
-  await pruneOldLoginFailures(db);
-
   const since = windowStartIso(LOCKOUT_WINDOW_MS);
   const normalizedEmail = email?.trim().toLowerCase();
+
+  if (!db) {
+    const cutoff = Date.now() - LOCKOUT_WINDOW_MS;
+    const emailFails = memoryLoginFailures.filter(
+      (f) => f.email === normalizedEmail && new Date(f.failed_at).getTime() >= cutoff
+    );
+    if (emailFails.length >= MAX_FAILED_PER_EMAIL) {
+      const lastFailed = Math.max(...emailFails.map((f) => new Date(f.failed_at).getTime()));
+      const retryAfterSec = Math.max(1, Math.ceil((lastFailed + LOCKOUT_DURATION_MS - Date.now()) / 1000));
+      return {
+        allowed: false,
+        retryAfterSec,
+        message: `Too many failed login attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minute(s).`,
+      };
+    }
+    if (ip && ip !== 'unknown') {
+      const ipFails = memoryLoginFailures.filter(
+        (f) => f.ip === ip && new Date(f.failed_at).getTime() >= cutoff
+      );
+      if (ipFails.length >= MAX_FAILED_PER_IP) {
+        return {
+          allowed: false,
+          retryAfterSec: Math.ceil(LOCKOUT_DURATION_MS / 1000),
+          message: 'Too many login attempts from this network. Please wait before trying again.',
+        };
+      }
+    }
+    return { allowed: true };
+  }
+
+  await pruneOldLoginFailures(db);
 
   const emailRow = await db.get(
     `SELECT COUNT(*) AS count, MAX(failed_at) AS last_failed
@@ -123,26 +157,56 @@ export async function checkLoginAllowed(email, ip) {
 }
 
 export async function recordLoginFailure(email, ip) {
+  const entry = {
+    email: email?.trim().toLowerCase(),
+    ip: ip || null,
+    failed_at: new Date().toISOString(),
+  };
   const db = await getDb();
+  if (!db) {
+    memoryLoginFailures.push(entry);
+    return;
+  }
   await db.run('INSERT INTO login_failures (email, ip, failed_at) VALUES (?, ?, ?)', [
-    email?.trim().toLowerCase(),
-    ip || null,
-    new Date().toISOString(),
+    entry.email,
+    entry.ip,
+    entry.failed_at,
   ]);
 }
 
 export async function clearLoginFailures(email) {
+  const normalized = email?.trim().toLowerCase();
   const db = await getDb();
-  await db.run('DELETE FROM login_failures WHERE email = ?', [email?.trim().toLowerCase()]);
+  if (!db) {
+    for (let i = memoryLoginFailures.length - 1; i >= 0; i -= 1) {
+      if (memoryLoginFailures[i].email === normalized) memoryLoginFailures.splice(i, 1);
+    }
+    return;
+  }
+  await db.run('DELETE FROM login_failures WHERE email = ?', [normalized]);
 }
 
 export async function checkSignupAllowed(ip) {
   const db = await getDb();
-  await pruneOldSignupAttempts(db);
-
   if (!ip || ip === 'unknown') {
     return { allowed: true };
   }
+
+  if (!db) {
+    const cutoff = Date.now() - SIGNUP_WINDOW_MS;
+    const count = memorySignupAttempts.filter(
+      (a) => a.ip === ip && new Date(a.attempted_at).getTime() >= cutoff
+    ).length;
+    if (count >= MAX_SIGNUPS_PER_IP) {
+      return {
+        allowed: false,
+        message: 'Too many sign-up attempts from this network. Please try again later.',
+      };
+    }
+    return { allowed: true };
+  }
+
+  await pruneOldSignupAttempts(db);
 
   const since = windowStartIso(SIGNUP_WINDOW_MS);
   const row = await db.get(
@@ -162,6 +226,10 @@ export async function checkSignupAllowed(ip) {
 
 export async function recordSignupAttempt(ip) {
   const db = await getDb();
+  if (!db) {
+    memorySignupAttempts.push({ ip: ip || 'unknown', attempted_at: new Date().toISOString() });
+    return;
+  }
   await db.run('INSERT INTO signup_attempts (ip, attempted_at) VALUES (?, ?)', [
     ip || 'unknown',
     new Date().toISOString(),

@@ -5,11 +5,13 @@ import { getDataDir } from './dataPaths.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
+const useMemory = Boolean(process.env.VERCEL);
 
 let dbPromise = null;
 const cache = new Map();
 
 async function getDb() {
+  if (useMemory) return null;
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     dbPromise = Promise.resolve(openLocalDb(DB_PATH)).then(async (db) => {
@@ -24,7 +26,6 @@ async function getDb() {
         'CREATE INDEX IF NOT EXISTS idx_person_photos_school ON person_photos(school_id)'
       );
 
-      // Migrate legacy student_photos table if present
       try {
         await db.exec(`
           INSERT OR IGNORE INTO person_photos (person_id, school_id, photo_url)
@@ -40,6 +41,10 @@ async function getDb() {
 }
 
 export async function initPersonPhotoStore() {
+  if (useMemory) {
+    cache.clear();
+    return;
+  }
   const db = await getDb();
   const rows = await db.all('SELECT person_id, school_id, photo_url FROM person_photos');
   cache.clear();
@@ -57,7 +62,10 @@ export const getStudentPhotoSync = getPersonPhotoSync;
 export async function setPersonPhoto(personId, schoolId, photoUrl) {
   if (!personId || !schoolId || !photoUrl) return;
 
+  cache.set(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
   const db = await getDb();
+  if (!db) return;
+
   await db.run(
     `INSERT INTO person_photos (person_id, school_id, photo_url)
      VALUES (?, ?, ?)
@@ -66,7 +74,6 @@ export async function setPersonPhoto(personId, schoolId, photoUrl) {
        photo_url = excluded.photo_url`,
     [personId, schoolId, photoUrl]
   );
-  cache.set(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
 }
 
 export const setStudentPhoto = setPersonPhoto;
@@ -74,9 +81,11 @@ export const setStudentPhoto = setPersonPhoto;
 export async function deletePersonPhoto(personId) {
   if (!personId) return;
 
-  const db = await getDb();
-  await db.run('DELETE FROM person_photos WHERE person_id = ?', [personId]);
   cache.delete(personId);
+  const db = await getDb();
+  if (!db) return;
+
+  await db.run('DELETE FROM person_photos WHERE person_id = ?', [personId]);
 }
 
 export const deleteStudentPhoto = deletePersonPhoto;

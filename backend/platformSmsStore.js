@@ -14,6 +14,9 @@ const DEFAULT_UNIT_PRICE_MINOR = 5;
 let dbPromise = null;
 
 async function getDb() {
+  if (process.env.VERCEL) {
+    throw new Error('Platform SMS local store is unavailable on Vercel; configure Supabase SMS tables for production.');
+  }
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     dbPromise = Promise.resolve(openLocalDb(DB_PATH)).then(async (db) => {
