@@ -6,7 +6,6 @@
   "framework": null,
   "functions": {
     "api/[[...path]].js": {
-      "memory": 1024,
       "maxDuration": 30,
       "includeFiles": "backend/**"
     }
