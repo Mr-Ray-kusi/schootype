@@ -1,10 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import { getDataDir } from './dataPaths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const META_PATH = path.join(__dirname, 'data', 'school-meta.json');
+const META_PATH = path.join(getDataDir(), 'school-meta.json');
 
 const defaultMeta = () => ({
   subscriptionPlan: null,

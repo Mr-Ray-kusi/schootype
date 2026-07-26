@@ -1,11 +1,10 @@
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { openLocalDb } from './localDb.js';
+import { getDataDir } from './dataPaths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
 
 let dbPromise = null;

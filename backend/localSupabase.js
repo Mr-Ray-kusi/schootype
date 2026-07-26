@@ -1,11 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { openLocalDb } from './localDb.js';
+import { getDataDir } from './dataPaths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DB_PATH = path.join(__dirname, 'data', 'local-supabase.db');
+const DEFAULT_DB_PATH = path.join(getDataDir(), 'local-supabase.db');
 
 const TABLES = ['schools', 'students', 'staffs', 'nonstaffs', 'attendance', 'messages'];
 

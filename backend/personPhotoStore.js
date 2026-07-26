@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { getDataDir } from './dataPaths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PHOTO_PATH = path.join(__dirname, 'data', 'person-photos.json');
+const PHOTO_PATH = path.join(getDataDir(), 'person-photos.json');
 
 const photoKey = (schoolId, type, personId) => `${schoolId}:${type}:${personId}`;
 

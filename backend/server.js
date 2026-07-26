@@ -2536,25 +2536,34 @@ async function initializeDatabase() {
   }
 }
 
-initializeDatabase().then((ok) => {
-  if (!ok) {
-    console.error('Aborting: database initialization failed. Server not started.');
-    process.exit(1);
-    return;
-  }
+export const ready = initializeDatabase();
 
-  const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+export { app };
+export default app;
 
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`\nPort ${PORT} is already in use — another backend instance may still be running.`);
-      console.error('Stop it first, then run npm run dev again in the backend folder.');
-      console.error(`Windows: netstat -ano | findstr :${PORT}  then  taskkill /PID <pid> /F\n`);
-    } else {
-      console.error('Failed to start server:', err.message);
+// Local / traditional hosting listens on a port. On Vercel the app is
+// exported and invoked as a serverless function (see /api/[[...path]].js).
+if (!process.env.VERCEL) {
+  ready.then((ok) => {
+    if (!ok) {
+      console.error('Aborting: database initialization failed. Server not started.');
+      process.exit(1);
+      return;
     }
-    process.exit(1);
+
+    const server = app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\nPort ${PORT} is already in use — another backend instance may still be running.`);
+        console.error('Stop it first, then run npm run dev again in the backend folder.');
+        console.error(`Windows: netstat -ano | findstr :${PORT}  then  taskkill /PID <pid> /F\n`);
+      } else {
+        console.error('Failed to start server:', err.message);
+      }
+      process.exit(1);
+    });
   });
-});
+}
