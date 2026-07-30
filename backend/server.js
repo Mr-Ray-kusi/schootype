@@ -52,7 +52,8 @@ import {
 import { initSchoolWalletStore } from './schoolWalletStore.js';
 import { registerWalletRoutes } from './walletRoutes.js';
 import { initPlatformSmsStore } from './platformSmsStore.js';
-import { registerSmsBillingRoutes, settleSmsPayment } from './smsBilling.js';
+import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits } from './smsBilling.js';
+import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -2677,6 +2678,7 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
     }
 
     let smsSettlement = null;
+    let smsDelivery = null;
     if (channel === 'sms') {
       if (!confirmSmsPayment) {
         return res.status(400).json({
@@ -2699,6 +2701,71 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
         return res.status(status).json({
           error: settleErr.message || 'SMS payment failed',
           code: settleErr.code || 'SMS_PAYMENT_FAILED',
+        });
+      }
+
+      try {
+        smsDelivery = await sendSmsBatch({
+          phones: smsSettlement.phones,
+          body: message,
+          schoolName: schoolAccount.name,
+        });
+
+        const segments = smsSettlement.quote?.segments || 1;
+        const failedUnits = (smsDelivery.failed || 0) * segments;
+        if (failedUnits > 0) {
+          try {
+            const refund = await refundSchoolAndPlatformUnits({
+              schoolId: req.user.schoolId,
+              schoolName: schoolAccount.name,
+              units: failedUnits,
+              reference: smsSettlement.reference,
+              reason: `Refund for ${smsDelivery.failed} failed SMS delivery(ies)`,
+            });
+            smsSettlement.school_sms_units = refund.school_balance.units_available;
+            smsSettlement.refunded_units = refund.refunded_units;
+          } catch (refundErr) {
+            console.error('SMS refund failed:', refundErr.message || refundErr);
+          }
+        }
+
+        if (smsDelivery.sent === 0 && smsDelivery.failed > 0) {
+          return res.status(502).json({
+            error: 'SMS provider could not deliver to any recipient. Units were refunded where possible.',
+            code: 'SMS_DELIVERY_FAILED',
+            sms_billing: smsSettlement,
+            sms_delivery: {
+              sent: smsDelivery.sent,
+              failed: smsDelivery.failed,
+              total: smsDelivery.total,
+              dryRun: smsDelivery.dryRun,
+              sample_errors: smsDelivery.results
+                .filter((r) => !r.ok)
+                .slice(0, 3)
+                .map((r) => r.error),
+            },
+          });
+        }
+      } catch (sendErr) {
+        // Full failure after settlement — refund all units
+        const refundUnits = smsSettlement.quote?.units_required || 0;
+        try {
+          if (refundUnits > 0) {
+            await refundSchoolAndPlatformUnits({
+              schoolId: req.user.schoolId,
+              schoolName: schoolAccount.name,
+              units: refundUnits,
+              reference: smsSettlement.reference,
+              reason: sendErr.message || 'SMS provider error refund',
+            });
+          }
+        } catch (refundErr) {
+          console.error('SMS full refund failed:', refundErr.message || refundErr);
+        }
+        const status = sendErr.status || 502;
+        return res.status(status).json({
+          error: sendErr.message || 'SMS delivery failed',
+          code: sendErr.code || 'SMS_DELIVERY_FAILED',
         });
       }
     }
@@ -2732,16 +2799,6 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       throw error;
     } else {
       newMessage = insertedMessage;
-    }
-
-    if (channel === 'sms') {
-      const smsTarget =
-        sendMode === 'Individual'
-          ? recipientPhone || recipientEmail
-          : `${recipients || 'Parents'} group`;
-      console.log(
-        `[SMS] Units consumed & queued for ${smsTarget} (${smsSettlement?.quote?.units_required || '?'} units; school left ${smsSettlement?.school_sms_units}): ${String(message).substring(0, 80)}...`
-      );
     }
 
     if (channel === 'email' && emailReady && emailTransporter) {
@@ -2795,7 +2852,23 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
 
     res.json({
       ...newMessage,
-      sms_billing: smsSettlement || undefined,
+      sms_billing: smsSettlement
+        ? {
+            reference: smsSettlement.reference,
+            quote: smsSettlement.quote,
+            school_sms_units: smsSettlement.school_sms_units,
+            refunded_units: smsSettlement.refunded_units || 0,
+          }
+        : undefined,
+      sms_delivery: smsDelivery
+        ? {
+            sent: smsDelivery.sent,
+            failed: smsDelivery.failed,
+            total: smsDelivery.total,
+            dryRun: smsDelivery.dryRun,
+            provider: getSmsProviderStatus().mode,
+          }
+        : undefined,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -176,15 +176,26 @@ const Messages = () => {
         confirmSmsPayment: newMessage.deliveryChannel === 'sms',
       };
 
-      await axios.post('/api/messages', payload);
+      const { data } = await axios.post('/api/messages', payload);
 
       setShowSendModal(false);
       resetCompose();
       fetchMessages();
       loadSmsBalance();
-      toast.success(
-        newMessage.deliveryChannel === 'sms' ? 'SMS broadcast sent' : 'Email broadcast sent'
-      );
+      if (newMessage.deliveryChannel === 'sms') {
+        const sent = data?.sms_delivery?.sent;
+        const failed = data?.sms_delivery?.failed;
+        const dry = data?.sms_delivery?.dryRun;
+        if (dry) {
+          toast.success(`SMS dry-run complete (${sent || 0} logged, not billed to Twilio)`);
+        } else if (failed > 0) {
+          toast.success(`SMS sent to ${sent} recipient(s); ${failed} failed (units refunded for failures)`);
+        } else {
+          toast.success(`SMS sent to ${sent ?? 'all'} recipient(s)`);
+        }
+      } else {
+        toast.success('Email broadcast sent');
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       setSendError(error.response?.data?.error || 'Failed to send message. Please try again.');

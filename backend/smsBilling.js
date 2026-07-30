@@ -15,7 +15,9 @@ import {
   ensureSchoolSmsBalance,
   creditSchoolSmsPurchase,
   consumeSchoolAndPlatformUnits,
+  refundSchoolAndPlatformUnits,
 } from './platformSmsStore.js';
+import { resolveSmsRecipients, getSmsProviderStatus } from './smsProvider.js';
 
 async function findPlatformSchoolId(supabase) {
   if (process.env.PLATFORM_WALLET_SCHOOL_ID) {
@@ -31,7 +33,11 @@ async function findPlatformSchoolId(supabase) {
 
   if (byRole?.id) return byRole.id;
 
-  const email = (process.env.DEV_SUPER_ADMIN_EMAIL || process.env.SUPER_ADMIN_EMAIL || 'superadmin@school.com')
+  const email = (
+    process.env.DEV_SUPER_ADMIN_EMAIL ||
+    process.env.SUPER_ADMIN_EMAIL ||
+    'superadmin@school.com'
+  )
     .trim()
     .toLowerCase();
 
@@ -42,54 +48,6 @@ async function findPlatformSchoolId(supabase) {
     .maybeSingle();
 
   return byEmail?.id || null;
-}
-
-async function countSmsRecipients(supabase, schoolId, { sendMode, recipients, recipientPhone }) {
-  if (sendMode === 'Individual') {
-    return recipientPhone?.trim() ? 1 : 0;
-  }
-
-  const group = String(recipients || 'Parents');
-
-  if (group === 'Parents' || group === 'All Parents' || group === 'All' || group.includes('Parents')) {
-    const { count: withPhone } = await supabase
-      .from('students')
-      .select('id', { count: 'exact', head: true })
-      .eq('school_id', schoolId)
-      .not('parent_phone', 'is', null)
-      .neq('parent_phone', '');
-
-    if (withPhone && withPhone > 0) return withPhone;
-
-    const { count: students } = await supabase
-      .from('students')
-      .select('id', { count: 'exact', head: true })
-      .eq('school_id', schoolId);
-
-    return students || 0;
-  }
-
-  if (group === 'Teachers' || group === 'Staff') {
-    const { count } = await supabase
-      .from('staffs')
-      .select('id', { count: 'exact', head: true })
-      .eq('school_id', schoolId);
-    return count || 0;
-  }
-
-  if (group === 'Non-Staff' || group === 'NonStaff') {
-    const { count } = await supabase
-      .from('nonstaffs')
-      .select('id', { count: 'exact', head: true })
-      .eq('school_id', schoolId);
-    return count || 0;
-  }
-
-  const { count } = await supabase
-    .from('students')
-    .select('id', { count: 'exact', head: true })
-    .eq('school_id', schoolId);
-  return count || 0;
 }
 
 function formatSmsSettings(settings) {
@@ -134,6 +92,7 @@ export function registerSmsBillingRoutes(app, {
               available_balance_major: fromMinorUnits(wallet.available_balance),
             }
           : null,
+        provider: getSmsProviderStatus(),
       });
     } catch (err) {
       console.error('Get platform SMS error:', err);
@@ -169,7 +128,6 @@ export function registerSmsBillingRoutes(app, {
     }
   });
 
-  /** School: wallet + SMS unit balance + current price */
   app.get('/api/sms/balance', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const settings = await getSmsSettings();
@@ -187,6 +145,7 @@ export function registerSmsBillingRoutes(app, {
           available_balance: wallet.available_balance,
           available_balance_major: fromMinorUnits(wallet.available_balance),
         },
+        provider: getSmsProviderStatus(),
       });
     } catch (err) {
       console.error('SMS balance error:', err);
@@ -194,10 +153,6 @@ export function registerSmsBillingRoutes(app, {
     }
   });
 
-  /**
-   * Convert school wallet money → school SMS units.
-   * Money goes to platform wallet / SMS revenue. Platform inventory is NOT reduced until send.
-   */
   app.post('/api/sms/purchase', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const units = Math.round(Number(req.body?.units) || 0);
@@ -206,25 +161,17 @@ export function registerSmsBillingRoutes(app, {
       }
 
       const settings = await getSmsSettings();
-      const amountMinor = units * settings.unit_price_minor;
       const platformSchoolId = await findPlatformSchoolId(supabase);
-
       if (!platformSchoolId) {
-        return res.status(503).json({ error: 'Platform wallet is not configured' });
+        return res.status(400).json({ error: 'Platform wallet is not configured' });
       }
       if (platformSchoolId === req.user.schoolId) {
         return res.status(400).json({ error: 'Use the platform SMS page to load inventory units' });
       }
 
+      const amountMinor = units * settings.unit_price_minor;
       await ensureWallet(req.user.schoolId);
       await ensureWallet(platformSchoolId);
-      const wallet = await getWallet(req.user.schoolId);
-      if (wallet.available_balance < amountMinor) {
-        return res.status(400).json({
-          error: `Not enough wallet balance. Need GHS ${fromMinorUnits(amountMinor).toFixed(2)}, you have GHS ${fromMinorUnits(wallet.available_balance).toFixed(2)}.`,
-          code: 'WALLET_INSUFFICIENT',
-        });
-      }
 
       const reference = makeSmsSaleReference('smsbuy');
       const schoolName = await getSchoolName(supabase, req.user.schoolId);
@@ -232,7 +179,7 @@ export function registerSmsBillingRoutes(app, {
       await transferBetweenWallets({
         fromSchoolId: req.user.schoolId,
         toSchoolId: platformSchoolId,
-        amountMinor,
+        amount: amountMinor,
         reference,
         description: `Buy ${units} SMS units`,
         metadata: { kind: 'sms_unit_purchase', units },
@@ -247,12 +194,10 @@ export function registerSmsBillingRoutes(app, {
       });
 
       res.json({
-        success: true,
         units_purchased: units,
         amount_minor: amountMinor,
         amount_major: fromMinorUnits(amountMinor),
         sms_units: result.school_balance.units_available,
-        settings: formatSmsSettings(result.settings),
         reference,
       });
     } catch (err) {
@@ -262,39 +207,31 @@ export function registerSmsBillingRoutes(app, {
     }
   });
 
-  /** Quote for a broadcast — checks school prepaid units + platform inventory */
   app.post('/api/sms/quote', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
-      const {
-        message = '',
-        sendMode = 'Group',
-        recipients = 'Parents',
-        recipientPhone = '',
-      } = req.body || {};
-
-      if (!String(message).trim()) {
+      const { message, sendMode, recipients, recipientPhone } = req.body || {};
+      if (!String(message || '').trim()) {
         return res.status(400).json({ error: 'Message is required to calculate SMS cost' });
       }
 
-      const settings = await getSmsSettings();
-      const recipientCount = await countSmsRecipients(supabase, req.user.schoolId, {
+      const phones = await resolveSmsRecipients(supabase, req.user.schoolId, {
         sendMode,
         recipients,
         recipientPhone,
       });
 
-      if (recipientCount < 1) {
+      if (!phones.length) {
         return res.status(400).json({
           error:
-            sendMode === 'Individual'
-              ? 'Enter a recipient phone number'
-              : 'No recipients found for this group. Add students/staff (and parent phones where possible).',
+            'No valid phone numbers found. For group SMS, students need a parent phone. Teachers/Staff SMS is not available yet — use Parents or Individual.',
+          code: 'SMS_NO_RECIPIENTS',
         });
       }
 
+      const settings = await getSmsSettings();
       const quote = buildSmsQuote({
         message,
-        recipientCount,
+        recipientCount: phones.length,
         unitPriceMinor: settings.unit_price_minor,
       });
 
@@ -305,6 +242,7 @@ export function registerSmsBillingRoutes(app, {
 
       const schoolHasUnits = schoolSms.units_available >= quote.units_required;
       const platformHasUnits = settings.units_available >= quote.units_required;
+      const provider = getSmsProviderStatus();
 
       res.json({
         quote: {
@@ -322,7 +260,9 @@ export function registerSmsBillingRoutes(app, {
         },
         school_has_units: schoolHasUnits,
         platform_has_units: platformHasUnits,
-        can_send: schoolHasUnits && platformHasUnits,
+        provider_ready: provider.ready,
+        provider,
+        can_send: schoolHasUnits && platformHasUnits && provider.ready,
         blockers: [
           !schoolHasUnits
             ? `Not enough school SMS units. Need ${quote.units_required}, you have ${schoolSms.units_available}. Convert wallet money to SMS units first.`
@@ -330,6 +270,7 @@ export function registerSmsBillingRoutes(app, {
           !platformHasUnits
             ? `Platform SMS units are low. Need ${quote.units_required}, available ${settings.units_available}. Contact super admin.`
             : null,
+          !provider.ready ? provider.message : null,
         ].filter(Boolean),
       });
     } catch (err) {
@@ -340,7 +281,7 @@ export function registerSmsBillingRoutes(app, {
 }
 
 /**
- * Consume prepaid school units + platform inventory (money already paid when units were bought).
+ * Consume prepaid school units + platform inventory for resolvable phones only.
  */
 export async function settleSmsPayment({
   supabase,
@@ -350,20 +291,36 @@ export async function settleSmsPayment({
   sendMode,
   recipients,
   recipientPhone,
+  phones: phonesOverride,
 }) {
-  const settings = await getSmsSettings();
-  const recipientCount = await countSmsRecipients(supabase, schoolId, {
-    sendMode,
-    recipients,
-    recipientPhone,
-  });
+  const phones =
+    phonesOverride ||
+    (await resolveSmsRecipients(supabase, schoolId, {
+      sendMode,
+      recipients,
+      recipientPhone,
+    }));
+
+  const recipientCount = phones.length;
 
   if (recipientCount < 1) {
-    const err = new Error('No SMS recipients found');
+    const err = new Error(
+      'No valid SMS recipients found. Add parent phone numbers on student records, or send to an Individual number.'
+    );
     err.status = 400;
+    err.code = 'SMS_NO_RECIPIENTS';
     throw err;
   }
 
+  const provider = getSmsProviderStatus();
+  if (!provider.ready) {
+    const err = new Error(provider.message);
+    err.status = 503;
+    err.code = 'SMS_PROVIDER_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const settings = await getSmsSettings();
   const quote = buildSmsQuote({
     message,
     recipientCount,
@@ -383,6 +340,7 @@ export async function settleSmsPayment({
 
   return {
     reference,
+    phones,
     quote: {
       ...quote,
       amount_major: fromMinorUnits(quote.amount_minor),
@@ -392,3 +350,5 @@ export async function settleSmsPayment({
     settings: formatSmsSettings(result.settings),
   };
 }
+
+export { refundSchoolAndPlatformUnits, resolveSmsRecipients };

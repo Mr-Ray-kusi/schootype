@@ -11,6 +11,7 @@ const SuperAdminSms = () => {
   const [settings, setSettings] = useState(null);
   const [sales, setSales] = useState([]);
   const [wallet, setWallet] = useState(null);
+  const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unitPrice, setUnitPrice] = useState('0.05');
   const [addUnits, setAddUnits] = useState('1000');
@@ -23,6 +24,7 @@ const SuperAdminSms = () => {
       setSettings(data.settings);
       setSales(data.sales || []);
       setWallet(data.platform_wallet);
+      setProvider(data.provider || null);
       setUnitPrice(String(data.settings?.unit_price_major ?? 0.05));
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load SMS inventory');
@@ -75,9 +77,22 @@ const SuperAdminSms = () => {
           <h1 className="text-3xl font-bold text-white">SMS Units & Revenue</h1>
           <p className="mt-3 max-w-3xl text-slate-300">
             Load platform SMS inventory here and set the unit price. Schools convert wallet money into their own
-            prepaid SMS units (that payment becomes your SMS revenue). When they broadcast, units are deducted
-            from both the school balance and this platform inventory.
+            prepaid SMS units (that payment becomes your SMS revenue). When they broadcast, Twilio delivers the
+            messages and units are deducted from both the school balance and this platform inventory. Failed
+            deliveries are refunded automatically.
           </p>
+          {provider && (
+            <div
+              className={`mt-4 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
+                provider.ready
+                  ? 'border-green-500/40 bg-green-500/10 text-green-200'
+                  : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+              }`}
+            >
+              <span className="font-medium">Twilio: {provider.mode}</span>
+              <span className="text-slate-300">· {provider.message}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">

@@ -3,6 +3,7 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
+import { supabase } from './supabaseClient.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
@@ -13,9 +14,14 @@ const DEFAULT_UNIT_PRICE_MINOR = 5;
 
 let dbPromise = null;
 
+/** Prefer Supabase on Vercel (or when SMS_STORE=supabase). */
+function useCloudSms() {
+  return Boolean(process.env.VERCEL) || String(process.env.SMS_STORE || '').toLowerCase() === 'supabase';
+}
+
 async function getDb() {
-  if (process.env.VERCEL) {
-    throw new Error('Platform SMS local store is unavailable on Vercel; configure Supabase SMS tables for production.');
+  if (useCloudSms()) {
+    throw new Error('LOCAL_SMS_DB_SKIP');
   }
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -54,15 +60,16 @@ async function getDb() {
       `);
 
       try {
-        await db.exec(`ALTER TABLE platform_sms_sales ADD COLUMN sale_type TEXT NOT NULL DEFAULT 'broadcast'`);
+        await db.exec(
+          `ALTER TABLE platform_sms_sales ADD COLUMN sale_type TEXT NOT NULL DEFAULT 'broadcast'`
+        );
       } catch {
         // column exists
       }
 
-      const existing = await db.get(
-        'SELECT id FROM platform_sms_settings WHERE id = ?',
-        [SETTINGS_ID]
-      );
+      const existing = await db.get('SELECT id FROM platform_sms_settings WHERE id = ?', [
+        SETTINGS_ID,
+      ]);
       if (!existing) {
         await db.run(
           `INSERT INTO platform_sms_settings
@@ -81,24 +88,71 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-export async function initPlatformSmsStore() {
-  await getDb();
-}
-
-export async function getSmsSettings() {
-  const db = await getDb();
-  const row = await db.get('SELECT * FROM platform_sms_settings WHERE id = ?', [SETTINGS_ID]);
+function mapSettings(row) {
   return {
-    units_available: row?.units_available || 0,
-    unit_price_minor: row?.unit_price_minor ?? DEFAULT_UNIT_PRICE_MINOR,
-    total_revenue_minor: row?.total_revenue_minor || 0,
+    units_available: Number(row?.units_available) || 0,
+    unit_price_minor: Number(row?.unit_price_minor ?? DEFAULT_UNIT_PRICE_MINOR),
+    total_revenue_minor: Number(row?.total_revenue_minor) || 0,
     updated_at: row?.updated_at || null,
   };
 }
 
-export async function setSmsUnitPrice(unitPriceMinor) {
+async function ensureCloudSettingsRow() {
+  const { data } = await supabase
+    .from('platform_sms_settings')
+    .select('*')
+    .eq('id', SETTINGS_ID)
+    .maybeSingle();
+  if (data) return data;
+  const seed = {
+    id: SETTINGS_ID,
+    units_available: 0,
+    unit_price_minor: DEFAULT_UNIT_PRICE_MINOR,
+    total_revenue_minor: 0,
+    updated_at: nowIso(),
+  };
+  const { error } = await supabase.from('platform_sms_settings').insert([seed]);
+  if (error && !String(error.message || '').toLowerCase().includes('duplicate')) {
+    throw error;
+  }
+  return seed;
+}
+
+export async function initPlatformSmsStore() {
+  if (useCloudSms()) {
+    if (!supabase) {
+      throw new Error(
+        'Supabase is required for SMS billing on Vercel. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+      );
+    }
+    await ensureCloudSettingsRow();
+    return;
+  }
+  await getDb();
+}
+
+export async function getSmsSettings() {
+  if (useCloudSms()) {
+    const row = await ensureCloudSettingsRow();
+    return mapSettings(row);
+  }
   const db = await getDb();
+  const row = await db.get('SELECT * FROM platform_sms_settings WHERE id = ?', [SETTINGS_ID]);
+  return mapSettings(row);
+}
+
+export async function setSmsUnitPrice(unitPriceMinor) {
   const price = Math.max(1, Math.round(Number(unitPriceMinor) || DEFAULT_UNIT_PRICE_MINOR));
+  if (useCloudSms()) {
+    await ensureCloudSettingsRow();
+    const { error } = await supabase
+      .from('platform_sms_settings')
+      .update({ unit_price_minor: price, updated_at: nowIso() })
+      .eq('id', SETTINGS_ID);
+    if (error) throw error;
+    return getSmsSettings();
+  }
+  const db = await getDb();
   await db.run(
     `UPDATE platform_sms_settings
      SET unit_price_minor = ?, updated_at = ?
@@ -109,9 +163,21 @@ export async function setSmsUnitPrice(unitPriceMinor) {
 }
 
 export async function addSmsUnits(units) {
-  const db = await getDb();
   const add = Math.max(0, Math.round(Number(units) || 0));
   if (!add) return getSmsSettings();
+  if (useCloudSms()) {
+    const current = await getSmsSettings();
+    const { error } = await supabase
+      .from('platform_sms_settings')
+      .update({
+        units_available: current.units_available + add,
+        updated_at: nowIso(),
+      })
+      .eq('id', SETTINGS_ID);
+    if (error) throw error;
+    return getSmsSettings();
+  }
+  const db = await getDb();
   await db.run(
     `UPDATE platform_sms_settings
      SET units_available = units_available + ?, updated_at = ?
@@ -148,86 +214,22 @@ export function buildSmsQuote({ message, recipientCount, unitPriceMinor }) {
   };
 }
 
-/**
- * Deduct platform units + record sale. Revenue optional (0 for usage after prepaid purchase).
- */
-export async function consumeSmsUnitsAndRecordSale({
-  schoolId,
-  schoolName,
-  units,
-  amountMinor,
-  recipientsCount,
-  segments,
-  reference,
-  messagePreview,
-  saleType = 'broadcast',
-  deductPlatformUnits = true,
-  addRevenue = true,
-}) {
-  const db = await getDb();
-  const settings = await getSmsSettings();
-  if (deductPlatformUnits && settings.units_available < units) {
-    const err = new Error(
-      `Not enough platform SMS units. Need ${units}, available ${settings.units_available}.`
-    );
-    err.status = 400;
-    err.code = 'SMS_UNITS_INSUFFICIENT';
-    throw err;
-  }
-
-  const id = randomUUID();
-  const createdAt = nowIso();
-  const revenueAdd = addRevenue ? amountMinor : 0;
-
-  await db.run('BEGIN');
-  try {
-    if (deductPlatformUnits || revenueAdd) {
-      await db.run(
-        `UPDATE platform_sms_settings
-         SET units_available = units_available - ?,
-             total_revenue_minor = total_revenue_minor + ?,
-             updated_at = ?
-         WHERE id = ?`,
-        [deductPlatformUnits ? units : 0, revenueAdd, createdAt, SETTINGS_ID]
-      );
-    }
-    await db.run(
-      `INSERT INTO platform_sms_sales (
-        id, school_id, school_name, units, amount_minor, recipients_count,
-        segments, reference, message_preview, sale_type, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        schoolId,
-        schoolName || null,
-        units,
-        amountMinor,
-        recipientsCount,
-        segments,
-        reference,
-        messagePreview ? String(messagePreview).slice(0, 120) : null,
-        saleType,
-        createdAt,
-      ]
-    );
-    await db.run('COMMIT');
-  } catch (err) {
-    await db.run('ROLLBACK');
-    throw err;
-  }
-
-  return {
-    sale_id: id,
-    settings: await getSmsSettings(),
-  };
-}
-
 export async function getSchoolSmsBalance(schoolId) {
+  if (useCloudSms()) {
+    const { data, error } = await supabase
+      .from('school_sms_balances')
+      .select('*')
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    if (error) throw error;
+    return {
+      school_id: schoolId,
+      units_available: Number(data?.units_available) || 0,
+      updated_at: data?.updated_at || null,
+    };
+  }
   const db = await getDb();
-  const row = await db.get(
-    'SELECT * FROM school_sms_balances WHERE school_id = ?',
-    [schoolId]
-  );
+  const row = await db.get('SELECT * FROM school_sms_balances WHERE school_id = ?', [schoolId]);
   return {
     school_id: schoolId,
     units_available: row?.units_available || 0,
@@ -236,11 +238,23 @@ export async function getSchoolSmsBalance(schoolId) {
 }
 
 export async function ensureSchoolSmsBalance(schoolId) {
+  if (useCloudSms()) {
+    const existing = await getSchoolSmsBalance(schoolId);
+    if (existing.updated_at) return existing;
+    const { error } = await supabase.from('school_sms_balances').insert([
+      { school_id: schoolId, units_available: 0, updated_at: nowIso() },
+    ]);
+    if (error) {
+      const again = await getSchoolSmsBalance(schoolId);
+      if (again.updated_at) return again;
+      throw error;
+    }
+    return getSchoolSmsBalance(schoolId);
+  }
   const db = await getDb();
-  const existing = await db.get(
-    'SELECT school_id FROM school_sms_balances WHERE school_id = ?',
-    [schoolId]
-  );
+  const existing = await db.get('SELECT school_id FROM school_sms_balances WHERE school_id = ?', [
+    schoolId,
+  ]);
   if (!existing) {
     await db.run(
       `INSERT INTO school_sms_balances (school_id, units_available, updated_at) VALUES (?, 0, ?)`,
@@ -260,11 +274,56 @@ export async function creditSchoolSmsPurchase({
   amountMinor,
   reference,
 }) {
-  const db = await getDb();
   await ensureSchoolSmsBalance(schoolId);
   const id = randomUUID();
   const createdAt = nowIso();
 
+  if (useCloudSms()) {
+    const school = await getSchoolSmsBalance(schoolId);
+    const settings = await getSmsSettings();
+    const { error: balErr } = await supabase
+      .from('school_sms_balances')
+      .update({
+        units_available: school.units_available + units,
+        updated_at: createdAt,
+      })
+      .eq('school_id', schoolId);
+    if (balErr) throw balErr;
+
+    const { error: setErr } = await supabase
+      .from('platform_sms_settings')
+      .update({
+        total_revenue_minor: settings.total_revenue_minor + amountMinor,
+        updated_at: createdAt,
+      })
+      .eq('id', SETTINGS_ID);
+    if (setErr) throw setErr;
+
+    const { error: saleErr } = await supabase.from('platform_sms_sales').insert([
+      {
+        id,
+        school_id: schoolId,
+        school_name: schoolName || null,
+        units,
+        amount_minor: amountMinor,
+        recipients_count: 0,
+        segments: 0,
+        reference,
+        message_preview: `Purchased ${units} SMS units`,
+        sale_type: 'purchase',
+        created_at: createdAt,
+      },
+    ]);
+    if (saleErr) throw saleErr;
+
+    return {
+      sale_id: id,
+      school_balance: await getSchoolSmsBalance(schoolId),
+      settings: await getSmsSettings(),
+    };
+  }
+
+  const db = await getDb();
   await db.run('BEGIN');
   try {
     await db.run(
@@ -320,7 +379,6 @@ export async function consumeSchoolAndPlatformUnits({
   reference,
   messagePreview,
 }) {
-  const db = await getDb();
   await ensureSchoolSmsBalance(schoolId);
   const schoolBal = await getSchoolSmsBalance(schoolId);
   const settings = await getSmsSettings();
@@ -345,6 +403,50 @@ export async function consumeSchoolAndPlatformUnits({
   const id = randomUUID();
   const createdAt = nowIso();
 
+  if (useCloudSms()) {
+    const { error: schoolErr } = await supabase
+      .from('school_sms_balances')
+      .update({
+        units_available: schoolBal.units_available - units,
+        updated_at: createdAt,
+      })
+      .eq('school_id', schoolId);
+    if (schoolErr) throw schoolErr;
+
+    const { error: platErr } = await supabase
+      .from('platform_sms_settings')
+      .update({
+        units_available: settings.units_available - units,
+        updated_at: createdAt,
+      })
+      .eq('id', SETTINGS_ID);
+    if (platErr) throw platErr;
+
+    const { error: saleErr } = await supabase.from('platform_sms_sales').insert([
+      {
+        id,
+        school_id: schoolId,
+        school_name: schoolName || null,
+        units,
+        amount_minor: 0,
+        recipients_count: recipientsCount,
+        segments,
+        reference,
+        message_preview: messagePreview ? String(messagePreview).slice(0, 120) : null,
+        sale_type: 'usage',
+        created_at: createdAt,
+      },
+    ]);
+    if (saleErr) throw saleErr;
+
+    return {
+      sale_id: id,
+      school_balance: await getSchoolSmsBalance(schoolId),
+      settings: await getSmsSettings(),
+    };
+  }
+
+  const db = await getDb();
   await db.run('BEGIN');
   try {
     await db.run(
@@ -389,12 +491,129 @@ export async function consumeSchoolAndPlatformUnits({
   };
 }
 
-export async function listSmsSales({ limit = 50 } = {}) {
+/**
+ * Credit units back when Twilio delivery fails for some/all recipients.
+ */
+export async function refundSchoolAndPlatformUnits({
+  schoolId,
+  schoolName,
+  units,
+  reference,
+  reason,
+}) {
+  const refundUnits = Math.max(0, Math.round(Number(units) || 0));
+  if (!refundUnits) {
+    return {
+      school_balance: await getSchoolSmsBalance(schoolId),
+      settings: await getSmsSettings(),
+      refunded_units: 0,
+    };
+  }
+
+  await ensureSchoolSmsBalance(schoolId);
+  const schoolBal = await getSchoolSmsBalance(schoolId);
+  const settings = await getSmsSettings();
+  const id = randomUUID();
+  const createdAt = nowIso();
+  const refundRef = `${reference || 'sms'}_refund_${id.slice(0, 8)}`;
+
+  if (useCloudSms()) {
+    const { error: schoolErr } = await supabase
+      .from('school_sms_balances')
+      .update({
+        units_available: schoolBal.units_available + refundUnits,
+        updated_at: createdAt,
+      })
+      .eq('school_id', schoolId);
+    if (schoolErr) throw schoolErr;
+
+    const { error: platErr } = await supabase
+      .from('platform_sms_settings')
+      .update({
+        units_available: settings.units_available + refundUnits,
+        updated_at: createdAt,
+      })
+      .eq('id', SETTINGS_ID);
+    if (platErr) throw platErr;
+
+    await supabase.from('platform_sms_sales').insert([
+      {
+        id,
+        school_id: schoolId,
+        school_name: schoolName || null,
+        units: refundUnits,
+        amount_minor: 0,
+        recipients_count: 0,
+        segments: 0,
+        reference: refundRef,
+        message_preview: reason ? String(reason).slice(0, 120) : 'SMS delivery refund',
+        sale_type: 'refund',
+        created_at: createdAt,
+      },
+    ]);
+
+    return {
+      school_balance: await getSchoolSmsBalance(schoolId),
+      settings: await getSmsSettings(),
+      refunded_units: refundUnits,
+    };
+  }
+
   const db = await getDb();
-  return db.all(
-    `SELECT * FROM platform_sms_sales ORDER BY created_at DESC LIMIT ?`,
-    [limit]
-  );
+  await db.run('BEGIN');
+  try {
+    await db.run(
+      `UPDATE school_sms_balances
+       SET units_available = units_available + ?, updated_at = ?
+       WHERE school_id = ?`,
+      [refundUnits, createdAt, schoolId]
+    );
+    await db.run(
+      `UPDATE platform_sms_settings
+       SET units_available = units_available + ?, updated_at = ?
+       WHERE id = ?`,
+      [refundUnits, createdAt, SETTINGS_ID]
+    );
+    await db.run(
+      `INSERT INTO platform_sms_sales (
+        id, school_id, school_name, units, amount_minor, recipients_count,
+        segments, reference, message_preview, sale_type, created_at
+      ) VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, 'refund', ?)`,
+      [
+        id,
+        schoolId,
+        schoolName || null,
+        refundUnits,
+        refundRef,
+        reason ? String(reason).slice(0, 120) : 'SMS delivery refund',
+        createdAt,
+      ]
+    );
+    await db.run('COMMIT');
+  } catch (err) {
+    await db.run('ROLLBACK');
+    throw err;
+  }
+
+  return {
+    school_balance: await getSchoolSmsBalance(schoolId),
+    settings: await getSmsSettings(),
+    refunded_units: refundUnits,
+  };
+}
+
+export async function listSmsSales({ limit = 50 } = {}) {
+  if (useCloudSms()) {
+    const { data, error } = await supabase
+      .from('platform_sms_sales')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  }
+  const db = await getDb();
+  return db.all(`SELECT * FROM platform_sms_sales ORDER BY created_at DESC LIMIT ?`, [limit]);
 }
 
 export function makeSmsSaleReference(prefix = 'sms') {
