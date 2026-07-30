@@ -83,10 +83,15 @@ const Scanner = () => {
   };
 
   const regenerateLink = async () => {
+    const confirmed = window.confirm(
+      'Create a new scanner link? The current link will stop working on all phones until you share the new one.'
+    );
+    if (!confirmed) return;
+
     try {
       const response = await axios.post('/api/scanner/regenerate');
       setScannerToken(response.data.token);
-      toast.success('New scanner link generated');
+      toast.success('New scanner link generated — old link is now invalid');
     } catch {
       toast.error('Failed to regenerate link');
     }
@@ -109,7 +114,7 @@ const Scanner = () => {
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Phone Scanner Link</h2>
               <p className="text-sm text-gray-600 mt-1">
-                Open this link on a phone to scan QR codes for students, staff, and non-staff. Attendance records appear here on the admin dashboard — the phone only shows a confirmation.
+                Open this link on a phone to scan QR codes for students, staff, and non-staff. Attendance records appear here on the admin dashboard — the phone only shows a confirmation. This link stays the same until you click &quot;New Link&quot;.
               </p>
             </div>
           </div>
@@ -149,7 +154,7 @@ const Scanner = () => {
                   type="button"
                   onClick={regenerateLink}
                   className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                  title="Invalidate old links and create a new one"
+                  title="Only use if the old link was shared publicly or compromised"
                 >
                   <RefreshCw className="w-4 h-4" />
                   New Link
@@ -157,7 +162,7 @@ const Scanner = () => {
               </div>
               {school?.name && (
                 <p className="text-xs text-gray-500">
-                  This link is unique to <span className="font-medium">{school.name}</span>
+                  This link is unique to <span className="font-medium">{school.name}</span> and does not change unless you generate a new one.
                 </p>
               )}
             </div>

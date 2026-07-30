@@ -4,7 +4,7 @@ import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
-import { Edit2, Trash2, Search, Hash, User, Phone, MapPin } from 'lucide-react';
+import { Edit2, Trash2, Search, Hash, User, Phone, MapPin, Trophy } from 'lucide-react';
 
 const Students = () => {
   const [students, setStudents] = useState([]);
@@ -78,6 +78,7 @@ const Students = () => {
         houseAddress: editingStudent.house_address,
         dateOfBirth: editingStudent.date_of_birth,
         rollNumber: editingStudent.roll_number,
+        skills: editingStudent.skills,
       });
       setEditingStudent(null);
       fetchStudents();
@@ -190,6 +191,13 @@ const Students = () => {
                   className="w-full px-4 py-2 border border-slate-500 rounded-lg"
                   placeholder="Roll Number"
                 />
+                <input
+                  type="text"
+                  value={editingStudent.skills || ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, skills: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                  placeholder="Skills (e.g. Football, Athletics)"
+                />
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700">
                     Update
@@ -279,6 +287,12 @@ const Students = () => {
                       <div className="flex items-start gap-1">
                         <MapPin className="w-2.5 h-2.5 text-slate-500 shrink-0 mt-0.5" />
                         <span className="line-clamp-2">{student.house_address}</span>
+                      </div>
+                    )}
+                    {student.skills && (
+                      <div className="flex items-start gap-1">
+                        <Trophy className="w-2.5 h-2.5 text-slate-500 shrink-0 mt-0.5" />
+                        <span className="line-clamp-2">{student.skills}</span>
                       </div>
                     )}
                   </div>

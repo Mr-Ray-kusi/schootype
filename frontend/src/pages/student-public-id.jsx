@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { GraduationCap, User, Hash } from 'lucide-react';
+import { GraduationCap, User, Hash, Phone, MapPin, Mail, Trophy } from 'lucide-react';
 
 const StudentPublicId = () => {
   const { barcode } = useParams();
@@ -52,6 +52,24 @@ const StudentPublicId = () => {
       </div>
     );
   }
+
+  const detailRows = [
+    data.roll_number
+      ? { Icon: Hash, label: 'Student ID', value: data.roll_number }
+      : null,
+    data.parent_phone
+      ? { Icon: Phone, label: 'Parent contact', value: data.parent_phone }
+      : null,
+    data.parent_email
+      ? { Icon: Mail, label: 'Parent email', value: data.parent_email }
+      : null,
+    data.house_address
+      ? { Icon: MapPin, label: 'House location', value: data.house_address }
+      : null,
+    data.skills
+      ? { Icon: Trophy, label: 'Skills', value: data.skills }
+      : null,
+  ].filter(Boolean);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950 font-sans text-white">
@@ -104,21 +122,23 @@ const StudentPublicId = () => {
             )}
           </div>
 
-          {data.roll_number ? (
-            <div className="border-t border-slate-700/80 px-6 py-4">
-              <div className="flex items-start gap-3">
-                <Hash className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Student ID</p>
-                  <p className="text-slate-100">{data.roll_number}</p>
+          {detailRows.length > 0 ? (
+            <div className="divide-y divide-slate-700/80 border-t border-slate-700/80">
+              {detailRows.map(({ Icon, label, value }) => (
+                <div key={label} className="flex items-start gap-3 px-6 py-4">
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+                    <p className="whitespace-pre-wrap text-slate-100">{value}</p>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           ) : null}
         </div>
 
         <p className="mt-auto pt-8 text-center text-xs text-slate-600">
-          Official student identification · NEXUS
+          If you found this card, please contact the parent or return it to the school · NEXUS
         </p>
       </div>
     </div>

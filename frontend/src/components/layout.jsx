@@ -22,6 +22,7 @@ import {
   Landmark,
   Wallet,
   Mail,
+  ClipboardList,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -91,6 +92,7 @@ const Layout = ({ children }) => {
           title: 'Platform',
           items: [
             { name: 'All Schools', href: '/super-admin', icon: LayoutDashboard },
+            { name: 'Monitoring', href: '/super-admin/monitor', icon: ClipboardList },
             { name: 'Email Schools', href: '/super-admin/email-schools', icon: Mail },
             { name: 'SMS Units', href: '/super-admin/sms', icon: MessageSquare },
           ],

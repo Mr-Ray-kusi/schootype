@@ -468,7 +468,15 @@ const validateImage = validateLogo;
 
 const insertStudentRecord = async (record) => {
   const payload = { ...record };
-  const optionalColumns = ['photo_url', 'parent_phone', 'house_address', 'date_of_birth', 'parent_email', 'roll_number'];
+  const optionalColumns = [
+    'photo_url',
+    'parent_phone',
+    'house_address',
+    'date_of_birth',
+    'parent_email',
+    'roll_number',
+    'skills',
+  ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase.from('students').insert([payload]).select().single();
@@ -494,7 +502,15 @@ const insertStudentRecord = async (record) => {
 
 const updateStudentRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['photo_url', 'parent_phone', 'house_address', 'date_of_birth', 'parent_email', 'roll_number'];
+  const optionalColumns = [
+    'photo_url',
+    'parent_phone',
+    'house_address',
+    'date_of_birth',
+    'parent_email',
+    'roll_number',
+    'skills',
+  ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase
@@ -1213,6 +1229,173 @@ app.get('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin, as
   }
 });
 
+const schoolNameMap = async (schoolIds) => {
+  if (!schoolIds.length) return new Map();
+  const { data } = await supabase.from('schools').select('id, name').in('id', schoolIds);
+  return new Map((data || []).map((s) => [s.id, s.name]));
+};
+
+const enrichAttendanceRows = async (attendance) => {
+  return Promise.all(
+    (attendance || []).map(async (record) => {
+      let table;
+      switch (record.user_type) {
+        case 'student':
+          table = 'students';
+          break;
+        case 'staff':
+          table = 'staffs';
+          break;
+        case 'non-staff':
+          table = 'nonstaffs';
+          break;
+        default:
+          return record;
+      }
+
+      const { data: user } = await supabase
+        .from(table)
+        .select('name, role, class')
+        .eq('id', record.user_id)
+        .maybeSingle();
+
+      return { ...record, user };
+    })
+  );
+};
+
+// Platform-wide monitoring for super admin
+app.get('/api/super-admin/monitor', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { tab = 'students', schoolId, date } = req.query;
+    const allowed = new Set(['students', 'staff', 'non-staff', 'attendance', 'report-cards']);
+    if (!allowed.has(tab)) {
+      return res.status(400).json({ error: 'Invalid tab' });
+    }
+
+    const { data: schoolAccounts, error: schoolsError } = await fetchSchoolAccounts();
+    if (schoolsError) {
+      return res.status(500).json({ error: schoolsError.message || 'Failed to fetch schools' });
+    }
+
+    const schools = schoolAccounts || [];
+    const schoolOptions = schools.map((s) => ({ id: s.id, name: s.name }));
+    const filterId = schoolId && schoolId !== 'all' ? schoolId : null;
+
+    if (filterId && !schools.some((s) => s.id === filterId)) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+
+    const schoolIds = filterId ? [filterId] : schools.map((s) => s.id);
+    if (!schoolIds.length) {
+      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items: [] });
+    }
+
+    const names = await schoolNameMap(schoolIds);
+
+    if (tab === 'students') {
+      const { data, error } = await supabase
+        .from('students')
+        .select('*')
+        .in('school_id', schoolIds)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      const items = mergeStudentPhotos(data || []).map((row) => ({
+        ...row,
+        school_name: names.get(row.school_id) || 'School',
+      }));
+      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
+    }
+
+    if (tab === 'staff') {
+      const { data, error } = await supabase
+        .from('staffs')
+        .select('*')
+        .in('school_id', schoolIds)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      const items = (data || []).map((row) => ({
+        ...mergePersonPhoto(normalizeStaffRecord(row)),
+        school_name: names.get(row.school_id) || 'School',
+      }));
+      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
+    }
+
+    if (tab === 'non-staff') {
+      const { data, error } = await supabase
+        .from('nonstaffs')
+        .select('*')
+        .in('school_id', schoolIds)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      const items = (data || []).map((row) => ({
+        ...mergePersonPhoto(row),
+        school_name: names.get(row.school_id) || 'School',
+      }));
+      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
+    }
+
+    if (tab === 'attendance') {
+      const today = new Date().toISOString().split('T')[0];
+      const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
+      let query = supabase
+        .from('attendance')
+        .select('*')
+        .in('school_id', schoolIds)
+        .eq('date', selectedDate)
+        .order('timestamp', { ascending: false })
+        .limit(500);
+      const { data, error } = await query;
+      if (error) throw error;
+      const enriched = await enrichAttendanceRows(data);
+      const items = enriched.map((row) => ({
+        ...row,
+        school_name: names.get(row.school_id) || 'School',
+      }));
+      return res.json({
+        tab,
+        schoolId: filterId || 'all',
+        schools: schoolOptions,
+        date: selectedDate,
+        items,
+      });
+    }
+
+    // report-cards
+    const { data, error } = await supabase
+      .from('report_cards')
+      .select('*')
+      .in('school_id', schoolIds)
+      .order('uploaded_at', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      if (isMissingColumnError(error, 'report_cards') || error.code === '42P01') {
+        return res.json({
+          tab,
+          schoolId: filterId || 'all',
+          schools: schoolOptions,
+          items: [],
+          note: 'Report cards table is not set up yet. Run database/migrations.sql in Supabase.',
+        });
+      }
+      throw error;
+    }
+
+    const items = (data || []).map((row) => ({
+      ...row,
+      school_name: names.get(row.school_id) || 'School',
+    }));
+    return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
+  } catch (error) {
+    console.error('Super admin monitor error:', error);
+    res.status(500).json({ error: error.message || 'Failed to load monitoring data' });
+  }
+});
+
 app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const { data: schoolAccounts, error: schoolsError } = await fetchSchoolAccounts();
@@ -1575,6 +1758,11 @@ app.get('/api/public/id/:barcode', async (req, res) => {
       class: withPhoto.class,
       photo_url: withPhoto.photo_url || null,
       roll_number: withPhoto.roll_number || null,
+      parent_phone: withPhoto.parent_phone || null,
+      parent_email: withPhoto.parent_email || null,
+      house_address: withPhoto.house_address || null,
+      skills: withPhoto.skills || null,
+      date_of_birth: withPhoto.date_of_birth || null,
       school_name: school?.name || 'School',
       school_logo_url: school?.logo_url || null,
     });
@@ -1613,6 +1801,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       houseAddress,
       dateOfBirth,
       rollNumber,
+      skills,
       photo,
     } = req.body;
 
@@ -1642,6 +1831,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       house_address: houseAddress?.trim() || null,
       date_of_birth: dateOfBirth || null,
       roll_number: rollNumber?.trim() || null,
+      skills: skills?.trim() || null,
       barcode,
       created_at: new Date(),
     };
@@ -1681,6 +1871,7 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       date_of_birth,
       rollNumber,
       roll_number,
+      skills,
       photo,
       photo_url: photoUrl,
     } = req.body;
@@ -1698,6 +1889,7 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     if (nextDob !== undefined) updates.date_of_birth = nextDob || null;
     const nextRoll = rollNumber !== undefined ? rollNumber : roll_number;
     if (nextRoll !== undefined) updates.roll_number = nextRoll;
+    if (skills !== undefined) updates.skills = skills?.trim?.() ? skills.trim() : skills || null;
 
     const nextPhoto = photo !== undefined ? photo : photoUrl;
     if (nextPhoto !== undefined) {
@@ -2239,11 +2431,13 @@ app.get('/api/scanner/link', authenticateToken, enforcePlanApproval, async (req,
       return res.status(404).json({ error: 'School not found' });
     }
     const merged = mergeSchoolWithExtras(school);
+    if (school?.id) hydrateExtrasFromSchool(school);
 
     if (!hasPlanFeature(merged.payment_plan, 'scanner')) {
       return res.status(403).json({ error: 'Scanner is not included in your plan' });
     }
 
+    // Stable: returns existing token; only POST /api/scanner/regenerate creates a new one.
     const token = await ensureScannerToken(req.user.schoolId);
     res.json({ token, schoolName: merged.name });
   } catch (error) {
@@ -2263,6 +2457,7 @@ app.post('/api/scanner/regenerate', authenticateToken, enforcePlanApproval, asyn
       return res.status(404).json({ error: 'School not found' });
     }
     const merged = mergeSchoolWithExtras(school);
+    if (school?.id) hydrateExtrasFromSchool(school);
 
     if (!hasPlanFeature(merged.payment_plan, 'scanner')) {
       return res.status(403).json({ error: 'Scanner is not included in your plan' });

@@ -402,17 +402,33 @@ export async function getSchoolIdByScannerToken(token) {
 }
 
 export async function ensureScannerToken(schoolId) {
-  const existing = getScannerTokenSync(schoolId);
-  if (existing) return existing;
+  // Prefer in-memory cache, then Postgres — never mint a new token just because cache is cold.
+  const cached = getScannerTokenSync(schoolId);
+  if (cached) return cached;
+
+  const { data: school, error } = await supabase
+    .from('schools')
+    .select('id, scanner_token')
+    .eq('id', schoolId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Scanner token DB lookup failed:', error.message);
+  }
+
+  if (school?.scanner_token) {
+    hydrateExtrasFromSchool(school);
+    return school.scanner_token;
+  }
 
   const token = createScannerToken();
-  await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: false });
+  await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: true });
   return getScannerTokenSync(schoolId) || token;
 }
 
 export async function regenerateScannerToken(schoolId) {
   const token = createScannerToken();
-  await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: false });
+  await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: true });
   return token;
 }
 

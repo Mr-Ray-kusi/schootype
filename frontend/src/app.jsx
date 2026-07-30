@@ -24,6 +24,7 @@ import SuperAdmin from './pages/super-admin';
 import SuperAdminSchool from './pages/super-admin-school';
 import SuperAdminBroadcast from './pages/super-admin-broadcast';
 import SuperAdminSms from './pages/super-admin-sms';
+import SuperAdminMonitor from './pages/super-admin-monitor';
 import StudentPublicId from './pages/student-public-id';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './contexts/authcontext';
@@ -126,6 +127,9 @@ function App() {
             } />
             <Route path="/super-admin/sms" element={
               <SuperAdminRoute><SuperAdminSms /></SuperAdminRoute>
+            } />
+            <Route path="/super-admin/monitor" element={
+              <SuperAdminRoute><SuperAdminMonitor /></SuperAdminRoute>
             } />
             <Route path="/students" element={
               <SchoolAdminRoute><PlanFeatureRoute feature="students"><Students /></PlanFeatureRoute></SchoolAdminRoute>
