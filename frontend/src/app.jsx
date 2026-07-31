@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Home from './pages/home';
 import Login from './pages/login';
 import Signup from './pages/sigup';
+import VerifyEmail from './pages/verify-email';
 import Plans from './pages/plans';
 import SelectPlan from './pages/select-plan';
 import Dashboard from './pages/Dashboard';
@@ -108,6 +109,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/plans" element={<Plans />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/id/:barcode" element={<StudentPublicId />} />
             <Route path="/scan/:token" element={<MobileScanner />} />
             <Route path="/select-plan" element={

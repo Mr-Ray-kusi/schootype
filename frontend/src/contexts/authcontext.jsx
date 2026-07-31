@@ -16,7 +16,11 @@ export const getPostAuthPath = (school) => {
   return '/dashboard';
 };
 
-const isAuthRoute = (url = '') => url.includes('/api/auth/login') || url.includes('/api/auth/signup');
+const isAuthRoute = (url = '') =>
+  url.includes('/api/auth/login') ||
+  url.includes('/api/auth/signup') ||
+  url.includes('/api/auth/verify-email') ||
+  url.includes('/api/auth/resend-verification');
 
 const readCachedSchool = () => {
   try {
@@ -189,8 +193,11 @@ export const AuthProvider = ({ children }) => {
       logo,
       paymentPlan,
     });
-    const { token: newToken, school: schoolData, expiresIn } = response.data;
-    storeSession(newToken, schoolData, expiresIn);
+    const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
+    // Do not auto-login until the email magic link is confirmed.
+    if (!requiresEmailVerification && newToken && schoolData) {
+      storeSession(newToken, schoolData, expiresIn);
+    }
     return response.data;
   };
 

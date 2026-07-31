@@ -54,6 +54,13 @@ import { registerWalletRoutes } from './walletRoutes.js';
 import { initPlatformSmsStore } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
+import {
+  createEmailVerificationToken,
+  hashEmailVerificationToken,
+  buildVerifyEmailUrl,
+  buildVerificationEmail,
+  isSchoolEmailVerified,
+} from './emailVerification.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -140,6 +147,7 @@ const formatSchool = (school, { includeCredentials = false } = {}) => {
     plan_price: plan?.price ?? null,
     total_paid: merged.total_paid || 0,
     payment_records: merged.payment_records || [],
+    email_verified: isSchoolEmailVerified(merged),
   };
 
   // Never return plaintext passwords — includeCredentials kept for API compat only.
@@ -209,6 +217,9 @@ const insertSchoolRecord = async (record) => {
     'subscription_frozen',
     'subscription_started_at',
     'total_paid',
+    'email_verified',
+    'email_verification_token',
+    'email_verification_expires_at',
   ];
   const requiredPlanFields = ['payment_plan', 'plan_status'].filter(
     (column) => record[column] !== undefined && record[column] !== null
@@ -279,6 +290,9 @@ const updateSchoolRecord = async (id, updates) => {
     'subscription_frozen',
     'subscription_started_at',
     'total_paid',
+    'email_verified',
+    'email_verification_token',
+    'email_verification_expires_at',
   ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
@@ -677,7 +691,7 @@ app.get('/api/plans', (req, res) => {
 
 // ============ AUTHENTICATION ROUTES ============
 
-// Signup - Create new school
+// Signup - Create new school (requires email verification before login)
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
@@ -702,6 +716,14 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'This email is reserved. Please use Login instead.' });
     }
 
+    if (!emailReady || !emailTransporter) {
+      return res.status(503).json({
+        error:
+          'Email verification is not configured on the server. Set EMAIL_USER and EMAIL_PASSWORD, then try again.',
+        code: 'EMAIL_NOT_CONFIGURED',
+      });
+    }
+
     const logoError = validateLogo(logo);
     if (logoError) {
       return res.status(400).json({ error: logoError });
@@ -714,10 +736,18 @@ app.post('/api/auth/signup', async (req, res) => {
     const existingSchool = await findSchoolByEmail(email);
     if (existingSchool) {
       await recordSignupAttempt(clientIp);
+      if (!isSchoolEmailVerified(existingSchool) && getSchoolRole(existingSchool) !== 'super_admin') {
+        return res.status(409).json({
+          error: 'An account with this email already exists but is not verified. Please log in and resend the verification email.',
+          code: 'EMAIL_NOT_VERIFIED',
+          email,
+        });
+      }
       return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
 
     const schoolRecord = {
       name: schoolName.trim(),
@@ -728,6 +758,9 @@ app.post('/api/auth/signup', async (req, res) => {
       payment_plan: paymentPlan,
       plan_selected_at: new Date(),
       plan_status: 'pending',
+      email_verified: false,
+      email_verification_token: tokenHash,
+      email_verification_expires_at: expiresAt,
     };
     if (logo) {
       schoolRecord.logo_url = logo;
@@ -751,10 +784,31 @@ app.post('/api/auth/signup', async (req, res) => {
             'Supabase blocked school creation (RLS). Run database/supabase_backend_access.sql in the Supabase SQL editor, or set SUPABASE_SERVICE_ROLE_KEY in backend/.env, then restart.',
         });
       }
+      if (
+        schoolError?.code === 'MISSING_PLAN_COLUMNS' ||
+        isMissingColumnError(schoolError, 'email_verified') ||
+        isMissingColumnError(schoolError, 'email_verification_token')
+      ) {
+        return res.status(500).json({
+          error:
+            schoolError?.message ||
+            'Email verification columns are missing. Run backend/migrations/add_email_verification.sql (or database/supabase_core_billing.sql) in Supabase.',
+        });
+      }
       return res.status(500).json({
         error: schoolError?.message
           ? `Failed to create school: ${schoolError.message}`
           : 'Failed to create school. Please try again.',
+      });
+    }
+
+    if (school.email_verified !== false && school.email_verification_token == null) {
+      await supabase.from('schools').delete().eq('id', school.id);
+      await deleteSchoolExtras(school.id);
+      return res.status(500).json({
+        error:
+          'Email verification columns are missing. Run backend/migrations/add_email_verification.sql in the Supabase SQL editor, then try signup again.',
+        code: 'MISSING_EMAIL_VERIFICATION_COLUMNS',
       });
     }
 
@@ -784,14 +838,37 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
 
-    const token = signAuthToken(school);
+    const verifyUrl = buildVerifyEmailUrl(rawToken);
+    const mail = buildVerificationEmail({
+      schoolName: school.name,
+      email,
+      verifyUrl,
+    });
 
-    const formattedSchool = formatSchool(school);
+    try {
+      await emailTransporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    } catch (mailError) {
+      console.error('Verification email send failed:', mailError.message);
+      return res.status(201).json({
+        requiresEmailVerification: true,
+        emailSendFailed: true,
+        email,
+        message:
+          'Account created, but we could not send the verification email. Use Resend on the login page.',
+        code: 'EMAIL_SEND_FAILED',
+      });
+    }
 
-    res.json({
-      token,
-      ...authTokenPayload(),
-      school: formattedSchool,
+    res.status(201).json({
+      requiresEmailVerification: true,
+      email,
+      message: 'Account created. Check your email for a verification link before signing in.',
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -869,6 +946,15 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    if (getSchoolRole(school) !== 'super_admin' && !isSchoolEmailVerified(school)) {
+      await clearLoginFailures(email);
+      return res.status(403).json({
+        error: 'Please verify your email before signing in. Check your inbox or resend the link.',
+        code: 'EMAIL_NOT_VERIFIED',
+        email: school.email,
+      });
+    }
+
     await clearLoginFailures(email);
 
     const token = signAuthToken(school);
@@ -880,6 +966,145 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Confirm email via magic link token
+app.get('/api/auth/verify-email', async (req, res) => {
+  try {
+    const rawToken = String(req.query.token || '').trim();
+    if (!rawToken || rawToken.length < 32) {
+      return res.status(400).json({ error: 'Invalid or missing verification token', code: 'INVALID_TOKEN' });
+    }
+
+    const tokenHash = hashEmailVerificationToken(rawToken);
+    const { data: school, error } = await supabase
+      .from('schools')
+      .select('*')
+      .eq('email_verification_token', tokenHash)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Verify email lookup error:', error);
+      if (isMissingColumnError(error, 'email_verification_token')) {
+        return res.status(500).json({
+          error: 'Email verification is not set up in the database yet. Run the email verification migration in Supabase.',
+        });
+      }
+      return res.status(500).json({ error: 'Verification failed. Please try again.' });
+    }
+
+    if (!school) {
+      return res.status(400).json({
+        error: 'This verification link is invalid or has already been used.',
+        code: 'INVALID_TOKEN',
+      });
+    }
+
+    if (school.email_verified === true) {
+      return res.json({
+        verified: true,
+        alreadyVerified: true,
+        email: school.email,
+        message: 'Email is already verified. You can sign in.',
+      });
+    }
+
+    const expiresAt = school.email_verification_expires_at
+      ? new Date(school.email_verification_expires_at).getTime()
+      : 0;
+    if (!expiresAt || expiresAt < Date.now()) {
+      return res.status(400).json({
+        error: 'This verification link has expired. Please request a new one.',
+        code: 'TOKEN_EXPIRED',
+        email: school.email,
+      });
+    }
+
+    const { data: updated, error: updateError } = await updateSchoolRecord(school.id, {
+      email_verified: true,
+      email_verification_token: null,
+      email_verification_expires_at: null,
+    });
+
+    if (updateError) {
+      console.error('Verify email update error:', updateError);
+      return res.status(500).json({ error: 'Could not complete email verification.' });
+    }
+
+    res.json({
+      verified: true,
+      email: updated?.email || school.email,
+      message: 'Email verified successfully. You can sign in now.',
+    });
+  } catch (error) {
+    console.error('Verify email error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Resend verification magic link
+app.post('/api/auth/resend-verification', async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    if (!emailReady || !emailTransporter) {
+      return res.status(503).json({
+        error: 'Email is not configured on the server.',
+        code: 'EMAIL_NOT_CONFIGURED',
+      });
+    }
+
+    const school = await findSchoolByEmail(email);
+    // Always return a generic success to avoid email enumeration
+    const generic = {
+      ok: true,
+      message: 'If that account needs verification, a new link has been sent.',
+    };
+
+    if (!school || getSchoolRole(school) === 'super_admin' || isSchoolEmailVerified(school)) {
+      return res.json(generic);
+    }
+
+    const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
+    const { error: updateError } = await updateSchoolRecord(school.id, {
+      email_verification_token: tokenHash,
+      email_verification_expires_at: expiresAt,
+      email_verified: false,
+    });
+
+    if (updateError) {
+      console.error('Resend verification update failed:', updateError);
+      return res.status(500).json({ error: 'Could not resend verification email.' });
+    }
+
+    const verifyUrl = buildVerifyEmailUrl(rawToken);
+    const mail = buildVerificationEmail({
+      schoolName: school.name,
+      email: school.email,
+      verifyUrl,
+    });
+
+    try {
+      await emailTransporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: school.email,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    } catch (mailError) {
+      console.error('Resend verification email failed:', mailError.message);
+      return res.status(500).json({ error: 'Failed to send verification email. Try again later.' });
+    }
+
+    res.json(generic);
+  } catch (error) {
+    console.error('Resend verification error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -896,6 +1121,14 @@ app.get('/api/auth/verify', authenticateToken, async (req, res) => {
 
     if (error || !school) {
       return res.status(401).json({ error: 'School not found' });
+    }
+
+    if (getSchoolRole(school) !== 'super_admin' && !isSchoolEmailVerified(school)) {
+      return res.status(403).json({
+        error: 'Email not verified',
+        code: 'EMAIL_NOT_VERIFIED',
+        email: school.email,
+      });
     }
 
     res.json({
@@ -2996,6 +3229,9 @@ async function seedSuperAdmin() {
       password_hash: hashedPassword,
       initial_password: null,
       role: 'super_admin',
+      email_verified: true,
+      email_verification_token: null,
+      email_verification_expires_at: null,
     };
 
     if (existing) {

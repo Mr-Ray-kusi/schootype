@@ -14,10 +14,17 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS last_payment_at DATE;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_frozen BOOLEAN DEFAULT FALSE;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_started_at DATE;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS total_paid NUMERIC DEFAULT 0;
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT TRUE;
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_verification_token TEXT;
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_scanner_token
   ON schools (scanner_token)
   WHERE scanner_token IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_schools_email_verification_token
+  ON schools (email_verification_token)
+  WHERE email_verification_token IS NOT NULL;
 
 -- ========== Subscription payment history ==========
 CREATE TABLE IF NOT EXISTS subscription_payments (

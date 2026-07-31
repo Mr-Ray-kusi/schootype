@@ -94,6 +94,23 @@ const Signup = () => {
         logo,
         planParam
       );
+
+      if (data.requiresEmailVerification) {
+        toast.success(
+          data.emailSendFailed
+            ? 'Account created. We could not send email — use Resend on the login page.'
+            : 'Check your email for a verification link before signing in.'
+        );
+        navigate('/login', {
+          replace: true,
+          state: {
+            pendingVerificationEmail: data.email || formData.email,
+            emailSendFailed: Boolean(data.emailSendFailed),
+          },
+        });
+        return;
+      }
+
       toast.success('Account created! Your plan is awaiting admin approval.');
       navigate(getPostAuthPath(data.school));
     } catch (error) {

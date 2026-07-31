@@ -1,15 +1,38 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 import { ArrowLeft } from 'lucide-react';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const pendingFromSignup = location.state?.pendingVerificationEmail || '';
+  const [email, setEmail] = useState(pendingFromSignup);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(Boolean(pendingFromSignup));
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  const handleResend = async () => {
+    const target = email.trim().toLowerCase();
+    if (!target) {
+      toast.error('Enter your email first');
+      return;
+    }
+    setResending(true);
+    try {
+      await axios.post('/api/auth/resend-verification', { email: target });
+      toast.success('If that account needs verification, a new link was sent.');
+      setNeedsVerification(true);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not resend verification email');
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -21,15 +44,21 @@ const Login = () => {
       navigate(getPostAuthPath(data.school));
     } catch (error) {
       const data = error.response?.data;
-      const message =
-        data?.error ||
-        (error.request && !error.response
-          ? 'Cannot connect to server. Start the backend: cd backend && npm run dev'
-          : 'Login failed');
-      if (error.response?.status === 429 && data?.retryAfter) {
-        toast.error(`${message} (${data.retryAfter}s)`);
+      if (error.response?.status === 403 && data?.code === 'EMAIL_NOT_VERIFIED') {
+        setNeedsVerification(true);
+        if (data.email) setEmail(data.email);
+        toast.error(data.error || 'Please verify your email before signing in.');
       } else {
-        toast.error(message);
+        const message =
+          data?.error ||
+          (error.request && !error.response
+            ? 'Cannot connect to server. Start the backend: cd backend && npm run dev'
+            : 'Login failed');
+        if (error.response?.status === 429 && data?.retryAfter) {
+          toast.error(`${message} (${data.retryAfter}s)`);
+        } else {
+          toast.error(message);
+        }
       }
     } finally {
       setLoading(false);
@@ -56,6 +85,23 @@ const Login = () => {
             <h1 className="mt-6 font-display text-3xl font-bold text-white">Sign in</h1>
             <p className="mt-2 text-sm text-slate-400">Access your school admin dashboard</p>
           </div>
+
+          {needsVerification && (
+            <div className="mb-5 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+              <p className="font-medium">Verify your email to continue</p>
+              <p className="mt-1 text-sky-100/80">
+                We sent a magic link to your inbox. After you click it, come back here to sign in.
+              </p>
+              <button
+                type="button"
+                disabled={resending}
+                onClick={handleResend}
+                className="mt-3 text-sm font-semibold text-sky-300 underline-offset-2 hover:underline disabled:opacity-50"
+              >
+                {resending ? 'Sending…' : 'Resend verification email'}
+              </button>
+            </div>
+          )}
 
           <form
             onSubmit={handleSubmit}
