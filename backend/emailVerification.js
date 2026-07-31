@@ -15,11 +15,24 @@ export function hashEmailVerificationToken(rawToken) {
 }
 
 export function getFrontendBaseUrl() {
-  return String(process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const configured = String(process.env.FRONTEND_URL || process.env.APP_URL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (configured) return configured;
+  // Vercel production fallback when FRONTEND_URL was forgotten
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${String(process.env.VERCEL_PROJECT_PRODUCTION_URL).replace(/^https?:\/\//, '')}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${String(process.env.VERCEL_URL).replace(/^https?:\/\//, '')}`;
+  }
+  return 'http://localhost:3000';
 }
 
 export function buildVerifyEmailUrl(rawToken) {
-  return `${getFrontendBaseUrl()}/verify-email?token=${encodeURIComponent(rawToken)}`;
+  const base = getFrontendBaseUrl();
+  const token = encodeURIComponent(String(rawToken || '').trim());
+  return `${base}/verify-email?token=${token}`;
 }
 
 export function isSchoolEmailVerified(school) {
@@ -39,33 +52,47 @@ export function needsPasswordSetup(school) {
 
 export function buildVerificationEmail({ schoolName, email, verifyUrl }) {
   const name = schoolName || 'your school';
-  const subject = 'Create your Schooltype account';
+  const safeUrl = String(verifyUrl || '').trim();
+  const subject = 'Create your Schooltype account — verify your email';
+
   const text = [
     `Hi,`,
     ``,
     `Thanks for starting registration for ${name} on Schooltype.`,
-    `Confirm this email address, then choose a password to finish creating your account:`,
     ``,
-    verifyUrl,
+    `Open this link to verify your email and choose a password:`,
+    safeUrl,
     ``,
+    `If the link above is not clickable, copy and paste it into your browser.`,
+    ``,
+    `This link expires in 24 hours.`,
     `If you did not request this, you can ignore this email.`,
   ].join('\n');
 
-  const html = `
-    <div style="font-family: system-ui, sans-serif; max-width: 520px; line-height: 1.5; color: #0f172a;">
-      <h2 style="margin: 0 0 12px;">Create your account</h2>
-      <p>Thanks for starting registration for <strong>${escapeHtml(name)}</strong> on Schooltype.</p>
-      <p>Confirm <strong>${escapeHtml(email)}</strong>, then choose a password to finish setup:</p>
-      <p style="margin: 24px 0;">
-        <a href="${verifyUrl}"
-           style="display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600;">
-          Continue with email
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;">
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;line-height:1.5;color:#0f172a;">
+    <div style="background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e2e8f0;">
+      <h2 style="margin:0 0 16px;font-size:22px;color:#0f172a;">Create your Schooltype account</h2>
+      <p style="margin:0 0 12px;">Thanks for starting registration for <strong>${escapeHtml(name)}</strong>.</p>
+      <p style="margin:0 0 20px;">Confirm <strong>${escapeHtml(email)}</strong>, then choose a password to finish setup.</p>
+      <p style="margin:0 0 8px;text-align:center;">
+        <a href="${escapeHtml(safeUrl)}"
+           style="display:inline-block;background:#0284c7;color:#ffffff !important;text-decoration:none;padding:14px 28px;border-radius:999px;font-weight:700;font-size:16px;">
+          Verify email &amp; continue
         </a>
       </p>
-      <p style="font-size: 13px; color: #64748b;">Or copy this link:<br>${escapeHtml(verifyUrl)}</p>
-      <p style="font-size: 13px; color: #64748b;">This link expires in 24 hours.</p>
+      <p style="margin:24px 0 8px;font-size:14px;color:#334155;font-weight:600;">Or copy this link into your browser:</p>
+      <p style="margin:0;padding:12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;word-break:break-all;font-size:13px;">
+        <a href="${escapeHtml(safeUrl)}" style="color:#0284c7;text-decoration:underline;">${escapeHtml(safeUrl)}</a>
+      </p>
+      <p style="margin:20px 0 0;font-size:12px;color:#64748b;">This link expires in 24 hours. If you did not request this, ignore this email.</p>
     </div>
-  `;
+  </div>
+</body>
+</html>`;
 
   return { subject, text, html };
 }

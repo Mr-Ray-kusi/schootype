@@ -62,6 +62,7 @@ import {
   isSchoolEmailVerified,
   needsPasswordSetup,
   PASSWORD_SETUP_MARKER,
+  getFrontendBaseUrl,
 } from './emailVerification.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -587,10 +588,23 @@ const authTokenPayload = () => ({
 let emailTransporter = null;
 let emailReady = false;
 
-const getEmailUser = () =>
-  String(process.env.EMAIL_USER || process.env.BROADCAST_EMAIL || '')
-    .trim()
-    .toLowerCase();
+const PLACEHOLDER_EMAIL_USERS = new Set([
+  'your-email@gmail.com',
+  'your-kusiraymond208@gmail.com',
+]);
+
+const getEmailUser = () => {
+  const candidates = [process.env.EMAIL_USER, process.env.BROADCAST_EMAIL];
+  for (const raw of candidates) {
+    const email = String(raw || '')
+      .trim()
+      .toLowerCase();
+    if (email && email.includes('@') && !PLACEHOLDER_EMAIL_USERS.has(email)) {
+      return email;
+    }
+  }
+  return '';
+};
 
 const getEmailPassword = () =>
   // Gmail app passwords are often copied with spaces — strip them
@@ -599,16 +613,8 @@ const getEmailPassword = () =>
 const hasValidEmailConfig = () => {
   const emailUser = getEmailUser();
   const emailPass = getEmailPassword();
-  const placeholderUsers = new Set([
-    'your-email@gmail.com',
-    'your-kusiraymond208@gmail.com',
-  ]);
   return Boolean(
-    emailUser &&
-      emailPass &&
-      !placeholderUsers.has(emailUser) &&
-      emailPass !== 'your-app-password' &&
-      emailUser.includes('@')
+    emailUser && emailPass && emailPass !== 'your-app-password' && emailUser.includes('@')
   );
 };
 
@@ -666,6 +672,50 @@ const initEmailTransporter = () => {
 };
 
 initEmailTransporter();
+
+/**
+ * Auth emails (signup verify / resend) must go to the user's address — never BROADCAST_EMAIL.
+ */
+async function sendAuthEmail({ to, subject, text, html }) {
+  const recipient = String(to || '')
+    .trim()
+    .toLowerCase();
+  if (!recipient || !recipient.includes('@')) {
+    const err = new Error('Missing recipient email for auth message');
+    err.code = 'INVALID_RECIPIENT';
+    throw err;
+  }
+  if (!emailReady || !emailTransporter) {
+    const err = new Error('Email is not configured on the server.');
+    err.code = 'EMAIL_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const fromUser = getEmailUser();
+  const info = await emailTransporter.sendMail({
+    from: `"Schooltype" <${fromUser}>`,
+    to: recipient,
+    subject,
+    text,
+    html,
+    // Force SMTP envelope so providers cannot redirect to the authenticated mailbox.
+    envelope: {
+      from: fromUser,
+      to: recipient,
+    },
+  });
+
+  const accepted = (info.accepted || []).map((a) => String(a).toLowerCase());
+  console.log(
+    `[auth] Mail queued to=${recipient} from=${fromUser} accepted=${accepted.join(',') || 'n/a'} id=${info.messageId || 'n/a'}`
+  );
+
+  if (accepted.length && !accepted.some((a) => a.includes(recipient))) {
+    console.warn(`[auth] Warning: SMTP accepted list did not include ${recipient}:`, accepted);
+  }
+
+  return info;
+}
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
@@ -848,16 +898,28 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     const verifyUrl = buildVerifyEmailUrl(rawToken);
+    if (!verifyUrl || !verifyUrl.includes('/verify-email?token=')) {
+      console.error('Verification URL was empty or invalid');
+      return res.status(500).json({ error: 'Could not build verification link. Check FRONTEND_URL.' });
+    }
+
+    const recipientEmail = String(school.email || email)
+      .trim()
+      .toLowerCase();
+    if (!recipientEmail || recipientEmail !== email) {
+      console.error('[auth] Signup email mismatch', { bodyEmail: email, schoolEmail: school.email });
+      return res.status(500).json({ error: 'Account email mismatch. Please try signup again.' });
+    }
+
     const mail = buildVerificationEmail({
       schoolName: school.name,
-      email,
+      email: recipientEmail,
       verifyUrl,
     });
 
     try {
-      await emailTransporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
+      await sendAuthEmail({
+        to: recipientEmail,
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
@@ -867,7 +929,7 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(201).json({
         requiresEmailVerification: true,
         emailSendFailed: true,
-        email,
+        email: recipientEmail,
         message:
           'Account started, but we could not send the email. Use Resend on the sign-in page.',
         code: 'EMAIL_SEND_FAILED',
@@ -876,7 +938,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
     res.status(201).json({
       requiresEmailVerification: true,
-      email,
+      email: recipientEmail,
       message: 'Check your email to continue. Open the link to verify and choose a password.',
     });
   } catch (error) {
@@ -1217,16 +1279,18 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     }
 
     const verifyUrl = buildVerifyEmailUrl(rawToken);
+    const recipientEmail = String(school.email || email)
+      .trim()
+      .toLowerCase();
     const mail = buildVerificationEmail({
       schoolName: school.name,
-      email: school.email,
+      email: recipientEmail,
       verifyUrl,
     });
 
     try {
-      await emailTransporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: school.email,
+      await sendAuthEmail({
+        to: recipientEmail,
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
