@@ -2966,9 +2966,26 @@ async function seedSuperAdmin() {
   try {
     const existing = await findSchoolByEmail(email);
 
-    // Avoid expensive bcrypt + update on every Vercel cold start.
+    // Skip bcrypt work only when the account already matches env credentials.
+    // (Previously we returned early for any super_admin row, so a drifted
+    // password_hash left the login page hint permanently wrong.)
     if (existing && getSchoolRole(existing) === 'super_admin') {
-      return;
+      let passwordMatches = false;
+      try {
+        passwordMatches = Boolean(
+          existing.password_hash && (await bcrypt.compare(password, existing.password_hash))
+        );
+      } catch {
+        passwordMatches = false;
+      }
+      if (
+        passwordMatches &&
+        existing.role === 'super_admin' &&
+        !existing.initial_password &&
+        (!name || existing.name === name)
+      ) {
+        return;
+      }
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);

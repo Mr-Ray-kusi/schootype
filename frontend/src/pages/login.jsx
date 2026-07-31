@@ -115,6 +115,16 @@ const Login = () => {
               <p className="mb-2 font-medium text-slate-300">Dev super admin</p>
               <p>Email: superadmin@school.com</p>
               <p>Password: SuperAdmin123!</p>
+              <button
+                type="button"
+                className="mt-3 text-sky-400 hover:text-sky-300"
+                onClick={() => {
+                  setEmail('superadmin@school.com');
+                  setPassword('SuperAdmin123!');
+                }}
+              >
+                Fill credentials
+              </button>
             </div>
           )}
         </div>
