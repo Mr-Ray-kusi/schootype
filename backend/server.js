@@ -1087,20 +1087,6 @@ app.get('/api/auth/verify-email', async (req, res) => {
         expiresIn: '2h',
       });
 
-    if (school.email_verified === true) {
-      const pendingPassword = needsPasswordSetup(school);
-      return res.json({
-        verified: true,
-        alreadyVerified: true,
-        needsPasswordSetup: pendingPassword,
-        setupToken: pendingPassword ? issueSetupToken(school) : null,
-        email: school.email,
-        message: pendingPassword
-          ? 'Email already verified. Choose a password to finish creating your account.'
-          : 'Email is already verified. You can sign in.',
-      });
-    }
-
     const expiresAt = school.email_verification_expires_at
       ? new Date(school.email_verification_expires_at).getTime()
       : 0;
@@ -1112,37 +1098,31 @@ app.get('/api/auth/verify-email', async (req, res) => {
       });
     }
 
-    const pendingPassword = needsPasswordSetup(school);
-    const { data: updated, error: updateError } = await updateSchoolRecord(
-      school.id,
-      pendingPassword
-        ? {
-            // Keep magic-link token until password is chosen (supports refresh).
-            email_verified: true,
-          }
-        : {
-            email_verified: true,
-            email_verification_token: null,
-            email_verification_expires_at: null,
-          }
-    );
+    // A live verification token means signup is not finished — always collect a password.
+    // (Token is cleared only after set-password succeeds.)
+    const { data: updated, error: updateError } = await updateSchoolRecord(school.id, {
+      email_verified: true,
+      initial_password: PASSWORD_SETUP_MARKER,
+    });
 
     if (updateError) {
       console.error('Verify email update error:', updateError);
       return res.status(500).json({ error: 'Could not complete email verification.' });
     }
 
-    const verifiedSchool = updated || { ...school, email_verified: true };
-    const stillNeedsPassword = needsPasswordSetup(verifiedSchool) || pendingPassword;
+    const verifiedSchool = updated || {
+      ...school,
+      email_verified: true,
+      initial_password: PASSWORD_SETUP_MARKER,
+    };
 
     res.json({
       verified: true,
-      needsPasswordSetup: stillNeedsPassword,
-      setupToken: stillNeedsPassword ? issueSetupToken(verifiedSchool) : null,
+      alreadyVerified: school.email_verified === true,
+      needsPasswordSetup: true,
+      setupToken: issueSetupToken(verifiedSchool),
       email: verifiedSchool.email || school.email,
-      message: stillNeedsPassword
-        ? 'Email verified. Choose a password to finish creating your account.'
-        : 'Email verified successfully. You can sign in now.',
+      message: 'Email verified. Choose a password to finish creating your account.',
     });
   } catch (error) {
     console.error('Verify email error:', error);
@@ -1197,7 +1177,13 @@ app.post('/api/auth/set-password', async (req, res) => {
       });
     }
 
-    if (!needsPasswordSetup(school)) {
+    // Allow password set whenever a valid setup token was issued after email verify.
+    // Only block if account already has a real password and is fully finished (no setup marker, no pending token).
+    const setupFinished =
+      !needsPasswordSetup(school) &&
+      !school.email_verification_token &&
+      school.email_verified === true;
+    if (setupFinished) {
       return res.status(400).json({
         error: 'Password is already set. Please sign in.',
         code: 'PASSWORD_ALREADY_SET',

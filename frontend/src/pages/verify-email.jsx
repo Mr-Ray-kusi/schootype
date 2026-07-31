@@ -32,10 +32,14 @@ const VerifyEmail = () => {
         if (cancelled) return;
         setEmail(data.email || '');
         setMessage(data.message || 'Email verified.');
-        if (data.needsPasswordSetup && data.setupToken) {
+        // Always collect a password when the API issues a setup token.
+        if (data.setupToken) {
           setSetupToken(data.setupToken);
           setStatus('set_password');
           toast.success('Email verified — choose a password');
+        } else if (data.needsPasswordSetup) {
+          setStatus('error');
+          setMessage('Email verified, but password setup failed to start. Please resend the email.');
         } else {
           setStatus('success');
           toast.success('Email verified');
