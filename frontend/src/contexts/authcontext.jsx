@@ -1,8 +1,12 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 import { hasFeature as planHasFeature } from '../constants/plans';
 
 const AuthContext = createContext();
+
+/** How often pending school admins check whether a super admin approved their plan. */
+const PLAN_APPROVAL_POLL_MS = 5000;
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -26,12 +30,23 @@ const readCachedSchool = () => {
   }
 };
 
+const schoolApprovalSnapshot = (school) =>
+  [
+    school?.plan_status,
+    school?.plan_approved,
+    school?.subscription_active,
+    school?.subscription_frozen,
+    (school?.plan_features || []).join(','),
+  ].join('|');
+
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [school, setSchool] = useState(null);
   const [loading, setLoading] = useState(true);
+  const schoolRef = useRef(null);
 
   const persistSchool = (schoolData) => {
+    schoolRef.current = schoolData;
     setSchool(schoolData);
     try {
       localStorage.setItem('school', JSON.stringify(schoolData));
@@ -43,6 +58,7 @@ export const AuthProvider = ({ children }) => {
   const clearSession = useCallback(() => {
     setToken(null);
     setSchool(null);
+    schoolRef.current = null;
     localStorage.removeItem('token');
     localStorage.removeItem('school');
     localStorage.removeItem('tokenExpiresAt');
@@ -82,6 +98,7 @@ export const AuthProvider = ({ children }) => {
       axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
       setToken(storedToken);
       if (cachedSchool) {
+        schoolRef.current = cachedSchool;
         setSchool(cachedSchool);
       }
 
@@ -163,13 +180,66 @@ export const AuthProvider = ({ children }) => {
     return response.data;
   };
 
-  const refreshSchool = async () => {
+  const refreshSchool = useCallback(async () => {
     const response = await axios.get('/api/auth/verify', { timeout: 45000 });
     if (response.data.school) {
       persistSchool(response.data.school);
     }
     return response.data.school;
-  };
+  }, []);
+
+  // Keep school-admin UI in sync when a super admin approves (or revokes) without a page refresh.
+  useEffect(() => {
+    if (loading || !token) return;
+    const current = schoolRef.current || school;
+    if (!current || current.role === 'super_admin') return;
+    if (!current.payment_plan || current.plan_approved) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const pollApproval = async () => {
+      if (cancelled || inFlight) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const response = await axios.get('/api/auth/verify', { timeout: 20000 });
+        const next = response.data?.school;
+        if (cancelled || !next) return;
+
+        const prev = schoolRef.current;
+        if (prev && schoolApprovalSnapshot(prev) === schoolApprovalSnapshot(next)) {
+          return;
+        }
+
+        const wasApproved = prev?.plan_approved === true;
+        persistSchool(next);
+        if (!wasApproved && next.plan_approved) {
+          toast.success('Your plan was approved! Features are now unlocked.');
+        }
+      } catch {
+        // Ignore transient API errors while waiting for approval.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const intervalId = setInterval(pollApproval, PLAN_APPROVAL_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        pollApproval();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', pollApproval);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', pollApproval);
+    };
+  }, [loading, token, school?.role, school?.payment_plan, school?.plan_approved]);
 
   const logout = () => {
     clearSession();
