@@ -30,29 +30,36 @@ export function isSchoolEmailVerified(school) {
   return school.email_verified === true;
 }
 
+/** Email-first signup pending password choice after magic link. */
+export const PASSWORD_SETUP_MARKER = '__EMAIL_SETUP__';
+
+export function needsPasswordSetup(school) {
+  return Boolean(school) && school.initial_password === PASSWORD_SETUP_MARKER;
+}
+
 export function buildVerificationEmail({ schoolName, email, verifyUrl }) {
   const name = schoolName || 'your school';
-  const subject = 'Verify your Schooltype account';
+  const subject = 'Create your Schooltype account';
   const text = [
     `Hi,`,
     ``,
-    `Thanks for registering ${name} on Schooltype.`,
-    `Please verify this email address by opening the link below (valid for 24 hours):`,
+    `Thanks for starting registration for ${name} on Schooltype.`,
+    `Confirm this email address, then choose a password to finish creating your account:`,
     ``,
     verifyUrl,
     ``,
-    `If you did not create this account, you can ignore this email.`,
+    `If you did not request this, you can ignore this email.`,
   ].join('\n');
 
   const html = `
     <div style="font-family: system-ui, sans-serif; max-width: 520px; line-height: 1.5; color: #0f172a;">
-      <h2 style="margin: 0 0 12px;">Verify your email</h2>
-      <p>Thanks for registering <strong>${escapeHtml(name)}</strong> on Schooltype.</p>
-      <p>Confirm that <strong>${escapeHtml(email)}</strong> belongs to you:</p>
+      <h2 style="margin: 0 0 12px;">Create your account</h2>
+      <p>Thanks for starting registration for <strong>${escapeHtml(name)}</strong> on Schooltype.</p>
+      <p>Confirm <strong>${escapeHtml(email)}</strong>, then choose a password to finish setup:</p>
       <p style="margin: 24px 0;">
         <a href="${verifyUrl}"
            style="display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600;">
-          Verify email
+          Continue with email
         </a>
       </p>
       <p style="font-size: 13px; color: #64748b;">Or copy this link:<br>${escapeHtml(verifyUrl)}</p>

@@ -2,15 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 const VerifyEmail = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { storeSessionFromAuth } = useAuth();
   const token = searchParams.get('token') || '';
   const [status, setStatus] = useState(token ? 'loading' : 'missing');
   const [message, setMessage] = useState('');
   const [email, setEmail] = useState('');
+  const [setupToken, setSetupToken] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [saving, setSaving] = useState(false);
   const [resending, setResending] = useState(false);
 
   useEffect(() => {
@@ -24,10 +30,16 @@ const VerifyEmail = () => {
           timeout: 45000,
         });
         if (cancelled) return;
-        setStatus('success');
-        setMessage(data.message || 'Email verified. You can sign in.');
         setEmail(data.email || '');
-        toast.success('Email verified');
+        setMessage(data.message || 'Email verified.');
+        if (data.needsPasswordSetup && data.setupToken) {
+          setSetupToken(data.setupToken);
+          setStatus('set_password');
+          toast.success('Email verified — choose a password');
+        } else {
+          setStatus('success');
+          toast.success('Email verified');
+        }
       } catch (error) {
         if (cancelled) return;
         const data = error.response?.data;
@@ -50,11 +62,48 @@ const VerifyEmail = () => {
     setResending(true);
     try {
       await axios.post('/api/auth/resend-verification', { email });
-      toast.success('If verification is still needed, a new link was sent.');
+      toast.success('If setup is still needed, a new link was sent.');
     } catch (error) {
       toast.error(error.response?.data?.error || 'Could not resend verification email');
     } finally {
       setResending(false);
+    }
+  };
+
+  const handleSetPassword = async (e) => {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      toast.error('Password must include at least one letter and one number');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data } = await axios.post('/api/auth/set-password', {
+        setupToken,
+        password,
+      });
+      if (storeSessionFromAuth) {
+        storeSessionFromAuth(data);
+      } else if (data.token && data.school) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('school', JSON.stringify(data.school));
+        axios.defaults.headers.common.Authorization = `Bearer ${data.token}`;
+      }
+      toast.success('Account ready');
+      navigate(getPostAuthPath(data.school), { replace: true });
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not save password');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -80,6 +129,49 @@ const VerifyEmail = () => {
               <Loader2 className="mx-auto h-10 w-10 animate-spin text-sky-400" />
               <h1 className="font-display text-2xl font-bold">Verifying email…</h1>
               <p className="text-sm text-slate-400">Please wait a moment.</p>
+            </div>
+          )}
+
+          {status === 'set_password' && (
+            <div className="mt-8 space-y-5 text-left">
+              <div className="text-center">
+                <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-400" />
+                <h1 className="mt-4 font-display text-2xl font-bold">Choose a password</h1>
+                <p className="mt-2 text-sm text-slate-300">{message}</p>
+                {email && <p className="mt-1 text-xs text-slate-500">{email}</p>}
+              </div>
+              <form onSubmit={handleSetPassword} className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-200">Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="input"
+                    placeholder="••••••••"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">At least 8 characters with letters and numbers.</p>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-200">Confirm password</label>
+                  <input
+                    type="password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="input"
+                    placeholder="••••••••"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="w-full rounded-full bg-sky-500 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                >
+                  {saving ? 'Saving…' : 'Finish account setup'}
+                </button>
+              </form>
             </div>
           )}
 
@@ -112,7 +204,7 @@ const VerifyEmail = () => {
                   onClick={handleResend}
                   className="w-full rounded-full border border-slate-600 bg-slate-800 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
                 >
-                  {resending ? 'Sending…' : 'Resend verification email'}
+                  {resending ? 'Sending…' : 'Resend email'}
                 </button>
               )}
               <Link

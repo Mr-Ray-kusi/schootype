@@ -60,6 +60,8 @@ import {
   buildVerifyEmailUrl,
   buildVerificationEmail,
   isSchoolEmailVerified,
+  needsPasswordSetup,
+  PASSWORD_SETUP_MARKER,
 } from './emailVerification.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -691,25 +693,20 @@ app.get('/api/plans', (req, res) => {
 
 // ============ AUTHENTICATION ROUTES ============
 
-// Signup - Create new school (requires email verification before login)
+// Signup — create account with email only; password is chosen after magic-link verify
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
-    const { schoolName, password, logo, paymentPlan } = req.body;
+    const { schoolName, logo, paymentPlan } = req.body;
     const clientIp = getClientIp(req);
 
-    if (!schoolName?.trim() || !email || !password) {
-      return res.status(400).json({ error: 'School name, email, and password are required' });
+    if (!schoolName?.trim() || !email) {
+      return res.status(400).json({ error: 'School name and email are required' });
     }
 
     const signupCheck = await checkSignupAllowed(clientIp);
     if (!signupCheck.allowed) {
       return res.status(429).json({ error: signupCheck.message });
-    }
-
-    const passwordError = validatePasswordStrength(password);
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError });
     }
 
     if (isSuperAdminEmail(email)) {
@@ -738,21 +735,33 @@ app.post('/api/auth/signup', async (req, res) => {
       await recordSignupAttempt(clientIp);
       if (!isSchoolEmailVerified(existingSchool) && getSchoolRole(existingSchool) !== 'super_admin') {
         return res.status(409).json({
-          error: 'An account with this email already exists but is not verified. Please log in and resend the verification email.',
+          error:
+            'An account with this email already exists but is not verified. Resend the verification email from the sign-in page.',
           code: 'EMAIL_NOT_VERIFIED',
+          email,
+        });
+      }
+      if (needsPasswordSetup(existingSchool)) {
+        return res.status(409).json({
+          error:
+            'An account with this email already exists. Open the link we emailed you to finish setup, or resend it from sign-in.',
+          code: 'PASSWORD_NOT_SET',
           email,
         });
       }
       return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Unusable random hash until the user sets a password after verifying email
+    const pendingPassword = crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(pendingPassword, 10);
     const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
 
     const schoolRecord = {
       name: schoolName.trim(),
       email,
       password_hash: hashedPassword,
+      initial_password: PASSWORD_SETUP_MARKER,
       role: 'admin',
       created_at: new Date(),
       payment_plan: paymentPlan,
@@ -860,7 +869,7 @@ app.post('/api/auth/signup', async (req, res) => {
         emailSendFailed: true,
         email,
         message:
-          'Account created, but we could not send the verification email. Use Resend on the login page.',
+          'Account started, but we could not send the email. Use Resend on the sign-in page.',
         code: 'EMAIL_SEND_FAILED',
       });
     }
@@ -868,7 +877,7 @@ app.post('/api/auth/signup', async (req, res) => {
     res.status(201).json({
       requiresEmailVerification: true,
       email,
-      message: 'Account created. Check your email for a verification link before signing in.',
+      message: 'Check your email to continue. Open the link to verify and choose a password.',
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -955,6 +964,15 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    if (needsPasswordSetup(school)) {
+      await clearLoginFailures(email);
+      return res.status(403).json({
+        error: 'Finish creating your account from the email link, then choose a password.',
+        code: 'PASSWORD_NOT_SET',
+        email: school.email,
+      });
+    }
+
     await clearLoginFailures(email);
 
     const token = signAuthToken(school);
@@ -1002,12 +1020,22 @@ app.get('/api/auth/verify-email', async (req, res) => {
       });
     }
 
+    const issueSetupToken = (schoolRow) =>
+      jwt.sign({ schoolId: schoolRow.id, email: schoolRow.email, purpose: 'set_password' }, JWT_SECRET, {
+        expiresIn: '2h',
+      });
+
     if (school.email_verified === true) {
+      const pendingPassword = needsPasswordSetup(school);
       return res.json({
         verified: true,
         alreadyVerified: true,
+        needsPasswordSetup: pendingPassword,
+        setupToken: pendingPassword ? issueSetupToken(school) : null,
         email: school.email,
-        message: 'Email is already verified. You can sign in.',
+        message: pendingPassword
+          ? 'Email already verified. Choose a password to finish creating your account.'
+          : 'Email is already verified. You can sign in.',
       });
     }
 
@@ -1022,24 +1050,123 @@ app.get('/api/auth/verify-email', async (req, res) => {
       });
     }
 
-    const { data: updated, error: updateError } = await updateSchoolRecord(school.id, {
-      email_verified: true,
-      email_verification_token: null,
-      email_verification_expires_at: null,
-    });
+    const pendingPassword = needsPasswordSetup(school);
+    const { data: updated, error: updateError } = await updateSchoolRecord(
+      school.id,
+      pendingPassword
+        ? {
+            // Keep magic-link token until password is chosen (supports refresh).
+            email_verified: true,
+          }
+        : {
+            email_verified: true,
+            email_verification_token: null,
+            email_verification_expires_at: null,
+          }
+    );
 
     if (updateError) {
       console.error('Verify email update error:', updateError);
       return res.status(500).json({ error: 'Could not complete email verification.' });
     }
 
+    const verifiedSchool = updated || { ...school, email_verified: true };
+    const stillNeedsPassword = needsPasswordSetup(verifiedSchool) || pendingPassword;
+
     res.json({
       verified: true,
-      email: updated?.email || school.email,
-      message: 'Email verified successfully. You can sign in now.',
+      needsPasswordSetup: stillNeedsPassword,
+      setupToken: stillNeedsPassword ? issueSetupToken(verifiedSchool) : null,
+      email: verifiedSchool.email || school.email,
+      message: stillNeedsPassword
+        ? 'Email verified. Choose a password to finish creating your account.'
+        : 'Email verified successfully. You can sign in now.',
     });
   } catch (error) {
     console.error('Verify email error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Finish email-first signup: set password after magic-link verify
+app.post('/api/auth/set-password', async (req, res) => {
+  try {
+    const setupToken = String(req.body.setupToken || req.body.token || '').trim();
+    const password = req.body.password;
+
+    if (!setupToken || !password) {
+      return res.status(400).json({ error: 'Setup token and password are required' });
+    }
+
+    const passwordError = validatePasswordStrength(password);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(setupToken, JWT_SECRET);
+    } catch {
+      return res.status(400).json({
+        error: 'This setup link has expired. Resend the email and try again.',
+        code: 'SETUP_TOKEN_EXPIRED',
+      });
+    }
+
+    if (payload?.purpose !== 'set_password' || !payload?.schoolId) {
+      return res.status(400).json({ error: 'Invalid setup token', code: 'INVALID_TOKEN' });
+    }
+
+    const { data: school, error } = await supabase
+      .from('schools')
+      .select('*')
+      .eq('id', payload.schoolId)
+      .maybeSingle();
+
+    if (error || !school) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    if (!isSchoolEmailVerified(school)) {
+      return res.status(403).json({
+        error: 'Verify your email before setting a password.',
+        code: 'EMAIL_NOT_VERIFIED',
+        email: school.email,
+      });
+    }
+
+    if (!needsPasswordSetup(school)) {
+      return res.status(400).json({
+        error: 'Password is already set. Please sign in.',
+        code: 'PASSWORD_ALREADY_SET',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const { data: updated, error: updateError } = await updateSchoolRecord(school.id, {
+      password_hash: hashedPassword,
+      initial_password: null,
+      email_verification_token: null,
+      email_verification_expires_at: null,
+      email_verified: true,
+    });
+
+    if (updateError) {
+      console.error('Set password update error:', updateError);
+      return res.status(500).json({ error: 'Could not save password. Please try again.' });
+    }
+
+    const ready = updated || { ...school, password_hash: hashedPassword, initial_password: null };
+    const token = signAuthToken(ready);
+
+    res.json({
+      token,
+      ...authTokenPayload(),
+      school: formatSchool(ready),
+      message: 'Password saved. You are signed in.',
+    });
+  } catch (error) {
+    console.error('Set password error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1066,15 +1193,22 @@ app.post('/api/auth/resend-verification', async (req, res) => {
       message: 'If that account needs verification, a new link has been sent.',
     };
 
-    if (!school || getSchoolRole(school) === 'super_admin' || isSchoolEmailVerified(school)) {
+    if (!school || getSchoolRole(school) === 'super_admin') {
+      return res.json(generic);
+    }
+
+    // Allow resend when unverified OR when verified but password not chosen yet
+    if (isSchoolEmailVerified(school) && !needsPasswordSetup(school)) {
       return res.json(generic);
     }
 
     const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
+    const keepVerified = isSchoolEmailVerified(school) && needsPasswordSetup(school);
     const { error: updateError } = await updateSchoolRecord(school.id, {
       email_verification_token: tokenHash,
       email_verification_expires_at: expiresAt,
-      email_verified: false,
+      email_verified: keepVerified,
+      ...(needsPasswordSetup(school) ? { initial_password: PASSWORD_SETUP_MARKER } : {}),
     });
 
     if (updateError) {

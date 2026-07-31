@@ -48,6 +48,10 @@ const Login = () => {
         setNeedsVerification(true);
         if (data.email) setEmail(data.email);
         toast.error(data.error || 'Please verify your email before signing in.');
+      } else if (error.response?.status === 403 && data?.code === 'PASSWORD_NOT_SET') {
+        setNeedsVerification(true);
+        if (data.email) setEmail(data.email);
+        toast.error(data.error || 'Finish setup from your email link first.');
       } else {
         const message =
           data?.error ||
@@ -88,9 +92,9 @@ const Login = () => {
 
           {needsVerification && (
             <div className="mb-5 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
-              <p className="font-medium">Verify your email to continue</p>
+              <p className="font-medium">Check your email to finish setup</p>
               <p className="mt-1 text-sky-100/80">
-                We sent a magic link to your inbox. After you click it, come back here to sign in.
+                Open the link we sent to verify your email and choose a password. Then come back here to sign in.
               </p>
               <button
                 type="button"
@@ -98,7 +102,7 @@ const Login = () => {
                 onClick={handleResend}
                 className="mt-3 text-sm font-semibold text-sky-300 underline-offset-2 hover:underline disabled:opacity-50"
               >
-                {resending ? 'Sending…' : 'Resend verification email'}
+                {resending ? 'Sending…' : 'Resend email'}
               </button>
             </div>
           )}

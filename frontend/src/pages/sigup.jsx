@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useAuth, getPostAuthPath } from '../contexts/authcontext';
+import { useAuth } from '../contexts/authcontext';
 import { getPlan } from '../constants/plans';
 import { ArrowLeft } from 'lucide-react';
 
@@ -15,8 +15,6 @@ const Signup = () => {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
-    password: '',
-    confirmPassword: '',
     schoolName: '',
   });
   const [logo, setLogo] = useState(null);
@@ -68,51 +66,23 @@ const Signup = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (formData.password !== formData.confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
-    if (formData.password.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return;
-    }
-
-    if (!/[a-zA-Z]/.test(formData.password) || !/[0-9]/.test(formData.password)) {
-      toast.error('Password must include at least one letter and one number');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const data = await signup(
-        formData.schoolName,
-        formData.email,
-        formData.password,
-        logo,
-        planParam
+      const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
+
+      toast.success(
+        data.emailSendFailed
+          ? 'Account started. We could not send email — use Resend on the sign-in page.'
+          : 'Check your email to continue. Open the link to verify and choose a password.'
       );
-
-      if (data.requiresEmailVerification) {
-        toast.success(
-          data.emailSendFailed
-            ? 'Account created. We could not send email — use Resend on the login page.'
-            : 'Check your email for a verification link before signing in.'
-        );
-        navigate('/login', {
-          replace: true,
-          state: {
-            pendingVerificationEmail: data.email || formData.email,
-            emailSendFailed: Boolean(data.emailSendFailed),
-          },
-        });
-        return;
-      }
-
-      toast.success('Account created! Your plan is awaiting admin approval.');
-      navigate(getPostAuthPath(data.school));
+      navigate('/login', {
+        replace: true,
+        state: {
+          pendingVerificationEmail: data.email || formData.email,
+          emailSendFailed: Boolean(data.emailSendFailed),
+        },
+      });
     } catch (error) {
       toast.error(error.response?.data?.error || error.response?.data?.message || 'Signup failed');
     } finally {
@@ -140,9 +110,12 @@ const Signup = () => {
             <p className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-sky-300/90">
               Step 2 of 2
             </p>
-            <h1 className="mt-3 font-display text-3xl font-bold text-white">Create your account</h1>
+            <h1 className="mt-3 font-display text-3xl font-bold text-white">Create account with email</h1>
             <p className="mt-2 text-sm text-slate-300">
               {selectedPlan.name} — ₵{selectedPlan.price}/{selectedPlan.period}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">
+              We&apos;ll email you a secure link to verify ownership and choose a password.
             </p>
             <Link
               to="/plans"
@@ -170,7 +143,7 @@ const Signup = () => {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-200">Email</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-200">Work email</label>
               <input
                 type="email"
                 name="email"
@@ -179,33 +152,6 @@ const Signup = () => {
                 onChange={handleChange}
                 className="input"
                 placeholder="admin@school.com"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-200">Password</label>
-              <input
-                type="password"
-                name="password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="input"
-                placeholder="••••••••"
-              />
-              <p className="mt-1 text-xs text-slate-500">At least 8 characters with letters and numbers.</p>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-200">Confirm password</label>
-              <input
-                type="password"
-                name="confirmPassword"
-                required
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                className="input"
-                placeholder="••••••••"
               />
             </div>
 
@@ -243,7 +189,7 @@ const Signup = () => {
               disabled={loading}
               className="mt-2 w-full rounded-full bg-sky-500 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:bg-sky-400 disabled:opacity-50"
             >
-              {loading ? 'Creating account…' : 'Create account'}
+              {loading ? 'Sending link…' : 'Continue with email'}
             </button>
           </form>
 

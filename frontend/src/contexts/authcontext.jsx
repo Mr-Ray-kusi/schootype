@@ -20,7 +20,8 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/login') ||
   url.includes('/api/auth/signup') ||
   url.includes('/api/auth/verify-email') ||
-  url.includes('/api/auth/resend-verification');
+  url.includes('/api/auth/resend-verification') ||
+  url.includes('/api/auth/set-password');
 
 const readCachedSchool = () => {
   try {
@@ -185,20 +186,24 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptor);
   }, [clearSession]);
 
-  const signup = async (schoolName, email, password, logo = null, paymentPlan = null) => {
+  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null) => {
     const response = await axios.post('/api/auth/signup', {
       schoolName,
       email,
-      password,
       logo,
       paymentPlan,
     });
     const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
-    // Do not auto-login until the email magic link is confirmed.
+    // Email-first signup never returns a session until password is set after verify.
     if (!requiresEmailVerification && newToken && schoolData) {
       storeSession(newToken, schoolData, expiresIn);
     }
     return response.data;
+  };
+
+  const storeSessionFromAuth = (data) => {
+    if (!data?.token || !data?.school) return;
+    storeSession(data.token, data.school, data.expiresIn);
   };
 
   const login = async (email, password) => {
@@ -320,6 +325,7 @@ export const AuthProvider = ({ children }) => {
         hasFeature,
         hasMessaging,
         signup,
+        storeSessionFromAuth,
         login,
         selectPlan,
         refreshSchool,
