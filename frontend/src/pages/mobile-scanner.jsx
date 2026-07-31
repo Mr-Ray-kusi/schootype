@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { BrowserMultiFormatReader } from '@zxing/browser';
@@ -11,88 +11,156 @@ const MobileScanner = () => {
   const { token } = useParams();
   const videoRef = useRef(null);
   const readerRef = useRef(null);
+  const controlsRef = useRef(null);
   const scanLockRef = useRef(false);
   const resumeTimerRef = useRef(null);
   const mountedRef = useRef(true);
+  const startScannerRef = useRef(async () => {});
 
   const [schoolName, setSchoolName] = useState('');
   const [loading, setLoading] = useState(true);
   const [invalidLink, setInvalidLink] = useState(false);
   const [cameraError, setCameraError] = useState(null);
+  const [cameraReady, setCameraReady] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
-  const stopScanner = () => {
+  const stopScanner = useCallback(() => {
     if (resumeTimerRef.current) {
       clearTimeout(resumeTimerRef.current);
       resumeTimerRef.current = null;
     }
-    readerRef.current?.reset();
+
+    try {
+      controlsRef.current?.stop?.();
+    } catch {
+      // ignore
+    }
+    controlsRef.current = null;
+
+    try {
+      readerRef.current?.reset?.();
+    } catch {
+      // ignore
+    }
     readerRef.current = null;
-  };
 
-  const markAttendance = async (rawCode) => {
-    const attendanceCode = extractAttendanceCode(rawCode);
-    if (!attendanceCode) return;
+    const video = videoRef.current;
+    if (video?.srcObject) {
+      video.srcObject.getTracks?.().forEach((track) => track.stop());
+      video.srcObject = null;
+    }
+  }, []);
 
-    scanLockRef.current = true;
+  const markAttendance = useCallback(
+    async (rawCode) => {
+      const attendanceCode = extractAttendanceCode(rawCode);
+      if (!attendanceCode) return;
+
+      scanLockRef.current = true;
+      stopScanner();
+
+      try {
+        const response = await axios.post(`/api/scanner/mark/${token}`, { qrCode: attendanceCode });
+        if (!mountedRef.current) return;
+        setFeedback({
+          type: 'success',
+          title: 'Recorded!',
+          message: response.data.message,
+          name: response.data.user?.name,
+          userType: response.data.user?.type,
+        });
+      } catch (err) {
+        if (!mountedRef.current) return;
+        setFeedback({
+          type: 'error',
+          title: 'Not recorded',
+          message: err.response?.data?.error || 'Could not mark attendance',
+        });
+      }
+
+      resumeTimerRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+        scanLockRef.current = false;
+        setFeedback(null);
+        startScannerRef.current();
+      }, SCAN_COOLDOWN_MS);
+    },
+    [stopScanner, token]
+  );
+
+  const startScanner = useCallback(async () => {
+    if (!videoRef.current || scanLockRef.current || !mountedRef.current) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('This browser cannot open the camera. Use Chrome or Safari over HTTPS.');
+      return;
+    }
+
+    setCameraError(null);
+    setCameraReady(false);
     stopScanner();
 
     try {
-      const response = await axios.post(`/api/scanner/mark/${token}`, { qrCode: attendanceCode });
-      if (!mountedRef.current) return;
-      setFeedback({
-        type: 'success',
-        title: 'Recorded!',
-        message: response.data.message,
-        name: response.data.user?.name,
-        userType: response.data.user?.type,
+      // Unlock device labels on mobile (labels are empty before permission).
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
       });
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setFeedback({
-        type: 'error',
-        title: 'Not recorded',
-        message: err.response?.data?.error || 'Could not mark attendance',
-      });
-    }
+      permissionStream.getTracks().forEach((track) => track.stop());
 
-    resumeTimerRef.current = setTimeout(() => {
-      if (!mountedRef.current) return;
-      scanLockRef.current = false;
-      setFeedback(null);
-      startScanner();
-    }, SCAN_COOLDOWN_MS);
-  };
+      if (!mountedRef.current || !videoRef.current) return;
 
-  const startScanner = async () => {
-    if (!videoRef.current || scanLockRef.current || !mountedRef.current) return;
-
-    setCameraError(null);
-
-    try {
       const reader = new BrowserMultiFormatReader();
       readerRef.current = reader;
 
       const devices = await BrowserMultiFormatReader.listVideoInputDevices();
       const backCamera =
         devices.find((d) => /back|rear|environment/i.test(d.label)) ||
+        devices.find((d) => !/front|user|face/i.test(d.label)) ||
         devices[devices.length - 1];
 
-      await reader.decodeFromVideoDevice(
+      const controls = await reader.decodeFromVideoDevice(
         backCamera?.deviceId || undefined,
         videoRef.current,
         (result) => {
           if (!result || scanLockRef.current || !mountedRef.current) return;
-          const attendanceCode = result.getText()?.trim();
-          if (attendanceCode) markAttendance(attendanceCode);
+          const text = result.getText()?.trim();
+          if (text) markAttendance(text);
         }
       );
-    } catch {
-      if (!mountedRef.current) return;
-      setCameraError('Camera access is required. Allow camera permission and reload this page.');
-    }
-  };
 
+      controlsRef.current = controls || null;
+
+      if (videoRef.current) {
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch {
+          // Autoplay may already be running from zxing.
+        }
+      }
+
+      if (mountedRef.current) setCameraReady(true);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      console.error('Scanner camera error:', err);
+      const name = err?.name || '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setCameraError('Camera permission blocked. Allow camera access for this site and reload.');
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setCameraError('No camera found on this device.');
+      } else if (window.isSecureContext === false) {
+        setCameraError('Camera requires HTTPS. Open the scanner link from the secure school URL.');
+      } else {
+        setCameraError('Camera access is required. Allow camera permission and reload this page.');
+      }
+      setCameraReady(false);
+    }
+  }, [markAttendance, stopScanner]);
+
+  startScannerRef.current = startScanner;
+
+  // Load school info first — camera must wait until <video> is mounted.
   useEffect(() => {
     mountedRef.current = true;
 
@@ -101,12 +169,12 @@ const MobileScanner = () => {
         const response = await axios.get(`/api/scanner/school/${token}`);
         if (!mountedRef.current) return;
         setSchoolName(response.data.schoolName);
-        setLoading(false);
-        await startScanner();
+        setInvalidLink(false);
       } catch {
         if (!mountedRef.current) return;
         setInvalidLink(true);
-        setLoading(false);
+      } finally {
+        if (mountedRef.current) setLoading(false);
       }
     };
 
@@ -116,7 +184,22 @@ const MobileScanner = () => {
       mountedRef.current = false;
       stopScanner();
     };
-  }, [token]);
+  }, [token, stopScanner]);
+
+  // Start camera only after loading finishes and the video element exists.
+  useEffect(() => {
+    if (loading || invalidLink || !schoolName) return undefined;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) startScanner();
+    }, 100);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [loading, invalidLink, schoolName, startScanner]);
 
   if (loading) {
     return (
@@ -145,7 +228,19 @@ const MobileScanner = () => {
 
       <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
         <div className="relative w-full max-w-sm aspect-[3/4] rounded-2xl overflow-hidden bg-black border-2 border-slate-600">
-          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover"
+            playsInline
+            muted
+            autoPlay
+          />
+          {!cameraReady && !cameraError && !feedback && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-slate-200 gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Opening camera…
+            </div>
+          )}
           {!feedback && (
             <div className="absolute inset-0 pointer-events-none">
               <div className="absolute inset-8 border-2 border-primary-400/70 rounded-xl" />
@@ -157,9 +252,18 @@ const MobileScanner = () => {
         </div>
 
         {cameraError && (
-          <div className="mt-4 flex items-start gap-2 text-red-300 text-sm max-w-sm text-center">
-            <Camera className="w-5 h-5 shrink-0 mt-0.5" />
-            <span>{cameraError}</span>
+          <div className="mt-4 flex flex-col items-center gap-3 text-red-300 text-sm max-w-sm text-center">
+            <div className="flex items-start gap-2">
+              <Camera className="w-5 h-5 shrink-0 mt-0.5" />
+              <span>{cameraError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => startScanner()}
+              className="rounded-full bg-sky-500 px-4 py-2 text-white font-medium hover:bg-sky-400"
+            >
+              Try camera again
+            </button>
           </div>
         )}
 

@@ -2064,23 +2064,71 @@ app.delete('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin,
     }
 
     const schoolId = req.params.id;
-    const relatedTables = ['attendance', 'messages', 'students', 'staffs', 'nonstaffs'];
+    const schoolEmail = String(existingSchool.email || '')
+      .trim()
+      .toLowerCase();
+
+    // Delete dependents first (covers tables without ON DELETE CASCADE).
+    const relatedTables = [
+      'attendance',
+      'messages',
+      'report_cards',
+      'students',
+      'staffs',
+      'nonstaffs',
+      'classes',
+      'fees',
+      'fee_payments',
+      'wallet_transactions',
+      'wallet_accounts',
+      'school_wallets',
+      'subscription_payments',
+      'platform_sms_sales',
+      'school_sms_balances',
+    ];
 
     for (const table of relatedTables) {
       const { error: deleteError } = await supabase.from(table).delete().eq('school_id', schoolId);
       if (deleteError) {
-        console.error(`Failed to delete ${table} for school ${schoolId}:`, deleteError.message);
+        const msg = String(deleteError.message || '').toLowerCase();
+        if (
+          deleteError.code !== '42P01' &&
+          !msg.includes('does not exist') &&
+          !msg.includes('could not find')
+        ) {
+          console.error(`Failed to delete ${table} for school ${schoolId}:`, deleteError.message);
+        }
       }
     }
 
     const { error: schoolDeleteError } = await supabase.from('schools').delete().eq('id', schoolId);
     if (schoolDeleteError) {
-      return res.status(500).json({ error: schoolDeleteError.message });
+      return res.status(500).json({
+        error: schoolDeleteError.message || 'Failed to delete school account',
+      });
     }
 
     await deleteSchoolExtras(schoolId);
 
-    res.json({ message: `School "${existingSchool.name}" has been permanently deleted` });
+    // Guarantee the email is free for immediate re-registration.
+    if (schoolEmail) {
+      const leftover = await findSchoolByEmail(schoolEmail);
+      if (leftover) {
+        await supabase.from('schools').delete().eq('email', schoolEmail);
+        const stillThere = await findSchoolByEmail(schoolEmail);
+        if (stillThere) {
+          return res.status(500).json({
+            error:
+              'School was removed but the email is still reserved. Delete any remaining row with that email in Supabase, then try signup again.',
+          });
+        }
+      }
+    }
+
+    res.json({
+      message: `School "${existingSchool.name}" has been permanently deleted`,
+      email_released: schoolEmail || null,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
