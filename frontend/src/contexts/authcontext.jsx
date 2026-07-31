@@ -48,28 +48,59 @@ const schoolApprovalSnapshot = (school) =>
 /** Prefer live verify data, but never wipe a known payment_plan with a partial payload. */
 const mergeSchoolState = (incoming, previous) => {
   if (!incoming) return previous || null;
-  if (!previous) return incoming;
-  if (incoming.payment_plan || !previous.payment_plan) {
-    return incoming;
+  if (!previous) {
+    return {
+      ...incoming,
+      plan_approved:
+        incoming.plan_approved === true || incoming.plan_status === 'approved',
+    };
   }
-  return {
-    ...incoming,
-    payment_plan: previous.payment_plan,
-    plan_status: incoming.plan_status || previous.plan_status || null,
-    plan_name: incoming.plan_name || previous.plan_name || null,
-    plan_approved:
-      incoming.plan_status != null
-        ? incoming.plan_status === 'approved'
-        : Boolean(incoming.plan_approved ?? previous.plan_approved),
-    plan_features:
-      incoming.plan_features?.length > 0 ? incoming.plan_features : previous.plan_features || [],
-    pending_plan_features:
+
+  const merged =
+    incoming.payment_plan || !previous.payment_plan
+      ? { ...incoming }
+      : {
+          ...incoming,
+          payment_plan: previous.payment_plan,
+          plan_status: incoming.plan_status || previous.plan_status || null,
+          plan_name: incoming.plan_name || previous.plan_name || null,
+          plan_features:
+            incoming.plan_features?.length > 0 ? incoming.plan_features : previous.plan_features || [],
+          pending_plan_features:
+            incoming.pending_plan_features?.length > 0
+              ? incoming.pending_plan_features
+              : previous.pending_plan_features || [],
+          plan_price: incoming.plan_price ?? previous.plan_price ?? null,
+          plan_selected_at: incoming.plan_selected_at || previous.plan_selected_at || null,
+        };
+
+  // Keep a prior logo if verify omitted a huge base64 payload.
+  if (!merged.logo_url && previous.logo_url) {
+    merged.logo_url = previous.logo_url;
+  }
+
+  const status = merged.plan_status || previous.plan_status || null;
+  merged.plan_status = status;
+  if (incoming.plan_status != null) {
+    merged.plan_approved = incoming.plan_status === 'approved';
+  } else {
+    merged.plan_approved =
+      incoming.plan_approved === true ||
+      previous.plan_approved === true ||
+      status === 'approved';
+  }
+
+  // If server says approved, unlock features even when plan_features was empty in a stale payload.
+  if (merged.plan_approved && !(merged.plan_features?.length > 0)) {
+    merged.plan_features =
       incoming.pending_plan_features?.length > 0
         ? incoming.pending_plan_features
-        : previous.pending_plan_features || [],
-    plan_price: incoming.plan_price ?? previous.plan_price ?? null,
-    plan_selected_at: incoming.plan_selected_at || previous.plan_selected_at || null,
-  };
+        : previous.pending_plan_features?.length > 0
+          ? previous.pending_plan_features
+          : previous.plan_features || [];
+  }
+
+  return merged;
 };
 
 export const AuthProvider = ({ children }) => {
@@ -290,7 +321,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   const isSuperAdmin = school?.role === 'super_admin';
-  const isPlanApproved = isSuperAdmin || school?.plan_approved === true;
+  const isPlanApproved =
+    isSuperAdmin || school?.plan_approved === true || school?.plan_status === 'approved';
   const isSubscriptionActive = isSuperAdmin || school?.subscription_active !== false;
 
   const includesPlanFeature = (featureKey) => {

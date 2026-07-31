@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Layout from '../components/layout';
 
 const initialTeacherSalary = [
   { id: 1, name: 'Mrs. Funke', role: 'Math Teacher', monthlySalary: 150000, status: 'Due', dueDate: '2026-06-10' },
@@ -40,8 +39,8 @@ const FeesPaid = () => {
   };
 
   return (
-    <Layout>
-      <div className="space-y-8">
+    <>
+<div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Paid</h1>
           <p className="mt-3 text-slate-300">Track confirmed fee collections and handle teacher salary payments directly from the dashboard.</p>
@@ -195,7 +194,7 @@ const FeesPaid = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

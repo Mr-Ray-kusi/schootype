@@ -231,11 +231,27 @@ export function mergeSchoolWithExtras(school) {
   // Prefer Postgres columns; cache is only a fallback for the same instance.
   const extras = getSchoolExtrasSync(school.id) || {};
   const paymentPlan = school.payment_plan || extras.payment_plan || null;
+  // Prefer explicit DB status; never invent "pending" over a cached "approved".
+  const rawStatus = school.plan_status ?? extras.plan_status ?? null;
+  let planStatus = rawStatus || (paymentPlan ? 'pending' : null);
+
+  // Self-heal only when status is missing (null), not when explicitly pending/rejected.
+  // Approval initializes billing dates; if those exist but status column was never set, treat as approved.
+  if (
+    paymentPlan &&
+    !rawStatus &&
+    (school.next_payment_due ||
+      extras.next_payment_due ||
+      school.subscription_started_at ||
+      extras.subscription_started_at)
+  ) {
+    planStatus = 'approved';
+  }
 
   return {
     ...school,
     payment_plan: paymentPlan,
-    plan_status: school.plan_status || extras.plan_status || (paymentPlan ? 'pending' : null),
+    plan_status: planStatus,
     plan_selected_at: school.plan_selected_at || extras.plan_selected_at || null,
     initial_password: school.initial_password || extras.initial_password || null,
     logo_url: school.logo_url || extras.logo_url || null,

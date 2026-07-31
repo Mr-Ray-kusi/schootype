@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import Layout from '../components/layout';
 import PlanPendingBanner from '../components/PlanPendingBanner';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
@@ -119,15 +118,15 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="flex h-64 items-center justify-center text-slate-400">Loading dashboard…</div>
-      </Layout>
+      <>
+<div className="flex h-64 items-center justify-center text-slate-400">Loading dashboard…</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="relative space-y-8">
+    <>
+<div className="relative space-y-8">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-64"
@@ -294,7 +293,7 @@ const Dashboard = () => {
           </section>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

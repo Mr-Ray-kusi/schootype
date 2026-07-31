@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { Plus, Edit2, Trash2, Search } from 'lucide-react';
 
@@ -93,15 +92,15 @@ const Classes = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="text-center py-12">Loading classes...</div>
-      </Layout>
+      <>
+<div className="text-center py-12">Loading classes...</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
@@ -252,7 +251,7 @@ const Classes = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

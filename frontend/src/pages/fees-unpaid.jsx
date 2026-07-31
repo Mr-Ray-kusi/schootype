@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 
 const unpaidStats = [
@@ -47,8 +46,8 @@ const FeesUnpaid = () => {
   };
 
   return (
-    <Layout>
-      <div className="space-y-8">
+    <>
+<div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Unpaid</h1>
           <p className="mt-3 text-slate-300">Monitor overdue payments and send reminders to reduce outstanding fees.</p>
@@ -175,7 +174,7 @@ const FeesUnpaid = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

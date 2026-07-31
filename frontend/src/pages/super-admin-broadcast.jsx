@@ -9,7 +9,6 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import Layout from '../components/layout';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/30';
@@ -147,8 +146,8 @@ const SuperAdminBroadcast = () => {
   };
 
   return (
-    <Layout>
-      <div className="relative min-h-[calc(100vh-3rem)]">
+    <>
+<div className="relative min-h-[calc(100vh-3rem)]">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10"
@@ -395,7 +394,7 @@ const SuperAdminBroadcast = () => {
           </section>
         </div>
       </div>
-    </Layout>
+</>
   );
 };
 

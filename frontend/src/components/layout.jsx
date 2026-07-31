@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import {
   LayoutDashboard,
@@ -237,7 +237,7 @@ const Layout = ({ children }) => {
       </div>
 
       <div className="lg:ml-64 min-w-0">
-        <main className="min-w-0 overflow-x-hidden p-6">{children}</main>
+        <main className="min-w-0 overflow-x-hidden p-6">{children ?? <Outlet />}</main>
       </div>
     </div>
   );

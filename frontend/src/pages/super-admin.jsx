@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
 import { Building2, ChevronRight, Clock, DollarSign, TrendingUp } from 'lucide-react';
@@ -75,17 +74,17 @@ const SuperAdmin = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="flex items-center justify-center h-64">
+      <>
+<div className="flex items-center justify-center h-64">
           <div className="text-slate-300">Loading platform overview...</div>
         </div>
-      </Layout>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-white">Super Admin Dashboard</h1>
           <p className="text-slate-300 mt-1">
@@ -188,7 +187,7 @@ const SuperAdmin = () => {
           )}
         </div>
       </div>
-    </Layout>
+</>
   );
 };
 

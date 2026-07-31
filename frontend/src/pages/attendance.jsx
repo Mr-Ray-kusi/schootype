@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { Filter, Clock, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import { cachedGet, invalidateCache } from '../utils/requestCache';
 
 const Attendance = () => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -43,6 +43,7 @@ const Attendance = () => {
       const response = await axios.put('/api/attendance/settings', { lateAfterTime });
       setLateAfterTime(response.data.lateAfterTime || lateAfterTime);
       toast.success('Late cutoff time saved');
+      invalidateCache('attendance');
       fetchAttendance();
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to save late time');
@@ -53,9 +54,12 @@ const Attendance = () => {
 
   const fetchAttendance = async () => {
     try {
-      const response = await axios.get(`/api/attendance?date=${selectedDate}`);
-      setAttendanceRecords(response.data);
-      setFilteredRecords(response.data);
+      const data = await cachedGet(`attendance:${selectedDate}`, async () => {
+        const response = await axios.get(`/api/attendance?date=${selectedDate}`);
+        return response.data;
+      });
+      setAttendanceRecords(data);
+      setFilteredRecords(data);
     } catch (error) {
       console.error('Error fetching attendance:', error);
     } finally {
@@ -65,8 +69,11 @@ const Attendance = () => {
 
   const fetchSummary = async () => {
     try {
-      const response = await axios.get(`/api/attendance/summary?date=${selectedDate}`);
-      setSummary(response.data);
+      const data = await cachedGet(`attendance-summary:${selectedDate}`, async () => {
+        const response = await axios.get(`/api/attendance/summary?date=${selectedDate}`);
+        return response.data;
+      });
+      setSummary(data);
     } catch (error) {
       console.error('Error fetching summary:', error);
     }
@@ -131,15 +138,15 @@ const Attendance = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="text-center py-12">Loading attendance records...</div>
-      </Layout>
+      <>
+<div className="text-center py-12">Loading attendance records...</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Attendance Management</h1>
           <p className="text-gray-600 mt-1">View and manage daily attendance records</p>
@@ -265,7 +272,12 @@ const Attendance = () => {
             </div>
             <div className="flex items-end gap-3">
               <button
-                onClick={fetchAttendance}
+                onClick={() => {
+                  invalidateCache('attendance');
+                  setLoading(true);
+                  fetchAttendance();
+                  fetchSummary();
+                }}
                 className="w-full px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center justify-center gap-2"
               >
                 <Filter className="w-4 h-4" />
@@ -353,7 +365,7 @@ const Attendance = () => {
           )}
         </div>
       </div>
-    </Layout>
+</>
   );
 };
 

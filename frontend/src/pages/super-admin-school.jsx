@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { FEATURE_LABELS } from '../constants/plans';
 import {
@@ -134,11 +133,11 @@ const SuperAdminSchool = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="flex items-center justify-center h-64">
+      <>
+<div className="flex items-center justify-center h-64">
           <div className="text-slate-300">Loading school details...</div>
         </div>
-      </Layout>
+</>
     );
   }
 
@@ -157,8 +156,8 @@ const SuperAdminSchool = () => {
         : 'current';
 
   return (
-    <Layout>
-      <div className="space-y-6 max-w-4xl">
+    <>
+<div className="space-y-6 max-w-4xl">
         <Link
           to="/super-admin"
           className="inline-flex items-center gap-2 text-slate-300 hover:text-slate-100 text-sm transition-colors"
@@ -535,7 +534,7 @@ const SuperAdminSchool = () => {
           </div>
         </div>
       )}
-    </Layout>
+</>
   );
 };
 

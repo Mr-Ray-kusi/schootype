@@ -14,7 +14,6 @@ import {
   Smartphone,
   Wallet,
 } from 'lucide-react';
-import Layout from '../components/layout';
 import { useAuth } from '../contexts/authcontext';
 
 const formatGhs = (value) =>
@@ -312,8 +311,8 @@ const SchoolWallet = () => {
   };
 
   return (
-    <Layout>
-      <div className="relative min-h-[calc(100vh-3rem)] overflow-hidden">
+    <>
+<div className="relative min-h-[calc(100vh-3rem)] overflow-hidden">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10"
@@ -726,7 +725,7 @@ const SchoolWallet = () => {
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-    </Layout>
+</>
   );
 };
 

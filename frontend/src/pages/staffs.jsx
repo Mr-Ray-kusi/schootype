@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
+import { buildPersonIdUrl } from '../utils/studentIdQr';
 import {
   Edit2,
   Trash2,
@@ -17,6 +17,7 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { cachedGet, invalidateCache } from '../utils/requestCache';
 
 const Staff = () => {
   const [staff, setStaff] = useState([]);
@@ -61,15 +62,17 @@ const Staff = () => {
 
   const fetchStaff = async () => {
     try {
-      const response = await axios.get('/api/staff');
-      const normalized = response.data.map((item) => ({
-        ...item,
-        secretCode: item.secretCode || item.secret_code || null,
-        subjects: item.subjects || '',
-        classNames: item.classNames || item.class_names || '',
-      }));
-      setStaff(normalized);
-      setFilteredStaff(normalized);
+      const data = await cachedGet('staff', async () => {
+        const response = await axios.get('/api/staff');
+        return response.data.map((item) => ({
+          ...item,
+          secretCode: item.secretCode || item.secret_code || null,
+          subjects: item.subjects || '',
+          classNames: item.classNames || item.class_names || '',
+        }));
+      });
+      setStaff(data);
+      setFilteredStaff(data);
     } catch (error) {
       console.error('Error fetching staff:', error);
     } finally {
@@ -116,6 +119,7 @@ const Staff = () => {
       }
       setShowModal(false);
       resetForm();
+      invalidateCache('staff');
       fetchStaff();
     } catch (error) {
       console.error('Error saving staff:', error);
@@ -127,6 +131,7 @@ const Staff = () => {
     if (window.confirm('Are you sure you want to delete this staff member?')) {
       try {
         await axios.delete(`/api/staff/${id}`);
+        invalidateCache('staff');
         fetchStaff();
       } catch (error) {
         console.error('Error deleting staff:', error);
@@ -176,15 +181,15 @@ const Staff = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="text-center py-12 text-slate-300">Loading staff...</div>
-      </Layout>
+      <>
+<div className="text-center py-12 text-slate-300">Loading staff...</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Staff Management</h1>
@@ -340,7 +345,11 @@ const Staff = () => {
                 <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
                   Attendance QR Code
                 </p>
-                <AttendanceQrCode value={staffMember.barcode} name={staffMember.name} size={148} />
+                <AttendanceQrCode
+                  value={buildPersonIdUrl(staffMember.barcode)}
+                  name={staffMember.name}
+                  size={148}
+                />
               </div>
             </article>
           ))}
@@ -477,7 +486,7 @@ const Staff = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

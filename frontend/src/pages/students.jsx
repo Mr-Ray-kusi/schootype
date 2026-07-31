@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
+import { cachedGet, invalidateCache } from '../utils/requestCache';
 import { Edit2, Trash2, Search, Hash, User, Phone, MapPin, Trophy, Eye, Mail } from 'lucide-react';
 
 const Students = () => {
@@ -25,9 +25,12 @@ const Students = () => {
 
   const fetchStudents = async () => {
     try {
-      const response = await axios.get('/api/students');
-      setStudents(response.data);
-      setFilteredStudents(response.data);
+      const data = await cachedGet('students', async () => {
+        const response = await axios.get('/api/students');
+        return response.data;
+      });
+      setStudents(data);
+      setFilteredStudents(data);
     } catch (error) {
       console.error('Error fetching students:', error);
     } finally {
@@ -57,6 +60,7 @@ const Students = () => {
     if (window.confirm('Are you sure you want to delete this student?')) {
       try {
         await axios.delete(`/api/students/${id}`);
+        invalidateCache('students');
         fetchStudents();
       } catch (error) {
         console.error('Error deleting student:', error);
@@ -83,6 +87,7 @@ const Students = () => {
         rollNumber: editingStudent.roll_number,
         skills: editingStudent.skills,
       });
+      invalidateCache('students');
       setEditingStudent(null);
       fetchStudents();
     } catch (error) {
@@ -101,15 +106,15 @@ const Students = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="text-center py-12 text-slate-300">Loading students...</div>
-      </Layout>
+      <>
+<div className="text-center py-12 text-slate-300">Loading students...</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Students</h1>
@@ -430,7 +435,7 @@ const Students = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

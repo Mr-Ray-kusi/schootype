@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import Layout from '../components/layout';
 import { MessageSquare, Coins, TrendingUp, Plus } from 'lucide-react';
 
 const formatGhs = (value) =>
@@ -71,8 +70,8 @@ const SuperAdminSms = () => {
   };
 
   return (
-    <Layout>
-      <div className="space-y-8">
+    <>
+<div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">SMS Units & Revenue</h1>
           <p className="mt-3 max-w-3xl text-slate-300">
@@ -226,7 +225,7 @@ const SuperAdminSms = () => {
           </div>
         </div>
       </div>
-    </Layout>
+</>
   );
 };
 

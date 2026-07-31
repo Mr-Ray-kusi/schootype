@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import {
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import toast from 'react-hot-toast';
+import { invalidateCache } from '../utils/requestCache';
 
 const CLASSES = [
   'CLASS 1', 'CLASS 2', 'CLASS 3', 'CLASS 4', 'CLASS 5', 'CLASS 6',
@@ -57,6 +57,7 @@ const AddStudent = () => {
 
     try {
       const { data } = await axios.post('/api/students', { ...formData, photo });
+      invalidateCache('students');
       if (data?.warning) {
         toast.error(data.warning);
       } else {
@@ -79,8 +80,8 @@ const AddStudent = () => {
   };
 
   return (
-    <Layout>
-      <div className="relative mx-auto max-w-4xl">
+    <>
+<div className="relative mx-auto max-w-4xl">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-56"
@@ -356,7 +357,7 @@ const AddStudent = () => {
           </div>
         </form>
       </div>
-    </Layout>
+</>
   );
 };
 

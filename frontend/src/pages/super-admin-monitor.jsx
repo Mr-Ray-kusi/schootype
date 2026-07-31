@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import {
   Users,
@@ -58,8 +57,8 @@ const SuperAdminMonitor = () => {
   });
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-white">School monitoring</h1>
           <p className="mt-2 text-slate-300">
@@ -254,7 +253,7 @@ const SuperAdminMonitor = () => {
 
         <p className="text-xs text-slate-500">{filtered.length} record(s)</p>
       </div>
-    </Layout>
+</>
   );
 };
 

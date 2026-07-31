@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { QrCode, CheckCircle, XCircle, Scan, Link2, Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
 import { extractAttendanceCode } from '../utils/studentIdQr';
@@ -98,8 +97,8 @@ const Scanner = () => {
   };
 
   return (
-    <Layout>
-      <div className="max-w-2xl mx-auto space-y-6">
+    <>
+<div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">Attendance Scanner</h1>
           <p className="text-gray-600 mt-2">Scan QR codes from the dashboard or use a phone at the gate</p>
@@ -264,7 +263,7 @@ const Scanner = () => {
         }
         .animate-fade-in { animation: fade-in 0.3s ease-out; }
       `}</style>
-    </Layout>
+</>
   );
 };
 

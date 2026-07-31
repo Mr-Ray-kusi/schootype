@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
+import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { Edit2, Trash2, Search, Plus, User, Wrench } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -106,15 +106,15 @@ const NonStaff = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="text-center py-12 text-slate-300">Loading...</div>
-      </Layout>
+      <>
+<div className="text-center py-12 text-slate-300">Loading...</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <>
+<div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Non-Staff Management</h1>
@@ -204,7 +204,11 @@ const NonStaff = () => {
                 <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
                   Attendance QR Code
                 </p>
-                <AttendanceQrCode value={person.barcode} name={person.name} size={148} />
+                <AttendanceQrCode
+                  value={buildPersonIdUrl(person.barcode)}
+                  name={person.name}
+                  size={148}
+                />
               </div>
             </article>
           ))}
@@ -295,7 +299,7 @@ const NonStaff = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

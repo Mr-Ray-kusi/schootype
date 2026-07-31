@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Layout from '../components/layout';
 
 const studentReports = [
   { id: 1, name: 'Aisha Ali', class: 'Grade 1', assessment: 'Excellent', attitude: 'Very positive', score: 92 },
@@ -54,8 +53,8 @@ const ReportCards = () => {
   };
 
   return (
-    <Layout>
-      <div className="space-y-8">
+    <>
+<div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold text-white">Report Cards</h1>
         <p className="mt-3 text-slate-300">Teachers upload class and subject results using their secret access codes. Admins can audit submissions and review student performance.</p>
@@ -209,7 +208,7 @@ const ReportCards = () => {
         </div>
       </section>
       </div>
-    </Layout>
+</>
   );
 };
 

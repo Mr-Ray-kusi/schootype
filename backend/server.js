@@ -121,18 +121,34 @@ const formatSchool = (school, { includeCredentials = false } = {}) => {
   if (school?.id) hydrateExtrasFromSchool(school);
   const merged = mergeSchoolWithExtras(school);
   const paymentPlan = merged.payment_plan || null;
-  const planStatus = paymentPlan ? (merged.plan_status || 'pending') : null;
+  const planStatus = paymentPlan ? merged.plan_status || 'pending' : null;
   const planApproved = planStatus === 'approved';
   const plan = paymentPlan ? getPlan(paymentPlan) : null;
   const pendingPlanFeatures = paymentPlan ? getPlanFeatures(paymentPlan) : [];
   const subscription = getSubscriptionInfo(merged);
   const featuresUnlocked = planApproved && subscription.subscription_active;
 
+  // Repair lost plan_status in Postgres when billing dates prove prior approval.
+  if (
+    school?.id &&
+    paymentPlan &&
+    planApproved &&
+    !school.plan_status &&
+    (merged.next_payment_due || merged.subscription_started_at)
+  ) {
+    updateSchoolRecord(school.id, { plan_status: 'approved' }).catch((err) => {
+      console.warn('Failed to repair plan_status to approved:', err?.message || err);
+    });
+    upsertSchoolExtras(school.id, { plan_status: 'approved' }).catch(() => {});
+  }
+
   const formatted = {
     id: merged.id,
     name: merged.name,
     email: merged.email,
-    logo_url: merged.logo_url || null,
+    // Cap logo size in auth payloads — huge base64 logos slow every navigation verify.
+    logo_url:
+      merged.logo_url && String(merged.logo_url).length < 400000 ? merged.logo_url : null,
     role: getSchoolRole(merged),
     payment_plan: paymentPlan,
     plan_status: planStatus,
@@ -1667,63 +1683,67 @@ const schoolNameMap = async (schoolIds) => {
 };
 
 const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
-  const resolveUser = async (record) => {
+  const rows = attendance || [];
+  if (!rows.length) return [];
+
+  const byType = {
+    student: new Set(),
+    staff: new Set(),
+    'non-staff': new Set(),
+  };
+  for (const record of rows) {
+    if (!record.user_name && record.user_id && byType[record.user_type]) {
+      byType[record.user_type].add(record.user_id);
+    }
+  }
+
+  const loadMap = async (table, ids, columns) => {
+    const map = new Map();
+    const idList = [...ids];
+    if (!idList.length) return map;
+    const { data, error } = await supabase.from(table).select(columns).in('id', idList);
+    if (error) {
+      console.warn(`Attendance batch lookup failed (${table}):`, error.message);
+      return map;
+    }
+    for (const row of data || []) map.set(row.id, row);
+    return map;
+  };
+
+  const [students, staff, nonStaff] = await Promise.all([
+    loadMap('students', byType.student, 'id, name, class'),
+    loadMap('staffs', byType.staff, 'id, name, role'),
+    loadMap('nonstaffs', byType['non-staff'], 'id, name, role'),
+  ]);
+
+  return rows.map((record) => {
+    let user = null;
     if (record.user_name) {
-      return {
+      user = {
         name: record.user_name,
         role: record.user_type === 'student' ? null : record.user_label || null,
         class: record.user_type === 'student' ? record.user_label || null : null,
       };
+    } else if (record.user_type === 'student') {
+      user = students.get(record.user_id) || null;
+    } else if (record.user_type === 'staff') {
+      user = staff.get(record.user_id) || null;
+    } else if (record.user_type === 'non-staff') {
+      user = nonStaff.get(record.user_id) || null;
     }
 
-    let table;
-    let columns = 'name';
-    switch (record.user_type) {
-      case 'student':
-        table = 'students';
-        columns = 'name, class';
-        break;
-      case 'staff':
-        table = 'staffs';
-        columns = 'name, role';
-        break;
-      case 'non-staff':
-        table = 'nonstaffs';
-        columns = 'name, role';
-        break;
-      default:
-        return null;
-    }
+    const punctuality =
+      record.status === 'early' || record.status === 'late'
+        ? record.status
+        : getAttendancePunctuality(record.timestamp, lateAfterTime);
 
-    const { data: user, error } = await supabase
-      .from(table)
-      .select(columns)
-      .eq('id', record.user_id)
-      .maybeSingle();
-
-    if (error) {
-      console.warn('Attendance user lookup failed:', error.message);
-      return null;
-    }
-    return user || null;
-  };
-
-  return Promise.all(
-    (attendance || []).map(async (record) => {
-      const user = await resolveUser(record);
-      const punctuality =
-        record.status === 'early' || record.status === 'late'
-          ? record.status
-          : getAttendancePunctuality(record.timestamp, lateAfterTime);
-
-      return {
-        ...record,
-        user,
-        punctuality,
-        status: punctuality,
-      };
-    })
-  );
+    return {
+      ...record,
+      user,
+      punctuality,
+      status: punctuality,
+    };
+  });
 };
 
 const ATTENDANCE_TIMEZONE = process.env.ATTENDANCE_TIMEZONE || 'Africa/Accra';
@@ -2288,46 +2308,102 @@ app.get('/api/public/id/:barcode', async (req, res) => {
     }
     barcode = barcode.trim();
     if (!barcode) {
-      return res.status(400).json({ error: 'Invalid student code' });
+      return res.status(400).json({ error: 'Invalid ID code' });
     }
 
-    const { data: student, error } = await supabase
+    const { data: student, error: studentError } = await supabase
       .from('students')
       .select('*')
       .eq('barcode', barcode)
       .maybeSingle();
+    if (studentError) throw studentError;
 
-    if (error) throw error;
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
+    if (student) {
+      const { data: school } = await supabase
+        .from('schools')
+        .select('name, logo_url')
+        .eq('id', student.school_id)
+        .maybeSingle();
+      const withPhoto = mergeStudentPhoto(student);
+      return res.json({
+        type: 'student',
+        name: withPhoto.name,
+        class: withPhoto.class,
+        role: null,
+        photo_url: withPhoto.photo_url || null,
+        roll_number: withPhoto.roll_number || null,
+        parent_name: withPhoto.parent_name || null,
+        parent_relationship: withPhoto.parent_relationship || null,
+        parent_phone: withPhoto.parent_phone || null,
+        parent_email: withPhoto.parent_email || null,
+        house_address: withPhoto.house_address || null,
+        skills: withPhoto.skills || null,
+        date_of_birth: withPhoto.date_of_birth || null,
+        school_name: school?.name || 'School',
+        school_logo_url: school?.logo_url || null,
+      });
     }
 
-    const { data: school } = await supabase
-      .from('schools')
-      .select('name, logo_url')
-      .eq('id', student.school_id)
+    const { data: staff } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('barcode', barcode)
       .maybeSingle();
 
-    const withPhoto = mergeStudentPhoto(student);
+    if (staff) {
+      const { data: school } = await supabase
+        .from('schools')
+        .select('name, logo_url')
+        .eq('id', staff.school_id)
+        .maybeSingle();
+      const withPhoto = mergePersonPhoto(staff);
+      return res.json({
+        type: 'staff',
+        name: withPhoto.name,
+        class: null,
+        role: withPhoto.role || 'Staff',
+        photo_url: withPhoto.photo_url || null,
+        parent_name: null,
+        parent_phone: null,
+        parent_email: null,
+        house_address: null,
+        school_name: school?.name || 'School',
+        school_logo_url: school?.logo_url || null,
+      });
+    }
 
-    res.json({
-      name: withPhoto.name,
-      class: withPhoto.class,
-      photo_url: withPhoto.photo_url || null,
-      roll_number: withPhoto.roll_number || null,
-      parent_name: withPhoto.parent_name || null,
-      parent_relationship: withPhoto.parent_relationship || null,
-      parent_phone: withPhoto.parent_phone || null,
-      parent_email: withPhoto.parent_email || null,
-      house_address: withPhoto.house_address || null,
-      skills: withPhoto.skills || null,
-      date_of_birth: withPhoto.date_of_birth || null,
-      school_name: school?.name || 'School',
-      school_logo_url: school?.logo_url || null,
-    });
+    const { data: nonStaff } = await supabase
+      .from('nonstaffs')
+      .select('*')
+      .eq('barcode', barcode)
+      .maybeSingle();
+
+    if (nonStaff) {
+      const { data: school } = await supabase
+        .from('schools')
+        .select('name, logo_url')
+        .eq('id', nonStaff.school_id)
+        .maybeSingle();
+      const withPhoto = mergePersonPhoto(nonStaff);
+      return res.json({
+        type: 'non-staff',
+        name: withPhoto.name,
+        class: null,
+        role: withPhoto.role || 'Non-staff',
+        photo_url: withPhoto.photo_url || null,
+        parent_name: null,
+        parent_phone: null,
+        parent_email: null,
+        house_address: null,
+        school_name: school?.name || 'School',
+        school_logo_url: school?.logo_url || null,
+      });
+    }
+
+    return res.status(404).json({ error: 'Person not found' });
   } catch (error) {
-    console.error('Public student ID error:', error);
-    res.status(500).json({ error: 'Failed to load student ID' });
+    console.error('Public ID error:', error);
+    res.status(500).json({ error: 'Failed to load ID' });
   }
 });
 
@@ -2611,36 +2687,9 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    
-    // Auto-assign portal access codes to staff without them
-    const generateSecretCode = () => `SCH-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-    const updates = [];
 
-    for (const member of staff) {
-      if (!member.secret_code) {
-        const newCode = generateSecretCode();
-        updates.push(
-          supabase
-            .from('staffs')
-            .update({ secret_code: newCode })
-            .eq('id', member.id)
-            .then(() => {
-              member.secret_code = newCode;
-            })
-            .catch((err) => {
-              console.warn(`Failed to update secret code for staff ${member.id}:`, err.message);
-            })
-        );
-      }
-    }
-    
-    // Wait for all updates to complete
-    if (updates.length > 0) {
-      await Promise.all(updates);
-    }
-    
     // normalize records for frontend (add camelCase secretCode)
-    res.json(staff.map((member) => mergePersonPhoto(normalizeStaffRecord(member))));
+    res.json((staff || []).map((member) => mergePersonPhoto(normalizeStaffRecord(member))));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, Navigate, Link } from 'react-router-dom';
-import Layout from '../components/layout';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
 import {
@@ -251,15 +250,15 @@ const Messages = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="flex items-center justify-center py-24 text-slate-300">Loading messages…</div>
-      </Layout>
+      <>
+<div className="flex items-center justify-center py-24 text-slate-300">Loading messages…</div>
+</>
     );
   }
 
   return (
-    <Layout>
-      <div className="relative space-y-10">
+    <>
+<div className="relative space-y-10">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-72"
@@ -817,7 +816,7 @@ const Messages = () => {
           </div>
         )}
       </div>
-    </Layout>
+</>
   );
 };
 

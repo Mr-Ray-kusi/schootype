@@ -1,12 +1,16 @@
 /**
- * Student QR codes encode a public ID URL so a normal phone camera
- * opens the student profile. Admin / gate scanners extract the barcode
- * and mark attendance instead.
+ * Public person ID URL so a normal phone camera opens the profile.
+ * Gate scanners extract the barcode and mark attendance instead.
  */
 
-export function buildStudentIdUrl(barcode, origin = typeof window !== 'undefined' ? window.location.origin : '') {
+export function buildPersonIdUrl(barcode, origin = typeof window !== 'undefined' ? window.location.origin : '') {
   if (!barcode) return '';
   return `${origin}/id/${encodeURIComponent(barcode)}`;
+}
+
+/** @deprecated use buildPersonIdUrl */
+export function buildStudentIdUrl(barcode, origin) {
+  return buildPersonIdUrl(barcode, origin);
 }
 
 /** Pull attendance barcode from a raw scan (ID URL or legacy plain barcode). */
