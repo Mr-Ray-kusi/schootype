@@ -32,6 +32,7 @@ const readCachedSchool = () => {
 
 const schoolApprovalSnapshot = (school) =>
   [
+    school?.payment_plan,
     school?.plan_status,
     school?.plan_approved,
     school?.subscription_active,
@@ -39,17 +40,47 @@ const schoolApprovalSnapshot = (school) =>
     (school?.plan_features || []).join(','),
   ].join('|');
 
+/** Prefer live verify data, but never wipe a known payment_plan with a partial payload. */
+const mergeSchoolState = (incoming, previous) => {
+  if (!incoming) return previous || null;
+  if (!previous) return incoming;
+  if (incoming.payment_plan || !previous.payment_plan) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    payment_plan: previous.payment_plan,
+    plan_status: incoming.plan_status || previous.plan_status || null,
+    plan_name: incoming.plan_name || previous.plan_name || null,
+    plan_approved:
+      incoming.plan_status != null
+        ? incoming.plan_status === 'approved'
+        : Boolean(incoming.plan_approved ?? previous.plan_approved),
+    plan_features:
+      incoming.plan_features?.length > 0 ? incoming.plan_features : previous.plan_features || [],
+    pending_plan_features:
+      incoming.pending_plan_features?.length > 0
+        ? incoming.pending_plan_features
+        : previous.pending_plan_features || [],
+    plan_price: incoming.plan_price ?? previous.plan_price ?? null,
+    plan_selected_at: incoming.plan_selected_at || previous.plan_selected_at || null,
+  };
+};
+
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [school, setSchool] = useState(null);
   const [loading, setLoading] = useState(true);
   const schoolRef = useRef(null);
 
-  const persistSchool = (schoolData) => {
-    schoolRef.current = schoolData;
-    setSchool(schoolData);
+  const persistSchool = (schoolData, previous = schoolRef.current) => {
+    const merged = mergeSchoolState(schoolData, previous);
+    schoolRef.current = merged;
+    setSchool(merged);
     try {
-      localStorage.setItem('school', JSON.stringify(schoolData));
+      if (merged) {
+        localStorage.setItem('school', JSON.stringify(merged));
+      }
     } catch {
       // ignore quota / private mode failures
     }
@@ -105,7 +136,7 @@ export const AuthProvider = ({ children }) => {
       try {
         const response = await axios.get('/api/auth/verify', { timeout: 45000 });
         if (response.data?.school) {
-          persistSchool(response.data.school);
+          persistSchool(response.data.school, cachedSchool || schoolRef.current);
         } else if (!cachedSchool) {
           // Token accepted but no school payload and nothing cached.
           clearSession();
@@ -116,6 +147,7 @@ export const AuthProvider = ({ children }) => {
         if (status === 401 || status === 403) {
           clearSession();
         }
+        // Keep cached school on transient failures so refresh does not bounce to /select-plan.
       }
 
       setLoading(false);
@@ -213,7 +245,7 @@ export const AuthProvider = ({ children }) => {
         }
 
         const wasApproved = prev?.plan_approved === true;
-        persistSchool(next);
+        persistSchool(next, prev);
         if (!wasApproved && next.plan_approved) {
           toast.success('Your plan was approved! Features are now unlocked.');
         }

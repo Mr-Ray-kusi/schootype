@@ -190,9 +190,13 @@ export function hydrateExtrasFromSchool(school) {
   if (!school?.id) return null;
   const existing = cache.get(school.id) || { school_id: school.id, payment_records: [] };
   const fromDb = normalizeExtras(school);
+  // Do not let a cold/partial row null out plan fields already known on this instance.
   const merged = {
     ...existing,
     ...fromDb,
+    payment_plan: fromDb.payment_plan || existing.payment_plan || null,
+    plan_status: fromDb.plan_status || existing.plan_status || null,
+    plan_selected_at: fromDb.plan_selected_at || existing.plan_selected_at || null,
     payment_records: existing.payment_records || [],
   };
   cache.set(school.id, merged);

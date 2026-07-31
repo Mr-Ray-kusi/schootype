@@ -95,6 +95,8 @@ const Home = () => {
 
   useEffect(() => {
     if (loading || !token) return;
+    // Wait for school payload — missing school must not mean "no plan selected".
+    if (!school) return;
 
     if (school?.role === 'super_admin') {
       navigate('/super-admin', { replace: true });

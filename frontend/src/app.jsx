@@ -38,6 +38,8 @@ const SchoolAdminRoute = ({ children }) => {
 
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
+  // Token restored but school payload not ready yet — avoid a false trip to /select-plan.
+  if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
   if (!school?.payment_plan) return <Navigate to="/select-plan" />;
   return children;
@@ -49,6 +51,7 @@ const PlanFeatureRoute = ({ feature, features, children }) => {
 
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
+  if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
   if (!school?.payment_plan) return <Navigate to="/select-plan" />;
   if (featureKeys.length && !featureKeys.some((key) => includesPlanFeature(key))) {
@@ -65,6 +68,7 @@ const SuperAdminRoute = ({ children }) => {
 
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
+  if (!school) return <LoadingScreen />;
   if (school?.role !== 'super_admin') return <Navigate to="/dashboard" />;
   return children;
 };
@@ -76,6 +80,7 @@ const FinanceRoute = ({ feature, children }) => {
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
   if (isSuperAdmin || school?.role === 'super_admin') return children;
+  if (!school) return <LoadingScreen />;
   if (!school?.payment_plan) return <Navigate to="/select-plan" />;
   if (feature && !includesPlanFeature(feature)) return <Navigate to="/dashboard" />;
   if (feature && !hasFeature(feature)) return <Navigate to="/dashboard" />;
@@ -87,6 +92,7 @@ const SelectPlanRoute = ({ children }) => {
 
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
+  if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
   if (school?.payment_plan) return <Navigate to="/dashboard" />;
   return children;
