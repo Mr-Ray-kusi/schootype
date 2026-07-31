@@ -4,7 +4,7 @@ import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
-import { Edit2, Trash2, Search, Hash, User, Phone, MapPin, Trophy } from 'lucide-react';
+import { Edit2, Trash2, Search, Hash, User, Phone, MapPin, Trophy, Eye, Mail } from 'lucide-react';
 
 const Students = () => {
   const [students, setStudents] = useState([]);
@@ -13,6 +13,7 @@ const Students = () => {
   const [selectedClass, setSelectedClass] = useState('all');
   const [loading, setLoading] = useState(true);
   const [editingStudent, setEditingStudent] = useState(null);
+  const [viewingStudent, setViewingStudent] = useState(null);
 
   useEffect(() => {
     fetchStudents();
@@ -73,6 +74,8 @@ const Students = () => {
       await axios.put(`/api/students/${editingStudent.id}`, {
         name: editingStudent.name,
         class: editingStudent.class,
+        parentName: editingStudent.parent_name,
+        parentRelationship: editingStudent.parent_relationship,
         parentEmail: editingStudent.parent_email,
         parentPhone: editingStudent.parent_phone,
         houseAddress: editingStudent.house_address,
@@ -136,6 +139,73 @@ const Students = () => {
           </div>
         </div>
 
+        {viewingStudent && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+              <div className="flex items-start gap-4">
+                {viewingStudent.photo_url ? (
+                  <img
+                    src={viewingStudent.photo_url}
+                    alt={viewingStudent.name}
+                    className="h-28 w-24 rounded-xl object-cover border border-slate-500"
+                  />
+                ) : (
+                  <div className="flex h-28 w-24 items-center justify-center rounded-xl bg-primary-500/20 border border-primary-500/30">
+                    <span className="text-2xl font-bold text-primary-300">
+                      {viewingStudent.name?.charAt(0)?.toUpperCase() || '?'}
+                    </span>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-xl font-bold text-white">{viewingStudent.name}</h2>
+                  <p className="mt-1 text-sm text-slate-300">{viewingStudent.class || 'No class'}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Roll: {viewingStudent.roll_number || 'N/A'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-3 text-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Parent / guardian
+                </h3>
+                <p className="text-slate-100">
+                  {viewingStudent.parent_name || '—'}
+                  {viewingStudent.parent_relationship
+                    ? ` (${viewingStudent.parent_relationship})`
+                    : ''}
+                </p>
+                <p className="flex items-center gap-2 text-slate-300">
+                  <Phone className="h-3.5 w-3.5 text-slate-500" />
+                  {viewingStudent.parent_phone || '—'}
+                </p>
+                <p className="flex items-center gap-2 text-slate-300">
+                  <Mail className="h-3.5 w-3.5 text-slate-500" />
+                  {viewingStudent.parent_email || '—'}
+                </p>
+                <p className="flex items-start gap-2 text-slate-300">
+                  <MapPin className="mt-0.5 h-3.5 w-3.5 text-slate-500 shrink-0" />
+                  <span>{viewingStudent.house_address || '—'}</span>
+                </p>
+                {viewingStudent.skills ? (
+                  <p className="flex items-start gap-2 text-slate-300">
+                    <Trophy className="mt-0.5 h-3.5 w-3.5 text-slate-500 shrink-0" />
+                    <span>{viewingStudent.skills}</span>
+                  </p>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewingStudent(null)}
+                className="mt-6 w-full rounded-lg bg-slate-600 py-2 text-slate-100 hover:bg-slate-500"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
         {editingStudent && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
@@ -162,6 +232,26 @@ const Students = () => {
                   onChange={(e) => setEditingStudent({ ...editingStudent, date_of_birth: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-500 rounded-lg"
                 />
+                <input
+                  type="text"
+                  value={editingStudent.parent_name || ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, parent_name: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                  placeholder="Parent / guardian name"
+                />
+                <select
+                  value={editingStudent.parent_relationship || 'Parent'}
+                  onChange={(e) =>
+                    setEditingStudent({ ...editingStudent, parent_relationship: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                >
+                  <option value="Parent">Parent</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Father">Father</option>
+                  <option value="Guardian">Guardian</option>
+                  <option value="Other">Other</option>
+                </select>
                 <input
                   type="tel"
                   value={editingStudent.parent_phone || ''}
@@ -256,6 +346,13 @@ const Students = () => {
                     </div>
                     <div className="flex flex-col gap-0.5 shrink-0">
                       <button
+                        onClick={() => setViewingStudent(student)}
+                        className="p-1 rounded-md text-slate-300 hover:bg-slate-700 transition-colors"
+                        title="View details"
+                      >
+                        <Eye className="w-3 h-3" />
+                      </button>
+                      <button
                         onClick={() => handleEdit(student)}
                         className="p-1 rounded-md text-primary-400 hover:bg-primary-500/20 transition-colors"
                         title="Edit"
@@ -277,6 +374,15 @@ const Students = () => {
                       <Hash className="w-2.5 h-2.5 text-slate-500 shrink-0" />
                       <span className="truncate">{student.roll_number || 'N/A'}</span>
                     </div>
+                    {student.parent_name && (
+                      <div className="flex items-center gap-1 truncate">
+                        <User className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                        <span className="truncate">
+                          {student.parent_name}
+                          {student.parent_relationship ? ` · ${student.parent_relationship}` : ''}
+                        </span>
+                      </div>
+                    )}
                     {student.parent_phone && (
                       <div className="flex items-center gap-1 truncate">
                         <Phone className="w-2.5 h-2.5 text-slate-500 shrink-0" />

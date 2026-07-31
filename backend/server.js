@@ -22,6 +22,9 @@ import {
   ensureScannerToken,
   regenerateScannerToken,
   getSchoolIdByScannerToken,
+  ensureStaffPortalToken,
+  regenerateStaffPortalToken,
+  getSchoolIdByStaffPortalToken,
   getSchoolExtrasSync,
   parsePaymentRecords,
   hydrateExtrasFromSchool,
@@ -215,6 +218,8 @@ const insertSchoolRecord = async (record) => {
     'plan_status',
     'logo_url',
     'scanner_token',
+    'staff_portal_token',
+    'late_after_time',
     'next_payment_due',
     'last_payment_at',
     'subscription_frozen',
@@ -288,6 +293,8 @@ const updateSchoolRecord = async (id, updates) => {
     'plan_status',
     'logo_url',
     'scanner_token',
+    'staff_portal_token',
+    'late_after_time',
     'next_payment_due',
     'last_payment_at',
     'subscription_frozen',
@@ -349,6 +356,8 @@ const SCHOOL_OPTIONAL_COLUMNS = [
   'plan_status',
   'logo_url',
   'scanner_token',
+  'staff_portal_token',
+  'late_after_time',
   'next_payment_due',
   'last_payment_at',
   'subscription_frozen',
@@ -489,6 +498,8 @@ const insertStudentRecord = async (record) => {
   const optionalColumns = [
     'photo_url',
     'parent_phone',
+    'parent_name',
+    'parent_relationship',
     'house_address',
     'date_of_birth',
     'parent_email',
@@ -523,6 +534,8 @@ const updateStudentRecord = async (id, schoolId, updates) => {
   const optionalColumns = [
     'photo_url',
     'parent_phone',
+    'parent_name',
+    'parent_relationship',
     'house_address',
     'date_of_birth',
     'parent_email',
@@ -1653,33 +1666,111 @@ const schoolNameMap = async (schoolIds) => {
   return new Map((data || []).map((s) => [s.id, s.name]));
 };
 
-const enrichAttendanceRows = async (attendance) => {
+const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
+  const resolveUser = async (record) => {
+    if (record.user_name) {
+      return {
+        name: record.user_name,
+        role: record.user_type === 'student' ? null : record.user_label || null,
+        class: record.user_type === 'student' ? record.user_label || null : null,
+      };
+    }
+
+    let table;
+    let columns = 'name';
+    switch (record.user_type) {
+      case 'student':
+        table = 'students';
+        columns = 'name, class';
+        break;
+      case 'staff':
+        table = 'staffs';
+        columns = 'name, role';
+        break;
+      case 'non-staff':
+        table = 'nonstaffs';
+        columns = 'name, role';
+        break;
+      default:
+        return null;
+    }
+
+    const { data: user, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq('id', record.user_id)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Attendance user lookup failed:', error.message);
+      return null;
+    }
+    return user || null;
+  };
+
   return Promise.all(
     (attendance || []).map(async (record) => {
-      let table;
-      switch (record.user_type) {
-        case 'student':
-          table = 'students';
-          break;
-        case 'staff':
-          table = 'staffs';
-          break;
-        case 'non-staff':
-          table = 'nonstaffs';
-          break;
-        default:
-          return record;
-      }
+      const user = await resolveUser(record);
+      const punctuality =
+        record.status === 'early' || record.status === 'late'
+          ? record.status
+          : getAttendancePunctuality(record.timestamp, lateAfterTime);
 
-      const { data: user } = await supabase
-        .from(table)
-        .select('name, role, class')
-        .eq('id', record.user_id)
-        .maybeSingle();
-
-      return { ...record, user };
+      return {
+        ...record,
+        user,
+        punctuality,
+        status: punctuality,
+      };
     })
   );
+};
+
+const ATTENDANCE_TIMEZONE = process.env.ATTENDANCE_TIMEZONE || 'Africa/Accra';
+
+const normalizeLateAfterTime = (value) => {
+  const raw = String(value || '').trim();
+  if (/^\d{1,2}:\d{2}$/.test(raw)) {
+    const [h, m] = raw.split(':').map(Number);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+  }
+  return '08:00';
+};
+
+const getAttendancePunctuality = (timestamp, lateAfterTime = '08:00') => {
+  const when = timestamp ? new Date(timestamp) : new Date();
+  if (Number.isNaN(when.getTime())) return 'early';
+
+  const cutoff = normalizeLateAfterTime(lateAfterTime);
+  const [cutH, cutM] = cutoff.split(':').map(Number);
+
+  let hour = when.getUTCHours();
+  let minute = when.getUTCMinutes();
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: ATTENDANCE_TIMEZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(when);
+    hour = Number(parts.find((p) => p.type === 'hour')?.value ?? hour);
+    minute = Number(parts.find((p) => p.type === 'minute')?.value ?? minute);
+  } catch {
+    // fall back to UTC
+  }
+
+  const scannedMinutes = hour * 60 + minute;
+  const cutoffMinutes = cutH * 60 + cutM;
+  return scannedMinutes > cutoffMinutes ? 'late' : 'early';
+};
+
+const getSchoolLateAfterTime = async (schoolId) => {
+  const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+  if (!school) return '08:00';
+  const merged = mergeSchoolWithExtras(school);
+  return normalizeLateAfterTime(merged.late_after_time);
 };
 
 // Platform-wide monitoring for super admin
@@ -2224,6 +2315,8 @@ app.get('/api/public/id/:barcode', async (req, res) => {
       class: withPhoto.class,
       photo_url: withPhoto.photo_url || null,
       roll_number: withPhoto.roll_number || null,
+      parent_name: withPhoto.parent_name || null,
+      parent_relationship: withPhoto.parent_relationship || null,
       parent_phone: withPhoto.parent_phone || null,
       parent_email: withPhoto.parent_email || null,
       house_address: withPhoto.house_address || null,
@@ -2264,6 +2357,8 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       class: className,
       parentEmail,
       parentPhone,
+      parentName,
+      parentRelationship,
       houseAddress,
       dateOfBirth,
       rollNumber,
@@ -2292,6 +2387,8 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       school_id: req.user.schoolId,
       name: name.trim(),
       class: className,
+      parent_name: parentName?.trim() || null,
+      parent_relationship: parentRelationship?.trim() || null,
       parent_email: parentEmail?.trim() || null,
       parent_phone: parentPhone.trim(),
       house_address: houseAddress?.trim() || null,
@@ -2310,11 +2407,29 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
 
     if (error) throw error;
 
-    if (photo && student?.id) {
-      await setStudentPhoto(student.id, req.user.schoolId, photo);
+    let saved = student;
+    // If photo_url column was missing on insert, force-save so the ID card keeps the image.
+    if (photo && student?.id && !student.photo_url) {
+      const repaired = await updateStudentRecord(student.id, req.user.schoolId, { photo_url: photo });
+      if (!repaired.error && repaired.data) saved = repaired.data;
     }
 
-    res.json(mergeStudentPhoto(student));
+    if (photo && saved?.id) {
+      await setStudentPhoto(saved.id, req.user.schoolId, photo);
+    }
+
+    if (photo && saved && !saved.photo_url) {
+      console.warn(
+        'Student photo could not be stored in Supabase photo_url. Run backend/migrations/add_parent_teacher_portal.sql (or add_student_photo.sql).'
+      );
+      return res.status(201).json({
+        ...mergeStudentPhoto(saved),
+        warning:
+          'Photo saved temporarily only. Run the student photo SQL migration in Supabase so photos survive restarts.',
+      });
+    }
+
+    res.json(mergeStudentPhoto(saved));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2331,6 +2446,10 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       parent_email,
       parentPhone,
       parent_phone,
+      parentName,
+      parent_name,
+      parentRelationship,
+      parent_relationship,
       houseAddress,
       house_address,
       dateOfBirth,
@@ -2349,6 +2468,13 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     if (nextParentEmail !== undefined) updates.parent_email = nextParentEmail;
     const nextParentPhone = parentPhone !== undefined ? parentPhone : parent_phone;
     if (nextParentPhone !== undefined) updates.parent_phone = nextParentPhone;
+    const nextParentName = parentName !== undefined ? parentName : parent_name;
+    if (nextParentName !== undefined) updates.parent_name = nextParentName?.trim?.() || nextParentName || null;
+    const nextParentRelationship =
+      parentRelationship !== undefined ? parentRelationship : parent_relationship;
+    if (nextParentRelationship !== undefined) {
+      updates.parent_relationship = nextParentRelationship?.trim?.() || nextParentRelationship || null;
+    }
     const nextHouse = houseAddress !== undefined ? houseAddress : house_address;
     if (nextHouse !== undefined) updates.house_address = nextHouse;
     const nextDob = dateOfBirth !== undefined ? dateOfBirth : date_of_birth;
@@ -2411,7 +2537,69 @@ const normalizeStaffRecord = (rec) => {
   return {
     ...rec,
     secretCode: rec.secret_code || null,
+    subjects: rec.subjects || '',
+    classNames: rec.class_names || '',
   };
+};
+
+const parseCsvList = (value) =>
+  String(value || '')
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+const listsOverlap = (left, right) => {
+  const rightSet = new Set(right.map((item) => item.toLowerCase()));
+  return left.some((item) => rightSet.has(item.toLowerCase()));
+};
+
+const insertStaffRecord = async (record) => {
+  const payload = { ...record };
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url'];
+
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+    const { data, error } = await supabase.from('staffs').insert([payload]).select().single();
+    if (!error) return { data, error: null };
+
+    const missingColumn = optionalColumns.find(
+      (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+    );
+    if (missingColumn) {
+      delete payload[missingColumn];
+      continue;
+    }
+    return { data: null, error };
+  }
+
+  return { data: null, error: { message: 'Failed to create staff record' } };
+};
+
+const updateStaffRecord = async (id, schoolId, updates) => {
+  const payload = { ...updates };
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url'];
+
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+    const { data, error } = await supabase
+      .from('staffs')
+      .update(payload)
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .select()
+      .single();
+
+    if (!error) return { data, error: null };
+
+    const missingColumn = optionalColumns.find(
+      (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+    );
+    if (missingColumn) {
+      delete payload[missingColumn];
+      continue;
+    }
+    return { data: null, error };
+  }
+
+  return { data: null, error: { message: 'Failed to update staff record' } };
 };
 
 app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
@@ -2424,12 +2612,12 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
     if (error) throw error;
     
-    // Auto-assign codes to Teachers without them
+    // Auto-assign portal access codes to staff without them
     const generateSecretCode = () => `SCH-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const updates = [];
-    
+
     for (const member of staff) {
-      if (member.role === 'Teacher' && !member.secret_code) {
+      if (!member.secret_code) {
         const newCode = generateSecretCode();
         updates.push(
           supabase
@@ -2439,8 +2627,8 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
             .then(() => {
               member.secret_code = newCode;
             })
-            .catch(err => {
-              console.warn(`Failed to update secret code for teacher ${member.id}:`, err.message);
+            .catch((err) => {
+              console.warn(`Failed to update secret code for staff ${member.id}:`, err.message);
             })
         );
       }
@@ -2460,7 +2648,14 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
 app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, secretCode, photo } = req.body;
+    const { name, role, secretCode, subjects, classNames, class_names, photo } = req.body;
+
+    if (!name?.trim()) {
+      return res.status(400).json({ error: 'Staff name is required' });
+    }
+    if (!role?.trim()) {
+      return res.status(400).json({ error: 'Staff role is required' });
+    }
 
     const photoError = validateImage(photo);
     if (photoError) {
@@ -2468,57 +2663,39 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
     }
 
     const barcode = `${req.user.schoolId}-STAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-    // Generate a secret code for Teachers if not provided
     const generateSecretCode = () => `SCH-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-    const preservedSecretCode = role === 'Teacher' ? (secretCode || generateSecretCode()) : null;
+    const accessCode = String(secretCode || '').trim() || generateSecretCode();
+    const subjectsValue = subjects?.trim?.() ? subjects.trim() : subjects || null;
+    const classesValue =
+      (classNames !== undefined ? classNames : class_names)?.toString?.().trim?.() || null;
 
-    // only include secret_code when the role is Teacher
     const insertObj = {
       school_id: req.user.schoolId,
-      name,
-      role,
+      name: name.trim(),
+      role: role.trim(),
       barcode,
+      secret_code: accessCode,
+      subjects: subjectsValue,
+      class_names: classesValue,
       created_at: new Date(),
     };
-    if (preservedSecretCode) insertObj.secret_code = preservedSecretCode;
+    if (photo) insertObj.photo_url = photo;
 
-    // attempt to insert; if DB lacks secret_code column, retry without it
-    let staff;
-    try {
-      const result = await supabase
-        .from('staffs')
-        .insert([insertObj])
-        .select()
-        .single();
-      if (result.error) throw result.error;
-      staff = result.data;
-    } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
-      if (msg.includes('secret_code')) {
-        console.warn('Database does not have secret_code column, retrying without it');
-        delete insertObj.secret_code;
-        const retry = await supabase
-          .from('staffs')
-          .insert([insertObj])
-          .select()
-          .single();
-        if (retry.error) throw retry.error;
-        staff = retry.data;
-      } else {
-        throw err;
-      }
+    const { data: staff, error } = await insertStaffRecord(insertObj);
+    if (error) throw error;
+
+    let saved = staff;
+    if (photo && staff?.id && !staff.photo_url) {
+      const repaired = await updateStaffRecord(staff.id, req.user.schoolId, { photo_url: photo });
+      if (!repaired.error && repaired.data) saved = repaired.data;
     }
 
-    // Ensure secretCode is in the response even if DB column doesn't exist
-    const response = normalizeStaffRecord(staff);
-    if (preservedSecretCode && !response.secretCode) {
-      response.secretCode = preservedSecretCode;
+    if (photo && saved?.id) {
+      await setPersonPhoto(saved.id, req.user.schoolId, photo);
     }
 
-    if (photo && staff?.id) {
-      await setPersonPhoto(staff.id, req.user.schoolId, photo);
-    }
+    const response = normalizeStaffRecord(saved);
+    if (!response.secretCode) response.secretCode = accessCode;
 
     res.json(mergePersonPhoto(response));
   } catch (error) {
@@ -2529,16 +2706,24 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
 app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role, secretCode, photo, photo_url: photoUrl } = req.body;
-    
-    // First fetch the current staff member to get existing data
+    const {
+      name,
+      role,
+      secretCode,
+      subjects,
+      classNames,
+      class_names,
+      photo,
+      photo_url: photoUrl,
+    } = req.body;
+
     const { data: currentStaff, error: fetchError } = await supabase
       .from('staffs')
       .select('*')
       .eq('id', id)
       .eq('school_id', req.user.schoolId)
       .single();
-    
+
     if (fetchError || !currentStaff) {
       return res.status(404).json({ error: 'Staff member not found' });
     }
@@ -2551,61 +2736,28 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       }
     }
 
-    const updates = {};
-    if (name) updates.name = name;
-    if (role) updates.role = role;
-
-    // Handle secret code logic for Teachers
     const generateSecretCode = () => `SCH-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-    const newRole = role || currentStaff.role;
-    
-    if (newRole === 'Teacher') {
-      // If updating to Teacher role, use provided code, preserve existing, or generate new
-      if (secretCode) {
-        updates.secret_code = secretCode;
-      } else if (!currentStaff.secret_code) {
-        // No existing code and no new code provided, generate one
-        updates.secret_code = generateSecretCode();
-      }
-      // If existing code exists and no new code provided, don't update (preserve it)
-    } else {
-      // If changing away from Teacher role, clear the code
-      updates.secret_code = null;
+    const updates = {};
+    if (name) updates.name = name.trim();
+    if (role) updates.role = role.trim();
+    if (subjects !== undefined) updates.subjects = subjects?.trim?.() ? subjects.trim() : subjects || null;
+    if (classNames !== undefined || class_names !== undefined) {
+      const nextClasses = classNames !== undefined ? classNames : class_names;
+      updates.class_names = nextClasses?.toString?.().trim?.() || null;
     }
 
-    // attempt update; if secret_code column is missing, retry without it
-    let staff;
-    try {
-      const result = await supabase
-        .from('staffs')
-        .update(updates)
-        .eq('id', id)
-        .eq('school_id', req.user.schoolId)
-        .select()
-        .single();
-      if (result.error) throw result.error;
-      staff = result.data;
-    } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
-      if (msg.includes('secret_code')) {
-        console.warn('Database does not have secret_code column, retrying without it');
-        delete updates.secret_code;
-        const retry = await supabase
-          .from('staffs')
-          .update(updates)
-          .eq('id', id)
-          .eq('school_id', req.user.schoolId)
-          .select()
-          .single();
-        if (retry.error) throw retry.error;
-        staff = retry.data;
-      } else {
-        throw err;
-      }
+    if (secretCode !== undefined) {
+      updates.secret_code = String(secretCode || '').trim() || generateSecretCode();
+    } else if (!currentStaff.secret_code) {
+      updates.secret_code = generateSecretCode();
     }
 
-    // Ensure secretCode is in the response
-    const response = normalizeStaffRecord(staff);
+    if (nextPhoto !== undefined) {
+      updates.photo_url = nextPhoto || null;
+    }
+
+    const { data: staff, error } = await updateStaffRecord(id, req.user.schoolId, updates);
+    if (error) throw error;
 
     if (nextPhoto !== undefined) {
       if (nextPhoto) {
@@ -2615,7 +2767,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       }
     }
 
-    res.json(mergePersonPhoto(response));
+    res.json(mergePersonPhoto(normalizeStaffRecord(staff)));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2781,38 +2933,41 @@ const getAttendanceCode = (body) => {
 const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   let { data: student } = await supabase
     .from('students')
-    .select('id, name')
+    .select('id, name, class')
     .eq('barcode', attendanceCode)
     .eq('school_id', schoolId)
-    .single();
+    .maybeSingle();
 
   let userType = 'student';
   let userId = student?.id;
   let userName = student?.name;
+  let userLabel = student?.class || null;
 
   if (!userId) {
     const { data: staff } = await supabase
       .from('staffs')
-      .select('id, name')
+      .select('id, name, role')
       .eq('barcode', attendanceCode)
       .eq('school_id', schoolId)
-      .single();
+      .maybeSingle();
 
     if (staff) {
       userId = staff.id;
       userName = staff.name;
+      userLabel = staff.role || null;
       userType = 'staff';
     } else {
       const { data: nonStaff } = await supabase
         .from('nonstaffs')
-        .select('id, name')
+        .select('id, name, role')
         .eq('barcode', attendanceCode)
         .eq('school_id', schoolId)
-        .single();
+        .maybeSingle();
 
       if (nonStaff) {
         userId = nonStaff.id;
         userName = nonStaff.name;
+        userLabel = nonStaff.role || null;
         userType = 'non-staff';
       }
     }
@@ -2824,7 +2979,11 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     throw err;
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+  const punctuality = getAttendancePunctuality(now, lateAfterTime);
+
   const { data: existingAttendance } = await supabase
     .from('attendance')
     .select('id')
@@ -2832,7 +2991,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     .eq('user_type', userType)
     .eq('user_id', userId)
     .eq('date', today)
-    .single();
+    .maybeSingle();
 
   if (existingAttendance) {
     const err = new Error('Attendance already marked for today');
@@ -2840,27 +2999,39 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     throw err;
   }
 
-  const { data: attendance, error } = await supabase
-    .from('attendance')
-    .insert([
-      {
-        school_id: schoolId,
-        user_type: userType,
-        user_id: userId,
-        date: today,
-        timestamp: new Date().toISOString(),
-        status: 'present',
-      },
-    ])
-    .select()
-    .single();
+  const insertPayload = {
+    school_id: schoolId,
+    user_type: userType,
+    user_id: userId,
+    date: today,
+    timestamp: now.toISOString(),
+    status: punctuality,
+    user_name: userName || null,
+    user_label: userLabel || null,
+  };
+
+  let attendance = null;
+  let error = null;
+  {
+    const result = await supabase.from('attendance').insert([insertPayload]).select().single();
+    attendance = result.data;
+    error = result.error;
+  }
+
+  if (error && (isMissingColumnError(error, 'user_name') || isMissingColumnError(error, 'user_label'))) {
+    delete insertPayload.user_name;
+    delete insertPayload.user_label;
+    const retry = await supabase.from('attendance').insert([insertPayload]).select().single();
+    attendance = retry.data;
+    error = retry.error;
+  }
 
   if (error) throw error;
 
   return {
-    message: `Attendance marked for ${userName}`,
+    message: `Attendance marked for ${userName} (${punctuality === 'late' ? 'Late' : 'Early'})`,
     attendance,
-    user: { name: userName, type: userType },
+    user: { name: userName, type: userType, label: userLabel, punctuality },
   };
 };
 
@@ -2934,6 +3105,369 @@ app.post('/api/scanner/regenerate', authenticateToken, enforcePlanApproval, asyn
   } catch (error) {
     console.error('Scanner regenerate error:', error);
     res.status(500).json({ error: 'Failed to regenerate scanner link' });
+  }
+});
+
+// ============ STAFF PORTAL (token link + access code) ============
+
+const resolveStaffPortalSchool = async (token) => {
+  const schoolId = await getSchoolIdByStaffPortalToken(token);
+  if (!schoolId) return null;
+
+  const { data: school, error } = await supabase
+    .from('schools')
+    .select('*')
+    .eq('id', schoolId)
+    .maybeSingle();
+
+  if (error || !school) return null;
+
+  const merged = mergeSchoolWithExtras(school);
+  if (!merged.payment_plan) return null;
+  if ((merged.plan_status || 'pending') !== 'approved') return null;
+  if (!hasPlanFeature(merged.payment_plan, 'staff')) return null;
+  if (!getSubscriptionInfo(merged).subscription_active) return null;
+
+  return { schoolId, schoolName: merged.name, school: merged };
+};
+
+const authenticateStaffPortal = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return res.status(401).json({ error: 'Staff portal session required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, payload) => {
+    if (err || payload?.purpose !== 'staff_portal') {
+      return res.status(401).json({ error: 'Invalid or expired staff portal session' });
+    }
+    req.staffPortal = payload;
+    next();
+  });
+};
+
+app.get('/api/staff-portal/link', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data: school } = await supabase
+      .from('schools')
+      .select('*')
+      .eq('id', req.user.schoolId)
+      .maybeSingle();
+    if (!school) return res.status(404).json({ error: 'School not found' });
+
+    const merged = mergeSchoolWithExtras(school);
+    if (school?.id) hydrateExtrasFromSchool(school);
+    if (!hasPlanFeature(merged.payment_plan, 'staff')) {
+      return res.status(403).json({ error: 'Staff portal requires the Staff feature on your plan' });
+    }
+
+    const token = await ensureStaffPortalToken(req.user.schoolId);
+    res.json({ token, schoolName: merged.name });
+  } catch (error) {
+    console.error('Staff portal link error:', error);
+    res.status(500).json({ error: error.message || 'Failed to load staff portal link' });
+  }
+});
+
+app.post('/api/staff-portal/regenerate', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data: school } = await supabase
+      .from('schools')
+      .select('*')
+      .eq('id', req.user.schoolId)
+      .maybeSingle();
+    if (!school) return res.status(404).json({ error: 'School not found' });
+
+    const merged = mergeSchoolWithExtras(school);
+    if (school?.id) hydrateExtrasFromSchool(school);
+    if (!hasPlanFeature(merged.payment_plan, 'staff')) {
+      return res.status(403).json({ error: 'Staff portal requires the Staff feature on your plan' });
+    }
+
+    const token = await regenerateStaffPortalToken(req.user.schoolId);
+    res.json({ token });
+  } catch (error) {
+    console.error('Staff portal regenerate error:', error);
+    res.status(500).json({ error: error.message || 'Failed to regenerate staff portal link' });
+  }
+});
+
+app.get('/api/staff-portal/:token/school', async (req, res) => {
+  try {
+    const resolved = await resolveStaffPortalSchool(req.params.token);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Invalid or inactive staff portal link' });
+    }
+    res.json({ schoolName: resolved.schoolName });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/staff-portal/:token/login', async (req, res) => {
+  try {
+    const resolved = await resolveStaffPortalSchool(req.params.token);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Invalid or inactive staff portal link' });
+    }
+
+    const accessCode = String(req.body.accessCode || req.body.secretCode || '').trim();
+    const role = String(req.body.role || '').trim();
+    if (!accessCode || !role) {
+      return res.status(400).json({ error: 'Access code and role are required' });
+    }
+
+    const { data: staffRows, error } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('school_id', resolved.schoolId)
+      .eq('secret_code', accessCode);
+
+    if (error) throw error;
+
+    const staff =
+      (staffRows || []).find((row) => String(row.role || '').toLowerCase() === role.toLowerCase()) ||
+      null;
+
+    if (!staff) {
+      return res.status(401).json({ error: 'Invalid access code or role' });
+    }
+
+    const sessionToken = jwt.sign(
+      {
+        purpose: 'staff_portal',
+        schoolId: resolved.schoolId,
+        staffId: staff.id,
+        role: staff.role,
+        portalToken: req.params.token,
+      },
+      JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+
+    res.json({
+      sessionToken,
+      schoolName: resolved.schoolName,
+      staff: {
+        id: staff.id,
+        name: staff.name,
+        role: staff.role,
+        subjects: parseCsvList(staff.subjects),
+        classNames: parseCsvList(staff.class_names),
+      },
+    });
+  } catch (error) {
+    console.error('Staff portal login error:', error);
+    res.status(500).json({ error: error.message || 'Login failed' });
+  }
+});
+
+app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res) => {
+  try {
+    const { data: staff, error } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('id', req.staffPortal.staffId)
+      .eq('school_id', req.staffPortal.schoolId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+
+    const { data: school } = await supabase
+      .from('schools')
+      .select('name')
+      .eq('id', req.staffPortal.schoolId)
+      .maybeSingle();
+
+    res.json({
+      schoolName: school?.name || 'School',
+      staff: {
+        id: staff.id,
+        name: staff.name,
+        role: staff.role,
+        subjects: parseCsvList(staff.subjects),
+        classNames: parseCsvList(staff.class_names),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/staff-portal/session/students', authenticateStaffPortal, async (req, res) => {
+  try {
+    if (String(req.staffPortal.role).toLowerCase() !== 'teacher') {
+      return res.status(403).json({ error: 'Only teachers can view class students here' });
+    }
+
+    const { data: staff, error: staffError } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('id', req.staffPortal.staffId)
+      .eq('school_id', req.staffPortal.schoolId)
+      .maybeSingle();
+    if (staffError) throw staffError;
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+
+    const classNames = parseCsvList(staff.class_names);
+    if (!classNames.length) {
+      return res.json([]);
+    }
+
+    const { data: students, error } = await supabase
+      .from('students')
+      .select('id, name, class, roll_number, photo_url, parent_name, parent_phone')
+      .eq('school_id', req.staffPortal.schoolId)
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+
+    const classSet = new Set(classNames.map((c) => c.toLowerCase()));
+    const filtered = (students || []).filter((student) =>
+      classSet.has(String(student.class || '').toLowerCase())
+    );
+
+    res.json(mergeStudentPhotos(filtered));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/staff-portal/session/scores', authenticateStaffPortal, async (req, res) => {
+  try {
+    if (String(req.staffPortal.role).toLowerCase() !== 'teacher') {
+      return res.status(403).json({ error: 'Only teachers can manage scores here' });
+    }
+
+    const subject = String(req.query.subject || '').trim();
+    const className = String(req.query.className || req.query.class || '').trim();
+
+    let query = supabase
+      .from('student_scores')
+      .select('*')
+      .eq('school_id', req.staffPortal.schoolId)
+      .eq('staff_id', req.staffPortal.staffId);
+
+    if (subject) query = query.eq('subject', subject);
+    if (className) query = query.eq('class_name', className);
+
+    const { data, error } = await query.order('updated_at', { ascending: false });
+    if (error) {
+      if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+        return res.json([]);
+      }
+      throw error;
+    }
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req, res) => {
+  try {
+    if (String(req.staffPortal.role).toLowerCase() !== 'teacher') {
+      return res.status(403).json({ error: 'Only teachers can enter scores' });
+    }
+
+    const { data: staff, error: staffError } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('id', req.staffPortal.staffId)
+      .eq('school_id', req.staffPortal.schoolId)
+      .maybeSingle();
+    if (staffError) throw staffError;
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+
+    const allowedSubjects = parseCsvList(staff.subjects);
+    const allowedClasses = parseCsvList(staff.class_names);
+    const subject = String(req.body.subject || '').trim();
+    const studentId = req.body.studentId;
+    const className = String(req.body.className || req.body.class || '').trim();
+    const term = String(req.body.term || 'Term 1').trim() || 'Term 1';
+    const score = req.body.score === '' || req.body.score == null ? null : Number(req.body.score);
+    const maxScore =
+      req.body.maxScore === '' || req.body.maxScore == null ? 100 : Number(req.body.maxScore);
+    const remark = req.body.remark?.trim?.() || null;
+
+    if (!studentId || !subject) {
+      return res.status(400).json({ error: 'Student and subject are required' });
+    }
+    if (allowedSubjects.length && !listsOverlap([subject], allowedSubjects)) {
+      return res.status(403).json({ error: 'You are not assigned to this subject' });
+    }
+
+    const { data: student, error: studentError } = await supabase
+      .from('students')
+      .select('id, class, school_id')
+      .eq('id', studentId)
+      .eq('school_id', req.staffPortal.schoolId)
+      .maybeSingle();
+    if (studentError) throw studentError;
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    const studentClass = String(student.class || '').trim();
+    if (allowedClasses.length && !listsOverlap([studentClass], allowedClasses)) {
+      return res.status(403).json({ error: 'Student is not in your assigned classes' });
+    }
+
+    const record = {
+      school_id: req.staffPortal.schoolId,
+      student_id: studentId,
+      staff_id: req.staffPortal.staffId,
+      subject,
+      class_name: className || studentClass || null,
+      term,
+      score: Number.isFinite(score) ? score : null,
+      max_score: Number.isFinite(maxScore) ? maxScore : 100,
+      remark,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: existing } = await supabase
+      .from('student_scores')
+      .select('id')
+      .eq('school_id', req.staffPortal.schoolId)
+      .eq('student_id', studentId)
+      .eq('subject', subject)
+      .eq('term', term)
+      .eq('staff_id', req.staffPortal.staffId)
+      .maybeSingle();
+
+    let saved;
+    if (existing?.id) {
+      const { data, error } = await supabase
+        .from('student_scores')
+        .update(record)
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      saved = data;
+    } else {
+      const { data, error } = await supabase
+        .from('student_scores')
+        .insert([{ ...record, created_at: new Date().toISOString() }])
+        .select()
+        .single();
+      if (error) {
+        if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+          return res.status(503).json({
+            error:
+              'Scores table is missing. Run backend/migrations/add_parent_teacher_portal.sql in Supabase.',
+          });
+        }
+        throw error;
+      }
+      saved = data;
+    }
+
+    res.json(saved);
+  } catch (error) {
+    console.error('Staff portal score save error:', error);
+    res.status(500).json({ error: error.message || 'Failed to save score' });
   }
 });
 
@@ -3013,37 +3547,32 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
 
     if (error) throw error;
 
-    // Enrich with user details
-    const enrichedAttendance = await Promise.all(
-      attendance.map(async (record) => {
-        let table;
-        switch (record.user_type) {
-          case 'student':
-            table = 'students';
-            break;
-          case 'staff':
-            table = 'staffs';
-            break;
-          case 'non-staff':
-            table = 'nonstaffs';
-            break;
-          default:
-            return record;
-        }
-
-        const { data: user } = await supabase
-          .from(table)
-          .select('name, role, class')
-          .eq('id', record.user_id)
-          .single();
-
-        return { ...record, user };
-      })
-    );
+    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
+    const enrichedAttendance = await enrichAttendanceRows(attendance, lateAfterTime);
 
     res.json(enrichedAttendance);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/attendance/settings', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
+    res.json({ lateAfterTime, timezone: ATTENDANCE_TIMEZONE });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/attendance/settings', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const lateAfterTime = normalizeLateAfterTime(req.body.lateAfterTime || req.body.late_after_time);
+    await upsertSchoolExtras(req.user.schoolId, { late_after_time: lateAfterTime }, { requirePersist: true });
+    res.json({ lateAfterTime, timezone: ATTENDANCE_TIMEZONE });
+  } catch (error) {
+    console.error('Attendance settings error:', error);
+    res.status(500).json({ error: error.message || 'Failed to save late time setting' });
   }
 });
 

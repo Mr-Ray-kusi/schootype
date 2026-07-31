@@ -8,6 +8,8 @@ const SCHOOL_EXTRA_FIELDS = [
   'initial_password',
   'logo_url',
   'scanner_token',
+  'staff_portal_token',
+  'late_after_time',
   'next_payment_due',
   'last_payment_at',
   'subscription_frozen',
@@ -52,6 +54,8 @@ const normalizeExtras = (row = {}) => ({
   initial_password: row.initial_password || null,
   logo_url: row.logo_url || null,
   scanner_token: row.scanner_token || null,
+  staff_portal_token: row.staff_portal_token || null,
+  late_after_time: row.late_after_time || '08:00',
   next_payment_due: toDateOnly(row.next_payment_due),
   last_payment_at: toDateOnly(row.last_payment_at),
   subscription_frozen: Boolean(row.subscription_frozen),
@@ -197,6 +201,9 @@ export function hydrateExtrasFromSchool(school) {
     payment_plan: fromDb.payment_plan || existing.payment_plan || null,
     plan_status: fromDb.plan_status || existing.plan_status || null,
     plan_selected_at: fromDb.plan_selected_at || existing.plan_selected_at || null,
+    scanner_token: fromDb.scanner_token || existing.scanner_token || null,
+    staff_portal_token: fromDb.staff_portal_token || existing.staff_portal_token || null,
+    late_after_time: fromDb.late_after_time || existing.late_after_time || '08:00',
     payment_records: existing.payment_records || [],
   };
   cache.set(school.id, merged);
@@ -233,6 +240,8 @@ export function mergeSchoolWithExtras(school) {
     initial_password: school.initial_password || extras.initial_password || null,
     logo_url: school.logo_url || extras.logo_url || null,
     scanner_token: school.scanner_token || extras.scanner_token || null,
+    staff_portal_token: school.staff_portal_token || extras.staff_portal_token || null,
+    late_after_time: school.late_after_time || extras.late_after_time || '08:00',
     next_payment_due: toDateOnly(school.next_payment_due || extras.next_payment_due),
     last_payment_at: toDateOnly(school.last_payment_at || extras.last_payment_at),
     subscription_frozen: Boolean(
@@ -267,6 +276,14 @@ export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = 
     logo_url: extras.logo_url !== undefined ? extras.logo_url : existing.logo_url || null,
     scanner_token:
       extras.scanner_token !== undefined ? extras.scanner_token : existing.scanner_token || null,
+    staff_portal_token:
+      extras.staff_portal_token !== undefined
+        ? extras.staff_portal_token
+        : existing.staff_portal_token || null,
+    late_after_time:
+      extras.late_after_time !== undefined
+        ? extras.late_after_time
+        : existing.late_after_time || '08:00',
     next_payment_due:
       extras.next_payment_due !== undefined
         ? toDateOnly(extras.next_payment_due)
@@ -295,6 +312,8 @@ export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = 
     initial_password: merged.initial_password,
     logo_url: merged.logo_url,
     scanner_token: merged.scanner_token,
+    staff_portal_token: merged.staff_portal_token,
+    late_after_time: merged.late_after_time,
     next_payment_due: merged.next_payment_due,
     last_payment_at: merged.last_payment_at,
     subscription_frozen: merged.subscription_frozen,
@@ -433,6 +452,61 @@ export async function ensureScannerToken(schoolId) {
 export async function regenerateScannerToken(schoolId) {
   const token = createScannerToken();
   await upsertSchoolExtras(schoolId, { scanner_token: token }, { requirePersist: true });
+  return token;
+}
+
+function createStaffPortalToken() {
+  return randomBytes(24).toString('hex');
+}
+
+export function getStaffPortalTokenSync(schoolId) {
+  return getSchoolExtrasSync(schoolId)?.staff_portal_token || null;
+}
+
+export async function getSchoolIdByStaffPortalToken(token) {
+  if (!token) return null;
+
+  const { data, error } = await supabase
+    .from('schools')
+    .select('id')
+    .eq('staff_portal_token', token)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Staff portal token lookup failed:', error.message);
+    return null;
+  }
+
+  return data?.id || null;
+}
+
+export async function ensureStaffPortalToken(schoolId) {
+  const cached = getStaffPortalTokenSync(schoolId);
+  if (cached) return cached;
+
+  const { data: school, error } = await supabase
+    .from('schools')
+    .select('id, staff_portal_token')
+    .eq('id', schoolId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Staff portal token DB lookup failed:', error.message);
+  }
+
+  if (school?.staff_portal_token) {
+    hydrateExtrasFromSchool(school);
+    return school.staff_portal_token;
+  }
+
+  const token = createStaffPortalToken();
+  await upsertSchoolExtras(schoolId, { staff_portal_token: token }, { requirePersist: true });
+  return getStaffPortalTokenSync(schoolId) || token;
+}
+
+export async function regenerateStaffPortalToken(schoolId) {
+  const token = createStaffPortalToken();
+  await upsertSchoolExtras(schoolId, { staff_portal_token: token }, { requirePersist: true });
   return token;
 }
 

@@ -3,7 +3,19 @@ import Layout from '../components/layout';
 import axios from 'axios';
 import AttendanceQrCode from '../components/AttendanceQrCode';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
-import { Edit2, Trash2, Search, Plus, User, Briefcase } from 'lucide-react';
+import {
+  Edit2,
+  Trash2,
+  Search,
+  Plus,
+  User,
+  Briefcase,
+  Link2,
+  Copy,
+  RefreshCw,
+  BookOpen,
+  GraduationCap,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Staff = () => {
@@ -15,19 +27,37 @@ const Staff = () => {
   const [editingStaff, setEditingStaff] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [portalToken, setPortalToken] = useState(null);
+  const [portalLoading, setPortalLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
     role: '',
     secretCode: '',
+    subjects: '',
+    classNames: '',
   });
 
   useEffect(() => {
     fetchStaff();
+    fetchPortalLink();
   }, []);
 
   useEffect(() => {
     filterStaff();
   }, [searchTerm, staff]);
+
+  const portalUrl = portalToken ? `${window.location.origin}/staff-portal/${portalToken}` : '';
+
+  const fetchPortalLink = async () => {
+    try {
+      const response = await axios.get('/api/staff-portal/link');
+      setPortalToken(response.data.token);
+    } catch (error) {
+      console.error('Failed to load staff portal link:', error);
+    } finally {
+      setPortalLoading(false);
+    }
+  };
 
   const fetchStaff = async () => {
     try {
@@ -35,6 +65,8 @@ const Staff = () => {
       const normalized = response.data.map((item) => ({
         ...item,
         secretCode: item.secretCode || item.secret_code || null,
+        subjects: item.subjects || '',
+        classNames: item.classNames || item.class_names || '',
       }));
       setStaff(normalized);
       setFilteredStaff(normalized);
@@ -50,7 +82,7 @@ const Staff = () => {
   const filterStaff = () => {
     let filtered = staff;
     if (searchTerm) {
-      filtered = filtered.filter(
+      filtered = staff.filter(
         (s) =>
           s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           s.role?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -60,7 +92,7 @@ const Staff = () => {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', role: '', secretCode: '' });
+    setFormData({ name: '', role: '', secretCode: '', subjects: '', classNames: '' });
     setPhoto(null);
     setPhotoPreview(null);
     setEditingStaff(null);
@@ -107,14 +139,37 @@ const Staff = () => {
     setFormData({
       name: staffMember.name,
       role: staffMember.role || '',
-      secretCode:
-        staffMember.secretCode ||
-        staffMember.secret_code ||
-        (staffMember.role === 'Teacher' ? generateSecretCode() : ''),
+      secretCode: staffMember.secretCode || staffMember.secret_code || generateSecretCode(),
+      subjects: staffMember.subjects || '',
+      classNames: staffMember.classNames || staffMember.class_names || '',
     });
     setPhoto(null);
     setPhotoPreview(staffMember.photo_url || null);
     setShowModal(true);
+  };
+
+  const copyPortalLink = async () => {
+    if (!portalUrl) return;
+    try {
+      await navigator.clipboard.writeText(portalUrl);
+      toast.success('Staff portal link copied');
+    } catch {
+      toast.error('Could not copy link');
+    }
+  };
+
+  const regeneratePortalLink = async () => {
+    const confirmed = window.confirm(
+      'Create a new staff portal link? The current link will stop working until you share the new one.'
+    );
+    if (!confirmed) return;
+    try {
+      const response = await axios.post('/api/staff-portal/regenerate');
+      setPortalToken(response.data.token);
+      toast.success('New staff portal link generated');
+    } catch {
+      toast.error('Failed to regenerate link');
+    }
   };
 
   const roles = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
@@ -133,7 +188,9 @@ const Staff = () => {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Staff Management</h1>
-            <p className="text-slate-300 mt-1">Teachers and administrative staff with attendance QR codes</p>
+            <p className="text-slate-300 mt-1">
+              Assign access codes, subjects, and classes. Share the staff portal link with your team.
+            </p>
           </div>
           <button
             onClick={() => {
@@ -145,6 +202,42 @@ const Staff = () => {
             <Plus className="w-5 h-5" />
             Add Staff
           </button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-600 bg-slate-800/80 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Link2 className="h-4 w-4 text-sky-400" />
+                Staff portal link
+              </p>
+              <p className="mt-1 text-sm text-slate-400">
+                Staff open this link, then sign in with their access code and role (e.g. Teacher).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={copyPortalLink}
+                disabled={!portalUrl}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700 disabled:opacity-50"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy
+              </button>
+              <button
+                type="button"
+                onClick={regeneratePortalLink}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Regenerate
+              </button>
+            </div>
+          </div>
+          <p className="mt-3 break-all rounded-xl border border-slate-600 bg-slate-950/50 px-3 py-2 text-xs text-sky-200">
+            {portalLoading ? 'Loading link…' : portalUrl || 'Could not load portal link'}
+          </p>
         </div>
 
         <div className="relative">
@@ -218,8 +311,26 @@ const Staff = () => {
                         </span>
                       </span>
                     </div>
+                    {(staffMember.subjects || staffMember.classNames) && (
+                      <>
+                        {staffMember.subjects ? (
+                          <div className="flex items-start gap-2">
+                            <BookOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                            <span className="line-clamp-2">{staffMember.subjects}</span>
+                          </div>
+                        ) : null}
+                        {staffMember.classNames ? (
+                          <div className="flex items-start gap-2">
+                            <GraduationCap className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                            <span className="line-clamp-2">{staffMember.classNames}</span>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                     {staffMember.role === 'Teacher' && (
-                      <p className="text-xs text-green-400">Teachers use this code for result uploads.</p>
+                      <p className="text-xs text-green-400">
+                        Teachers use the portal link + this code to enter subject scores.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -278,14 +389,7 @@ const Staff = () => {
                   <label className="block text-sm font-medium text-slate-200 mb-2">Role *</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => {
-                      const newRole = e.target.value;
-                      setFormData({
-                        ...formData,
-                        role: newRole,
-                        secretCode: newRole === 'Teacher' ? formData.secretCode : '',
-                      });
-                    }}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                     required
                   >
@@ -305,14 +409,44 @@ const Staff = () => {
                     value={formData.secretCode}
                     onChange={(e) => setFormData({ ...formData, secretCode: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-500 rounded-lg bg-slate-700 text-slate-50"
-                    disabled={formData.role !== 'Teacher'}
                   />
                   <p className="text-xs text-slate-400 mt-2">
-                    {formData.role === 'Teacher'
-                      ? 'Used for teacher result uploads. Auto-generated if left blank.'
-                      : 'Only applies to Teachers.'}
+                    Used with the staff portal link. Auto-generated if left blank.
                   </p>
                 </div>
+
+                {formData.role === 'Teacher' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-200 mb-2">
+                        Subjects taught
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.subjects}
+                        onChange={(e) => setFormData({ ...formData, subjects: e.target.value })}
+                        className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                        placeholder="Mathematics, English"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">Comma-separated list</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-200 mb-2">
+                        Classes assigned
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.classNames}
+                        onChange={(e) => setFormData({ ...formData, classNames: e.target.value })}
+                        className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                        placeholder="CLASS 1, CLASS 2"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        Must match student class names exactly (comma-separated)
+                      </p>
+                    </div>
+                  </>
+                )}
 
                 {!editingStaff && (
                   <p className="text-xs text-slate-400 bg-slate-900/50 border border-slate-600 rounded-lg p-3">

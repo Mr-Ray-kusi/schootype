@@ -57,6 +57,13 @@ const StudentPublicId = () => {
     data.roll_number
       ? { Icon: Hash, label: 'Student ID', value: data.roll_number }
       : null,
+    data.parent_name
+      ? {
+          Icon: User,
+          label: data.parent_relationship || 'Parent / guardian',
+          value: data.parent_name,
+        }
+      : null,
     data.parent_phone
       ? { Icon: Phone, label: 'Parent contact', value: data.parent_phone }
       : null,

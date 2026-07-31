@@ -63,6 +63,8 @@ export async function setPersonPhoto(personId, schoolId, photoUrl) {
   if (!personId || !schoolId || !photoUrl) return;
 
   cache.set(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
+
+  // On Vercel, memory/tmp is ephemeral — caller must also persist photo_url in Supabase.
   const db = await getDb();
   if (!db) return;
 
@@ -93,11 +95,11 @@ export const deleteStudentPhoto = deletePersonPhoto;
 export function mergePersonPhoto(record) {
   if (!record?.id) return record;
 
+  // Prefer durable Supabase photo_url; local/memory cache is only a fallback.
   const localPhoto = getPersonPhotoSync(record.id);
-  if (localPhoto) {
-    return { ...record, photo_url: localPhoto };
-  }
-  return record;
+  const photoUrl = record.photo_url || localPhoto || null;
+  if (photoUrl === record.photo_url) return record;
+  return { ...record, photo_url: photoUrl };
 }
 
 export const mergeStudentPhoto = mergePersonPhoto;

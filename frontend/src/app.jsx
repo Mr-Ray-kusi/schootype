@@ -27,6 +27,7 @@ import SuperAdminBroadcast from './pages/super-admin-broadcast';
 import SuperAdminSms from './pages/super-admin-sms';
 import SuperAdminMonitor from './pages/super-admin-monitor';
 import StudentPublicId from './pages/student-public-id';
+import StaffPortal from './pages/staff-portal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './contexts/authcontext';
 
@@ -112,6 +113,7 @@ function App() {
             <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/id/:barcode" element={<StudentPublicId />} />
             <Route path="/scan/:token" element={<MobileScanner />} />
+            <Route path="/staff-portal/:token" element={<StaffPortal />} />
             <Route path="/select-plan" element={
               <SelectPlanRoute><SelectPlan /></SelectPlanRoute>
             } />

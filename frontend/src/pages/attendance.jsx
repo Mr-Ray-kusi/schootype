@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/layout';
 import axios from 'axios';
-import { Calendar as CalendarIcon, Filter, CheckCircle, XCircle } from 'lucide-react';
+import { Filter, Clock, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 const Attendance = () => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -14,15 +15,41 @@ const Attendance = () => {
   const [toDate, setToDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState(null);
+  const [lateAfterTime, setLateAfterTime] = useState('08:00');
+  const [savingLateTime, setSavingLateTime] = useState(false);
 
   useEffect(() => {
     fetchAttendance();
     fetchSummary();
+    fetchLateSettings();
   }, [selectedDate]);
 
   useEffect(() => {
     filterRecords();
   }, [selectedType, selectedClass, fromDate, toDate, attendanceRecords]);
+
+  const fetchLateSettings = async () => {
+    try {
+      const response = await axios.get('/api/attendance/settings');
+      setLateAfterTime(response.data.lateAfterTime || '08:00');
+    } catch (error) {
+      console.error('Error fetching attendance settings:', error);
+    }
+  };
+
+  const saveLateSettings = async () => {
+    setSavingLateTime(true);
+    try {
+      const response = await axios.put('/api/attendance/settings', { lateAfterTime });
+      setLateAfterTime(response.data.lateAfterTime || lateAfterTime);
+      toast.success('Late cutoff time saved');
+      fetchAttendance();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to save late time');
+    } finally {
+      setSavingLateTime(false);
+    }
+  };
 
   const fetchAttendance = async () => {
     try {
@@ -49,6 +76,21 @@ const Attendance = () => {
     return format(new Date(record.timestamp), 'yyyy-MM-dd');
   };
 
+  const getPersonLabel = (record) => {
+    if (record.user_type === 'student') {
+      return record.user?.class || record.user_label || 'N/A';
+    }
+    return record.user?.role || record.user_label || 'N/A';
+  };
+
+  const getPersonName = (record) =>
+    record.user?.name || record.user_name || 'Unknown';
+
+  const getPunctuality = (record) =>
+    record.punctuality ||
+    (record.status === 'early' || record.status === 'late' ? record.status : null) ||
+    'early';
+
   const filterRecords = () => {
     let filtered = attendanceRecords;
 
@@ -57,7 +99,7 @@ const Attendance = () => {
     }
 
     if (selectedClass !== 'all') {
-      filtered = filtered.filter((record) => record.user?.class === selectedClass || record.user?.role === selectedClass);
+      filtered = filtered.filter((record) => getPersonLabel(record) === selectedClass);
     }
 
     if (fromDate) {
@@ -74,33 +116,16 @@ const Attendance = () => {
     window.print();
   };
 
-  const exportCsv = () => {
-    const header = ['Name', 'Type', 'Role/Class', 'Date', 'Time', 'Status'];
-    const rows = filteredRecords.map((record) => [
-      record.user?.name || 'Unknown',
-      record.user_type,
-      record.user?.role || record.user?.class || 'N/A',
-      getRecordDate(record),
-      format(new Date(record.timestamp), 'hh:mm a'),
-      'Present',
-    ]);
-    const csvContent = [header, ...rows].map((row) => row.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `attendance-${selectedDate || 'report'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const getTypeColor = (type) => {
-    switch(type) {
-      case 'student': return 'bg-primary-100 text-primary-800';
-      case 'staff': return 'bg-green-100 text-green-800';
-      case 'non-staff': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
+    switch (type) {
+      case 'student':
+        return 'bg-primary-100 text-primary-800';
+      case 'staff':
+        return 'bg-green-100 text-green-800';
+      case 'non-staff':
+        return 'bg-purple-100 text-purple-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -120,28 +145,62 @@ const Attendance = () => {
           <p className="text-gray-600 mt-1">View and manage daily attendance records</p>
         </div>
 
-        {/* Summary Cards */}
         {summary && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="text-sm font-medium text-gray-500">Students Attendance</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{summary.students.present} / {summary.students.total}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-2">
+                {summary.students.present} / {summary.students.total}
+              </p>
               <p className="text-sm text-green-600 mt-1">{summary.students.percentage}% Present</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="text-sm font-medium text-gray-500">Staff Attendance</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{summary.staff.present} / {summary.staff.total}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-2">
+                {summary.staff.present} / {summary.staff.total}
+              </p>
               <p className="text-sm text-green-600 mt-1">{summary.staff.percentage}% Present</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="text-sm font-medium text-gray-500">Non-Staff Attendance</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{summary.nonStaff.present} / {summary.nonStaff.total}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-2">
+                {summary.nonStaff.present} / {summary.nonStaff.total}
+              </p>
               <p className="text-sm text-green-600 mt-1">{summary.nonStaff.percentage}% Present</p>
             </div>
           </div>
         )}
 
-        {/* Filters */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Late after</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Scans at or before this time count as Early; after this time count as Late.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">Cutoff time</label>
+                <input
+                  type="time"
+                  value={lateAfterTime}
+                  onChange={(e) => setLateAfterTime(e.target.value)}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-slate-900"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={saveLateSettings}
+                disabled={savingLateTime}
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {savingLateTime ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="grid gap-4 lg:grid-cols-4">
             <div>
@@ -188,15 +247,19 @@ const Attendance = () => {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Class</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Class / Role</label>
               <select
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
               >
-                <option value="all">All Classes</option>
-                {Array.from(new Set(attendanceRecords.map((record) => record.user?.class || record.user?.role).filter(Boolean))).map((label) => (
-                  <option key={label} value={label}>{label}</option>
+                <option value="all">All Classes / Roles</option>
+                {Array.from(
+                  new Set(attendanceRecords.map((record) => getPersonLabel(record)).filter((v) => v && v !== 'N/A'))
+                ).map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -211,14 +274,6 @@ const Attendance = () => {
             </div>
             <div className="flex items-end gap-3">
               <button
-                onClick={exportCsv}
-                className="w-full px-6 py-2 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
-              >
-                Export CSV
-              </button>
-            </div>
-            <div className="flex items-end gap-3">
-              <button
                 onClick={handlePrint}
                 className="w-full px-6 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800"
               >
@@ -228,50 +283,69 @@ const Attendance = () => {
           </div>
         </div>
 
-        {/* Attendance Records Table */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role/Class</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Role/Class
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Time
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {record.user?.name || 'Unknown'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full ${getTypeColor(record.user_type)}`}>
-                        {record.user_type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {record.user?.role || record.user?.class || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {format(new Date(record.timestamp), 'hh:mm a')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="flex items-center gap-1 text-green-600">
-                        <CheckCircle className="w-4 h-4" />
-                        Present
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {filteredRecords.map((record) => {
+                  const punctuality = getPunctuality(record);
+                  const isLate = punctuality === 'late';
+                  return (
+                    <tr key={record.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{getPersonName(record)}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 text-xs rounded-full ${getTypeColor(record.user_type)}`}>
+                          {record.user_type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {getPersonLabel(record)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {format(new Date(record.timestamp), 'hh:mm a')}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`flex items-center gap-1 ${
+                            isLate ? 'text-amber-600' : 'text-green-600'
+                          }`}
+                        >
+                          {isLate ? (
+                            <AlertTriangle className="w-4 h-4" />
+                          ) : (
+                            <Clock className="w-4 h-4" />
+                          )}
+                          {isLate ? 'Late' : 'Early'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          
+
           {filteredRecords.length === 0 && (
             <div className="text-center py-12">
               <p className="text-gray-500">No attendance records found for this date.</p>

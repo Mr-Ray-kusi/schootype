@@ -33,6 +33,8 @@ const AddStudent = () => {
   const [formData, setFormData] = useState({
     name: '',
     class: '',
+    parentName: '',
+    parentRelationship: 'Parent',
     parentEmail: '',
     parentPhone: '',
     houseAddress: '',
@@ -43,6 +45,10 @@ const AddStudent = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.parentName.trim()) {
+      toast.error('Parent / guardian name is required');
+      return;
+    }
     if (!formData.parentPhone.trim()) {
       toast.error('Parent phone number is required for SMS');
       return;
@@ -50,8 +56,12 @@ const AddStudent = () => {
     setLoading(true);
 
     try {
-      await axios.post('/api/students', { ...formData, photo });
-      toast.success('Student added successfully!');
+      const { data } = await axios.post('/api/students', { ...formData, photo });
+      if (data?.warning) {
+        toast.error(data.warning);
+      } else {
+        toast.success('Student added successfully!');
+      }
       navigate('/students');
     } catch (error) {
       console.error('Error adding student:', error);
@@ -96,8 +106,8 @@ const AddStudent = () => {
               Add new student
             </h1>
             <p className="mt-2 max-w-xl text-sm text-slate-400">
-              Register a student with contact details for SMS, home address, and date of birth.
-              A QR ID is generated automatically for attendance and phone-camera lookup.
+              Register a student with parent/guardian details for SMS and records. A QR ID is generated
+              automatically for attendance and phone-camera lookup.
             </p>
           </div>
         </div>
@@ -226,12 +236,46 @@ const AddStudent = () => {
 
           <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Parent & home
+              Parent / guardian details
             </h2>
             <p className="mt-2 text-sm text-slate-500">
-              Parent phone is used for SMS alerts. Address appears on the public student ID card.
+              Visible to school admins and used for SMS alerts / public student ID.
             </p>
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-200">
+                  Parent / guardian name <span className="text-sky-400">*</span>
+                </label>
+                <div className="relative">
+                  <UserPlus className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    name="parentName"
+                    value={formData.parentName}
+                    onChange={handleChange}
+                    required
+                    className={`${fieldClass} pl-10`}
+                    placeholder="Full name"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-200">Relationship</label>
+                <select
+                  name="parentRelationship"
+                  value={formData.parentRelationship}
+                  onChange={handleChange}
+                  className={fieldClass}
+                >
+                  <option value="Parent">Parent</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Father">Father</option>
+                  <option value="Guardian">Guardian</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-200">
                   Parent phone <span className="text-sky-400">*</span>

@@ -2,8 +2,9 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, Upload, X, SwitchCamera, Circle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const MAX_BYTES = 2 * 1024 * 1024;
-const MAX_DIMENSION = 1280;
+// Keep photos small so base64 fits Express JSON + durable Supabase photo_url storage.
+const MAX_BYTES = 400 * 1024;
+const MAX_DIMENSION = 960;
 
 const estimateDataUrlBytes = (dataUrl) => {
   const base64 = dataUrl.split(',')[1] || '';
@@ -32,7 +33,7 @@ const PhotoCaptureInput = ({
   onChange,
   onClear,
   label = 'Profile Photo',
-  hint = 'Take a photo with your camera/webcam, or upload an image file (JPG/PNG, max 2MB).',
+  hint = 'Take a photo with your camera/webcam, or upload an image file (JPG/PNG, max ~400KB after compress).',
   theme = 'dark',
 }) => {
   const fileInputRef = useRef(null);

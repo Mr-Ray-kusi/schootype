@@ -2,15 +2,17 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { BrowserQRCodeReader } from '@zxing/browser';
-import { DecodeHintType, NotFoundException } from '@zxing/library';
+import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library';
 import { extractAttendanceCode } from '../utils/studentIdQr';
 import { CheckCircle, XCircle, Camera, Loader2 } from 'lucide-react';
 
-const SCAN_COOLDOWN_MS = 2200;
+const SCAN_COOLDOWN_MS = 1600;
 
 const buildQrHints = () => {
   const hints = new Map();
-  hints.set(DecodeHintType.TRY_HARDER, true);
+  // QR only — skipping other barcode formats makes each frame much faster.
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
+  hints.set(DecodeHintType.TRY_HARDER, false);
   hints.set(DecodeHintType.ASSUME_GS1, false);
   return hints;
 };
@@ -76,9 +78,9 @@ const MobileScanner = () => {
 
     try {
       const reader = new BrowserQRCodeReader(buildQrHints(), {
-        delayBetweenScanAttempts: 120,
-        delayBetweenScanSuccess: 800,
-        tryPlayVideoTimeout: 8000,
+        delayBetweenScanAttempts: 40,
+        delayBetweenScanSuccess: 400,
+        tryPlayVideoTimeout: 5000,
       });
       readerRef.current = reader;
 
@@ -87,8 +89,9 @@ const MobileScanner = () => {
           audio: false,
           video: {
             facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
+            width: { ideal: 960 },
             height: { ideal: 720 },
+            frameRate: { ideal: 30 },
           },
         },
         {
@@ -181,9 +184,13 @@ const MobileScanner = () => {
       if (!attendanceCode) return;
       if (scanLockRef.current) return;
 
+      // Keep the camera stream warm — full stop/restart made the next scan feel slow.
       scanLockRef.current = true;
-      stopScanner();
-      setCameraReady(false);
+      setFeedback({
+        type: 'pending',
+        title: 'Reading…',
+        message: 'Marking attendance',
+      });
 
       try {
         const response = await axios.post(`/api/scanner/mark/${token}`, { qrCode: attendanceCode });
@@ -194,6 +201,7 @@ const MobileScanner = () => {
           message: response.data.message,
           name: response.data.user?.name,
           userType: response.data.user?.type,
+          punctuality: response.data.user?.punctuality,
         });
       } catch (err) {
         if (!mountedRef.current) return;
@@ -208,10 +216,9 @@ const MobileScanner = () => {
         if (!mountedRef.current) return;
         scanLockRef.current = false;
         setFeedback(null);
-        startScanner();
       }, SCAN_COOLDOWN_MS);
     },
-    [startScanner, stopScanner, token]
+    [token]
   );
 
   markAttendanceRef.current = markAttendance;
@@ -328,12 +335,25 @@ const MobileScanner = () => {
           </div>
         )}
 
+        {feedback?.type === 'pending' && (
+          <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 max-w-sm mx-auto bg-slate-800 rounded-2xl p-8 text-center shadow-2xl animate-fade-in z-10 border border-slate-600">
+            <Loader2 className="w-12 h-12 mx-auto mb-4 text-sky-300 animate-spin" />
+            <h2 className="text-xl font-bold mb-1">{feedback.title}</h2>
+            <p className="text-slate-300 text-sm">{feedback.message}</p>
+          </div>
+        )}
+
         {feedback?.type === 'success' && (
           <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 max-w-sm mx-auto bg-green-600 rounded-2xl p-8 text-center shadow-2xl animate-fade-in z-10">
             <CheckCircle className="w-20 h-20 mx-auto mb-4 text-white" />
             <h2 className="text-2xl font-bold mb-1">{feedback.title}</h2>
             <p className="text-green-100 text-lg font-medium">{feedback.name}</p>
             <p className="text-green-200 text-sm mt-2 capitalize">{feedback.userType}</p>
+            {feedback.punctuality ? (
+              <p className="text-green-50 text-sm mt-2 font-semibold">
+                {feedback.punctuality === 'late' ? 'Late' : 'Early'}
+              </p>
+            ) : null}
             <p className="text-green-100/80 text-xs mt-4">Attendance saved to admin dashboard</p>
           </div>
         )}
