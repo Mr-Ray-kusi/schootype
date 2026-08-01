@@ -3711,6 +3711,46 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
   }
 });
 
+app.delete('/api/report-cards/scores', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.status(400).json({ error: 'Use school admin account to manage report cards' });
+    }
+
+    const schoolId = req.user.schoolId;
+    const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+    const merged = school ? mergeSchoolWithExtras(school) : null;
+    if (merged && !hasPlanFeature(merged.payment_plan, 'report-cards')) {
+      return res.status(403).json({ error: 'Report cards are not included in your plan' });
+    }
+
+    const { data, error } = await supabase
+      .from('student_scores')
+      .delete()
+      .eq('school_id', schoolId)
+      .select('id');
+
+    if (error) {
+      if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+        return res.json({ deleted: 0, message: 'No teacher score entries to clear' });
+      }
+      throw error;
+    }
+
+    const deleted = Array.isArray(data) ? data.length : 0;
+    res.json({
+      deleted,
+      message:
+        deleted > 0
+          ? `Cleared ${deleted} teacher score ${deleted === 1 ? 'entry' : 'entries'}`
+          : 'No teacher score entries to clear',
+    });
+  } catch (error) {
+    console.error('Report cards clear scores error:', error);
+    res.status(500).json({ error: error.message || 'Failed to clear teacher score entries' });
+  }
+});
+
 // Public mobile scanner endpoints (token-based, no login)
 app.get('/api/scanner/school/:token', async (req, res) => {
   try {

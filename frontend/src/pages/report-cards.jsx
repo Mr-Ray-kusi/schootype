@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Download, FileText, Printer, RefreshCw } from 'lucide-react';
+import { Download, FileText, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
 import {
@@ -32,6 +32,7 @@ const ReportCards = () => {
   const [selectedSubject, setSelectedSubject] = useState('all');
   const [selectedTerm, setSelectedTerm] = useState('all');
   const [selectedStudentKeys, setSelectedStudentKeys] = useState([]);
+  const [clearing, setClearing] = useState(false);
 
   const loadScores = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -145,6 +146,30 @@ const ReportCards = () => {
     setSelectedStudentKeys(studentsForPrint.map((student) => student.key));
   };
 
+  const handleClearAllScores = async () => {
+    if (!scores.length) {
+      toast.error('There are no teacher score entries to clear');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete all ${scores.length} teacher score ${scores.length === 1 ? 'entry' : 'entries'} for this school?\n\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setClearing(true);
+    try {
+      const { data } = await axios.delete('/api/report-cards/scores');
+      setScores([]);
+      setSelectedStudentKeys([]);
+      toast.success(data?.message || 'Teacher score entries cleared');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to clear teacher score entries');
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const handleRankingsPdf = () => {
     if (!filtered.length) {
       toast.error('No scores to export for the current filters');
@@ -223,6 +248,15 @@ const ReportCards = () => {
           >
             <Printer className="h-4 w-4" />
             Print selected reports
+          </button>
+          <button
+            type="button"
+            onClick={handleClearAllScores}
+            disabled={clearing || !scores.length}
+            className="inline-flex items-center gap-2 rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            {clearing ? 'Clearing...' : 'Clear all scores'}
           </button>
         </div>
       </div>
@@ -345,20 +379,31 @@ const ReportCards = () => {
               </p>
             </div>
           </div>
-          <label className="block text-sm text-slate-300 md:w-64">
-            Subject
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-2.5 text-slate-50"
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
+            <label className="block text-sm text-slate-300 md:w-64">
+              Subject
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-2.5 text-slate-50"
+              >
+                {subjects.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject === 'all' ? 'All subjects' : subject}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleClearAllScores}
+              disabled={clearing || !scores.length}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/40 px-4 py-2.5 text-sm text-red-300 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {subjects.map((subject) => (
-                <option key={subject} value={subject}>
-                  {subject === 'all' ? 'All subjects' : subject}
-                </option>
-              ))}
-            </select>
-          </label>
+              <Trash2 className="h-4 w-4" />
+              {clearing ? 'Clearing...' : 'Clear all entries'}
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
