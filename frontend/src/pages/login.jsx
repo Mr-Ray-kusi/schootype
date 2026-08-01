@@ -87,7 +87,6 @@ const Login = () => {
               SCHOOLTYPE
             </Link>
             <h1 className="mt-6 font-display text-3xl font-bold text-white">Sign in</h1>
-            <p className="mt-2 text-sm text-slate-400">Access your school admin dashboard</p>
           </div>
 
           {needsVerification && (

@@ -61,9 +61,6 @@ const SuperAdminMonitor = () => {
 <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-white">School monitoring</h1>
-          <p className="mt-2 text-slate-300">
-            Review students, staff, non-staff, attendance, and report cards across schools.
-          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">

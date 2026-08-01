@@ -43,7 +43,6 @@ const FeesPaid = () => {
 <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Paid</h1>
-          <p className="mt-3 text-slate-300">Track confirmed fee collections and handle teacher salary payments directly from the dashboard.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -65,9 +64,7 @@ const FeesPaid = () => {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-white">Teacher Salary Payments</h2>
-              <p className="text-sm text-slate-300">Review due salaries and complete payments with confirmation notes.</p>
             </div>
-            <span className="inline-flex rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white">Payroll Workflow</span>
           </div>
 
           <div className="mt-8 overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">

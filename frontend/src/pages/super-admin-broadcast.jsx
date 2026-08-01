@@ -164,10 +164,6 @@ const SuperAdminBroadcast = () => {
           <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
             Email schools
           </h1>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300">
-            Send a message from the system to all school admins, or only the ones you select.
-            Optionally attach a file.
-          </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
             <span
@@ -201,9 +197,6 @@ const SuperAdminBroadcast = () => {
                   <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                     Compose
                   </h2>
-                  <p className="mt-2 text-sm text-slate-400">
-                    Subject, message body, and optional attachment.
-                  </p>
                 </div>
                 <Mail className="mt-0.5 h-5 w-5 text-slate-500" />
               </div>
@@ -287,9 +280,6 @@ const SuperAdminBroadcast = () => {
                   <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                     Recipients
                   </h2>
-                  <p className="mt-2 text-sm text-slate-400">
-                    Choose all schools or pick specific admins.
-                  </p>
                 </div>
               </div>
 

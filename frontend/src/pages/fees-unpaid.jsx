@@ -50,7 +50,6 @@ const FeesUnpaid = () => {
 <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Unpaid</h1>
-          <p className="mt-3 text-slate-300">Monitor overdue payments and send reminders to reduce outstanding fees.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -67,7 +66,6 @@ const FeesUnpaid = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-white">Overdue Class Trend</h2>
-                <p className="text-sm text-slate-300">Classes with the largest share of unpaid fees.</p>
               </div>
               <span className="text-sm text-slate-200">Current month</span>
             </div>
@@ -91,7 +89,6 @@ const FeesUnpaid = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-white">Follow-up Actions</h2>
-                <p className="text-sm text-slate-300">Send overdue fee notices and notify parents quickly.</p>
               </div>
               <button
                 type="button"
@@ -131,7 +128,6 @@ const FeesUnpaid = () => {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="text-2xl font-semibold text-white">Fee Owing Broadcast</h2>
-                  <p className="mt-2 text-slate-300">Send a reminder message to parents with unpaid fees.</p>
                 </div>
                 <button
                   type="button"

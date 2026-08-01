@@ -74,12 +74,6 @@ const SuperAdminSms = () => {
 <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">SMS Units & Revenue</h1>
-          <p className="mt-3 max-w-3xl text-slate-300">
-            Load platform SMS inventory here and set the unit price. Schools convert wallet money into their own
-            prepaid SMS units (that payment becomes your SMS revenue). When they broadcast, Twilio delivers the
-            messages and units are deducted from both the school balance and this platform inventory. Failed
-            deliveries are refunded automatically.
-          </p>
           {provider && (
             <div
               className={`mt-4 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
@@ -132,9 +126,6 @@ const SuperAdminSms = () => {
             className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl space-y-4"
           >
             <h2 className="text-lg font-semibold text-white">Load SMS units</h2>
-            <p className="text-sm text-slate-400">
-              Add units you purchased from your SMS provider (or inventory for testing).
-            </p>
             <input
               type="number"
               min="1"
@@ -158,9 +149,6 @@ const SuperAdminSms = () => {
             className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl space-y-4"
           >
             <h2 className="text-lg font-semibold text-white">Unit price (GHS)</h2>
-            <p className="text-sm text-slate-400">
-              What schools pay per SMS unit (recipients × message segments).
-            </p>
             <input
               type="number"
               min="0.01"

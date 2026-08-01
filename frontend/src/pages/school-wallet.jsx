@@ -331,11 +331,6 @@ const SchoolWallet = () => {
               <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
                 {title}
               </h1>
-              <p className="mt-4 text-base leading-relaxed text-slate-300">
-                {isSuperAdmin
-                  ? 'Load funds with MoMo via Paystack — confirm on your phone. Withdraw to MoMo or bank when needed.'
-                  : 'Load school funds with MoMo via Paystack — confirm on your phone. Withdraw to MoMo or bank when needed.'}
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3 self-start">
@@ -430,9 +425,6 @@ const SchoolWallet = () => {
                     <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                       Recent activity
                     </h2>
-                    <p className="mt-2 text-sm text-slate-400">
-                      Deposits and withdrawals on this wallet.
-                    </p>
                   </div>
                   <span className="text-xs text-slate-500">
                     {transactions.length} record{transactions.length === 1 ? '' : 's'}

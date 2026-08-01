@@ -178,7 +178,6 @@ const Dashboard = () => {
               <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 At a glance
               </h2>
-              <p className="mt-1 text-sm text-slate-500">Key counts for your school</p>
             </div>
           </div>
 
@@ -237,7 +236,6 @@ const Dashboard = () => {
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                   Attendance
                 </h2>
-                <p className="mt-2 text-sm text-slate-500">Presence by group for the selected day</p>
               </div>
               {isPlanApproved && (
                 <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2">

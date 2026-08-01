@@ -118,7 +118,6 @@ const NonStaff = () => {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Non-Staff Management</h1>
-            <p className="text-slate-300 mt-1">Support personnel with attendance QR codes</p>
           </div>
           <button
             onClick={() => {

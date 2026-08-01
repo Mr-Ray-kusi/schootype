@@ -101,7 +101,6 @@ const Scanner = () => {
 <div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">Attendance Scanner</h1>
-          <p className="text-gray-600 mt-2">Scan QR codes from the dashboard or use a phone at the gate</p>
         </div>
 
         {/* Mobile scanner link */}
@@ -112,9 +111,6 @@ const Scanner = () => {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Phone Scanner Link</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                Open this link on a phone to scan QR codes for students, staff, and non-staff. Attendance records appear here on the admin dashboard — the phone only shows a confirmation. This link stays the same until you click &quot;New Link&quot;.
-              </p>
             </div>
           </div>
 

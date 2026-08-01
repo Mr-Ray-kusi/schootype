@@ -160,11 +160,6 @@ const BankSettings = () => {
               <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
                 Bank Settings
               </h1>
-              <p className="mt-4 text-base leading-relaxed text-slate-300">
-                {isSuperAdmin
-                  ? 'Connect the platform MoMo or bank account used to fund and withdraw from the Platform Wallet.'
-                  : 'Connect a MoMo or bank account, then load or withdraw funds from School Wallet.'}
-              </p>
             </div>
 
             <Link
@@ -213,9 +208,6 @@ const BankSettings = () => {
                   <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                     Add account
                   </h2>
-                  <p className="mt-2 text-sm text-slate-400">
-                    Choose MoMo or bank, then enter the details Paystack will use.
-                  </p>
                 </div>
                 <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
               </div>
@@ -371,9 +363,6 @@ const BankSettings = () => {
                   <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                     Saved accounts
                   </h2>
-                  <p className="mt-2 text-sm text-slate-400">
-                    Available for deposits and withdrawals.
-                  </p>
                 </div>
                 <span className="text-xs text-slate-500">
                   {accounts.length} saved

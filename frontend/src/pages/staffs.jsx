@@ -200,9 +200,6 @@ const Staff = () => {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Staff Management</h1>
-            <p className="text-slate-300 mt-1">
-              Assign access codes, subjects, and classes. Share the staff portal link with your team.
-            </p>
           </div>
           <button
             onClick={() => {
@@ -222,10 +219,6 @@ const Staff = () => {
               <p className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Link2 className="h-4 w-4 text-sky-400" />
                 Staff portal link
-              </p>
-              <p className="mt-1 text-sm text-slate-400">
-                Short link for teachers and staff (example: /your-school-name/staff-portal). They open it, then
-                sign in with their access code and role.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

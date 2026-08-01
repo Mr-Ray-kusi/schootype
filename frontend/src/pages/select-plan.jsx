@@ -57,9 +57,7 @@ const SelectPlan = () => {
       <main className="max-w-6xl mx-auto px-6 py-12">
         <div className="text-center mb-12">
           <h1 className="text-3xl font-bold text-white">Select Your Payment Plan</h1>
-          <p className="text-slate-300 mt-2">
-            Welcome, {school?.name}! Choose a plan to unlock features for your school dashboard.
-          </p>
+          <p className="text-slate-300 mt-2">Welcome, {school?.name}!</p>
         </div>
 
         <form onSubmit={handleSubmit}>

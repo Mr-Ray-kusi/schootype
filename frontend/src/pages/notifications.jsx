@@ -292,11 +292,6 @@ const Notifications = () => {
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-white md:text-4xl">
             Notifications
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300">
-            {isSuperAdmin
-              ? 'Send in-app messages to schools and read their replies inside SCHOOLTYPE.'
-              : 'Messages from SCHOOLTYPE platform admin. Open a thread to read and reply.'}
-          </p>
         </div>
         <button
           type="button"

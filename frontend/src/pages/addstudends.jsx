@@ -106,10 +106,6 @@ const AddStudent = () => {
             <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
               Add new student
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-slate-400">
-              Register a student with parent/guardian details for SMS and records. A QR ID is generated
-              automatically for attendance and phone-camera lookup.
-            </p>
           </div>
         </div>
 
@@ -118,9 +114,6 @@ const AddStudent = () => {
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               Photo
             </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              Shown on the student ID card and when a phone camera scans their QR.
-            </p>
             <div className="mt-5">
               <PhotoCaptureInput
                 theme="dark"
@@ -239,9 +232,6 @@ const AddStudent = () => {
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               Parent / guardian details
             </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              Visible to school admins and used for SMS alerts / public student ID.
-            </p>
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-200">

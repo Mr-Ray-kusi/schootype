@@ -276,13 +276,6 @@ const Messages = () => {
             <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
               Bulk Messaging
             </h1>
-            <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-              {canSms && canEmail
-                ? 'Broadcast SMS or email to parents, teachers, and staff in one place.'
-                : canSms
-                  ? 'Broadcast SMS to parents, teachers, and staff.'
-                  : 'Broadcast email to parents, teachers, and staff.'}
-            </p>
           </div>
           <button
             type="button"
@@ -320,7 +313,6 @@ const Messages = () => {
                 <p className="mt-3 text-3xl font-semibold tabular-nums text-emerald-300">
                   {smsBalance?.sms_units ?? '…'}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">Prepaid balance ready to send</p>
               </div>
               <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5">
                 <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -339,7 +331,6 @@ const Messages = () => {
               <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Unit price</p>
                 <p className="mt-3 text-3xl font-semibold tabular-nums text-white">{formatGhs(unitPrice)}</p>
-                <p className="mt-1 text-xs text-slate-500">Per SMS segment</p>
               </div>
             </>
           )}
@@ -363,10 +354,6 @@ const Messages = () => {
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                   Buy SMS units
                 </h2>
-                <p className="mt-2 max-w-xl text-sm text-slate-400">
-                  Convert wallet funds into prepaid SMS units at {formatGhs(unitPrice)} each.
-                  Sending later only deducts units — no extra charge at send time.
-                </p>
               </div>
             </div>
 
@@ -413,7 +400,6 @@ const Messages = () => {
               <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 Recent broadcasts
               </h2>
-              <p className="mt-2 text-sm text-slate-400">Messages you have sent to groups or individuals.</p>
             </div>
           </div>
 
@@ -421,7 +407,6 @@ const Messages = () => {
             <div className="rounded-3xl border border-dashed border-slate-600 bg-slate-900/40 px-6 py-16 text-center">
               <MessageSquare className="mx-auto h-10 w-10 text-slate-600" />
               <p className="mt-4 text-slate-300">No broadcasts yet</p>
-              <p className="mt-1 text-sm text-slate-500">Send your first message to parents, teachers, or staff.</p>
               <button
                 type="button"
                 onClick={() => {

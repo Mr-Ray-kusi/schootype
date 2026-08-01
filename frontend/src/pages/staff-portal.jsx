@@ -276,9 +276,6 @@ const StaffPortal = () => {
         <div className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">Staff portal</p>
           <h1 className="mt-2 font-display text-3xl font-bold">{schoolName}</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            Enter your access code and role to open your workspace.
-          </p>
           <form
             onSubmit={handleLogin}
             className="mt-8 space-y-4 rounded-3xl border border-slate-700/80 bg-slate-900/70 p-6"
@@ -426,7 +423,6 @@ const StaffPortal = () => {
                     <h2 className="font-semibold">
                       Scores · {selectedSubject} · {selectedClass}
                     </h2>
-                    <p className="mt-1 text-sm text-slate-400">Enter and save scores for each student.</p>
                   </div>
                   <div className="divide-y divide-slate-800">
                     {classStudents.length === 0 ? (

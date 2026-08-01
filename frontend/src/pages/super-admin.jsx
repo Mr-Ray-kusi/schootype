@@ -65,8 +65,8 @@ const SuperAdmin = () => {
 
   const statCards = overview
     ? [
-        { title: 'Total Revenue', value: formatMoney(overview.totalRevenue), icon: DollarSign, color: 'bg-emerald-500', subtitle: 'All recorded payments' },
-        { title: 'Revenue This Month', value: formatMoney(overview.revenueThisMonth), icon: TrendingUp, color: 'bg-primary-500', subtitle: 'Subscription payments' },
+        { title: 'Total Revenue', value: formatMoney(overview.totalRevenue), icon: DollarSign, color: 'bg-emerald-500' },
+        { title: 'Revenue This Month', value: formatMoney(overview.revenueThisMonth), icon: TrendingUp, color: 'bg-primary-500' },
         {
           title: 'Registered Schools',
           value: overview.totalSchools,
@@ -92,9 +92,6 @@ const SuperAdmin = () => {
 <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-white">Super Admin Dashboard</h1>
-          <p className="text-slate-300 mt-1">
-            Welcome, {school?.name}. Revenue updates when you record subscription payments for each school.
-          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -119,9 +116,6 @@ const SuperAdmin = () => {
         <div className="bg-slate-800 rounded-xl shadow-sm border border-slate-600 overflow-hidden">
           <div className="p-6 border-b border-slate-600">
             <h2 className="text-lg font-semibold text-white">Registered Schools</h2>
-            <p className="text-sm text-slate-300 mt-1">
-              Click a school to view credentials, review their plan, record payments, and approve access.
-            </p>
           </div>
 
           {schools.length === 0 ? (

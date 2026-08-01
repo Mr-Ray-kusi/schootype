@@ -220,9 +220,6 @@ const ReportCards = () => {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Report Cards</h1>
-          <p className="mt-3 text-slate-300">
-            Filter teacher score entries by subject, then select students to print personal report cards.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -249,15 +246,6 @@ const ReportCards = () => {
             <Printer className="h-4 w-4" />
             Print selected reports
           </button>
-          <button
-            type="button"
-            onClick={handleClearAllScores}
-            disabled={clearing || !scores.length}
-            className="inline-flex items-center gap-2 rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            {clearing ? 'Clearing...' : 'Clear all scores'}
-          </button>
         </div>
       </div>
 
@@ -265,9 +253,6 @@ const ReportCards = () => {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Filters</h2>
-            <p className="text-sm text-slate-300">
-              Subject filter applies to Teacher score entries. Class and term also scope personal reports.
-            </p>
           </div>
           <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-3xl">
             <label className="block text-sm text-slate-300">
@@ -332,20 +317,14 @@ const ReportCards = () => {
       </section>
 
       <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Grade distribution</h2>
-            <p className="text-sm text-slate-300">Based on score percentage from teacher entries.</p>
-          </div>
-          <span className="inline-flex items-center rounded-full bg-primary-600 px-4 py-2 text-sm text-white">
-            Live performance
-          </span>
+        <div>
+          <h2 className="text-lg font-semibold text-white">Grade distribution</h2>
         </div>
 
         <div className="mt-6 space-y-4">
           {filtered.length === 0 ? (
             <p className="rounded-2xl bg-slate-900 px-5 py-8 text-center text-sm text-slate-400">
-              No graded scores yet for this filter.
+              No scores yet.
             </p>
           ) : (
             gradeDistribution.map((item) => (
@@ -371,29 +350,9 @@ const ReportCards = () => {
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-sky-400" />
-            <div>
-              <h2 className="text-lg font-semibold text-white">Teacher score entries</h2>
-              <p className="text-sm text-slate-300">
-                Filter this table by subject above
-                {selectedSubject !== 'all' ? ` (showing ${selectedSubject})` : ''}.
-              </p>
-            </div>
+            <h2 className="text-lg font-semibold text-white">Teacher score entries</h2>
           </div>
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
-            <label className="block text-sm text-slate-300 md:w-64">
-              Subject
-              <select
-                value={selectedSubject}
-                onChange={(e) => setSelectedSubject(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-2.5 text-slate-50"
-              >
-                {subjects.map((subject) => (
-                  <option key={subject} value={subject}>
-                    {subject === 'all' ? 'All subjects' : subject}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               type="button"
               onClick={handleClearAllScores}
@@ -431,7 +390,7 @@ const ReportCards = () => {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
-                    No teacher scores match the selected subject/class/term filters.
+                    No scores yet.
                   </td>
                 </tr>
               ) : (
@@ -474,9 +433,6 @@ const ReportCards = () => {
         <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Print personal reports</h2>
-            <p className="text-sm text-slate-300">
-              Select students (scoped by class/term) and download their personal report card PDF.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -521,7 +477,7 @@ const ReportCards = () => {
               {studentsForPrint.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-slate-400">
-                    No students available for the current class/term filters.
+                    No students yet.
                   </td>
                 </tr>
               ) : (
