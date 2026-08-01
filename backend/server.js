@@ -3531,6 +3531,9 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
     const maxScore =
       req.body.maxScore === '' || req.body.maxScore == null ? 100 : Number(req.body.maxScore);
     const remark = req.body.remark?.trim?.() || null;
+    const attitudeRaw = String(req.body.attitude || '').trim();
+    const allowedAttitudes = new Set(['Excellent', 'Good', 'Bad', 'Worse']);
+    const attitude = allowedAttitudes.has(attitudeRaw) ? attitudeRaw : null;
 
     if (!studentId || !subject) {
       return res.status(400).json({ error: 'Student and subject are required' });
@@ -3563,6 +3566,7 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
       score: Number.isFinite(score) ? score : null,
       max_score: Number.isFinite(maxScore) ? maxScore : 100,
       remark,
+      attitude,
       updated_at: new Date().toISOString(),
     };
 
@@ -3578,20 +3582,37 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
 
     let saved;
     if (existing?.id) {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('student_scores')
         .update(record)
         .eq('id', existing.id)
         .select()
         .single();
+      if (error && isMissingColumnError(error, 'attitude')) {
+        const { attitude: _omit, ...withoutAttitude } = record;
+        ({ data, error } = await supabase
+          .from('student_scores')
+          .update(withoutAttitude)
+          .eq('id', existing.id)
+          .select()
+          .single());
+      }
       if (error) throw error;
       saved = data;
     } else {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('student_scores')
         .insert([{ ...record, created_at: new Date().toISOString() }])
         .select()
         .single();
+      if (error && isMissingColumnError(error, 'attitude')) {
+        const { attitude: _omit, ...withoutAttitude } = record;
+        ({ data, error } = await supabase
+          .from('student_scores')
+          .insert([{ ...withoutAttitude, created_at: new Date().toISOString() }])
+          .select()
+          .single());
+      }
       if (error) {
         if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
           return res.status(503).json({
@@ -3675,6 +3696,7 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
         max_score: maxScore,
         percent,
         remark: row.remark || null,
+        attitude: row.attitude || null,
         teacher_id: row.staff_id,
         teacher_name: teacher?.name || 'Teacher',
         updated_at: row.updated_at || row.created_at,

@@ -6,6 +6,7 @@ import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
 
 const ROLES = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
 const TERMS = ['Term 1', 'Term 2', 'Term 3'];
+const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
 const SESSION_KEY = 'staffPortalSession';
 
 const normalizeClassKey = (value) =>
@@ -150,6 +151,7 @@ const StaffPortal = () => {
             score: row.score ?? '',
             maxScore: row.max_score ?? 100,
             remark: row.remark || '',
+            attitude: row.attitude || '',
           };
         }
         setDraftScores(nextDraft);
@@ -217,7 +219,7 @@ const StaffPortal = () => {
   }, [students, selectedClass]);
 
   const saveScore = async (student) => {
-    const draft = draftScores[student.id] || { score: '', maxScore: 100, remark: '' };
+    const draft = draftScores[student.id] || { score: '', maxScore: 100, remark: '', attitude: '' };
     setSavingId(student.id);
     try {
       await axios.post(
@@ -230,6 +232,7 @@ const StaffPortal = () => {
           score: draft.score,
           maxScore: draft.maxScore,
           remark: draft.remark,
+          attitude: draft.attitude || null,
         },
         { headers: authHeaders }
       );
@@ -437,11 +440,12 @@ const StaffPortal = () => {
                           score: '',
                           maxScore: 100,
                           remark: '',
+                          attitude: '',
                         };
                         return (
                           <div
                             key={student.id}
-                            className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
+                            className="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center"
                           >
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-white">{student.name}</p>
@@ -460,7 +464,7 @@ const StaffPortal = () => {
                                   [student.id]: { ...draft, score: e.target.value },
                                 }))
                               }
-                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm sm:w-24"
+                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Score"
                             />
                             <input
@@ -472,9 +476,26 @@ const StaffPortal = () => {
                                   [student.id]: { ...draft, maxScore: e.target.value },
                                 }))
                               }
-                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm sm:w-24"
+                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Max"
                             />
+                            <select
+                              value={draft.attitude || ''}
+                              onChange={(e) =>
+                                setDraftScores((prev) => ({
+                                  ...prev,
+                                  [student.id]: { ...draft, attitude: e.target.value },
+                                }))
+                              }
+                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-36"
+                            >
+                              <option value="">Attitude</option>
+                              {ATTITUDES.map((item) => (
+                                <option key={item} value={item}>
+                                  {item}
+                                </option>
+                              ))}
+                            </select>
                             <input
                               type="text"
                               value={draft.remark}
@@ -484,7 +505,7 @@ const StaffPortal = () => {
                                   [student.id]: { ...draft, remark: e.target.value },
                                 }))
                               }
-                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm sm:w-40"
+                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-40"
                               placeholder="Remark"
                             />
                             <button

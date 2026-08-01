@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS student_scores (
   score NUMERIC,
   max_score NUMERIC DEFAULT 100,
   remark TEXT,
+  attitude TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -57,7 +57,7 @@ const Layout = ({ children }) => {
 
   useEffect(() => {
     refreshUnread();
-    const id = setInterval(refreshUnread, 60000);
+    const id = setInterval(refreshUnread, 15000);
     return () => clearInterval(id);
   }, [refreshUnread, location.pathname]);
 

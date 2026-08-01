@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
+import { useLivePoll } from '../hooks/useLivePoll';
 import { Building2, ChevronRight, Clock, DollarSign, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -30,11 +31,7 @@ const SuperAdmin = () => {
   const [schools, setSchools] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async ({ silent = false } = {}) => {
     try {
       const [overviewRes, schoolsRes] = await Promise.all([
         axios.get('/api/super-admin/overview'),
@@ -43,13 +40,21 @@ const SuperAdmin = () => {
       setOverview(overviewRes.data && typeof overviewRes.data === 'object' ? overviewRes.data : null);
       setSchools(Array.isArray(schoolsRes.data) ? schoolsRes.data : []);
     } catch (error) {
-      console.error('Error fetching super admin data:', error);
-      setSchools([]);
-      toast.error(error.response?.data?.error || 'Failed to load school accounts');
+      if (!silent) {
+        console.error('Error fetching super admin data:', error);
+        setSchools([]);
+        toast.error(error.response?.data?.error || 'Failed to load school accounts');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData({ silent: false });
+  }, [fetchData]);
+
+  useLivePoll(() => fetchData({ silent: true }), 8000, true);
 
   const sortedSchools = (Array.isArray(schools) ? schools : []).slice().sort((a, b) => {
     const order = { pending: 0, rejected: 1, approved: 2 };

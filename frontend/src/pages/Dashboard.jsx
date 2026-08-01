@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import PlanPendingBanner from '../components/PlanPendingBanner';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/authcontext';
+import { useLivePoll } from '../hooks/useLivePoll';
 import {
   Users,
   UserCog,
@@ -28,11 +29,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-  useEffect(() => {
-    fetchDashboardData(selectedDate);
-  }, [selectedDate, isPlanApproved]);
-
-  const fetchDashboardData = async (date) => {
+  const fetchDashboardData = useCallback(async (date, { silent = false } = {}) => {
     try {
       const statsRes = await axios.get('/api/dashboard/stats');
       setStats(statsRes.data);
@@ -44,11 +41,17 @@ const Dashboard = () => {
         setAttendanceSummary(null);
       }
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      if (!silent) console.error('Error fetching dashboard data:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [includesPlanFeature, isPlanApproved]);
+
+  useEffect(() => {
+    fetchDashboardData(selectedDate, { silent: false });
+  }, [selectedDate, isPlanApproved, fetchDashboardData]);
+
+  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 10000, true);
 
   const todayLabel = format(new Date(), 'EEEE, d MMMM yyyy');
 

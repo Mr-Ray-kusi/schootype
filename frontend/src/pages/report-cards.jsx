@@ -1,17 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { FileText, RefreshCw } from 'lucide-react';
-
-const letterGrade = (percent) => {
-  if (percent == null || Number.isNaN(percent)) return '—';
-  if (percent >= 80) return 'A';
-  if (percent >= 70) return 'B';
-  if (percent >= 60) return 'C';
-  if (percent >= 50) return 'D';
-  if (percent >= 40) return 'E';
-  return 'F';
-};
+import { Download, FileText, RefreshCw } from 'lucide-react';
+import { useAuth } from '../contexts/authcontext';
+import { useLivePoll } from '../hooks/useLivePoll';
+import {
+  downloadStudentReportCardsPdf,
+  downloadSubjectRankingsPdf,
+  letterGrade,
+} from '../utils/reportCardPdf';
 
 const formatWhen = (iso) => {
   if (!iso) return '—';
@@ -26,28 +23,33 @@ const formatWhen = (iso) => {
 };
 
 const ReportCards = () => {
+  const { school } = useAuth();
   const [scores, setScores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClass, setSelectedClass] = useState('all');
   const [selectedSubject, setSelectedSubject] = useState('all');
   const [selectedTerm, setSelectedTerm] = useState('all');
 
-  const loadScores = useCallback(async () => {
-    setLoading(true);
+  const loadScores = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const { data } = await axios.get('/api/report-cards/scores');
       setScores(data.scores || []);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to load teacher scores');
-      setScores([]);
+      if (!silent) {
+        toast.error(err.response?.data?.error || 'Failed to load teacher scores');
+        setScores([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadScores();
+    loadScores({ silent: false });
   }, [loadScores]);
+
+  useLivePoll(() => loadScores({ silent: true }), 6000, true);
 
   const classes = useMemo(() => {
     const set = new Set(scores.map((row) => row.class_name).filter(Boolean));
@@ -98,30 +100,85 @@ const ReportCards = () => {
     [filtered]
   );
 
+  const handleRankingsPdf = () => {
+    if (!filtered.length) {
+      toast.error('No scores to export for the current filters');
+      return;
+    }
+    downloadSubjectRankingsPdf({
+      scores,
+      schoolName: school?.name || 'School',
+      className: selectedClass,
+      term: selectedTerm,
+      subject: selectedSubject,
+    });
+    toast.success('Subject rankings PDF downloaded');
+  };
+
+  const handleStudentCardsPdf = () => {
+    const scoped = scores.filter((row) => {
+      if (selectedClass !== 'all' && row.class_name !== selectedClass) return false;
+      if (selectedTerm !== 'all' && row.term !== selectedTerm) return false;
+      return true;
+    });
+    if (!scoped.length) {
+      toast.error('No student scores to draft for the current class/term');
+      return;
+    }
+    downloadStudentReportCardsPdf({
+      scores,
+      schoolName: school?.name || 'School',
+      className: selectedClass,
+      term: selectedTerm,
+    });
+    toast.success('Student report cards PDF downloaded');
+  };
+
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Report Cards</h1>
           <p className="mt-3 text-slate-300">
-            Live scores entered by teachers in the staff portal. Filter by class, subject, or term.
+            Live teacher scores update automatically. Download subject rankings or drafted student report
+            cards as PDF.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={loadScores}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => loadScores({ silent: false })}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={handleRankingsPdf}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
+          >
+            <Download className="h-4 w-4" />
+            Subject rankings PDF
+          </button>
+          <button
+            type="button"
+            onClick={handleStudentCardsPdf}
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
+          >
+            <FileText className="h-4 w-4" />
+            Student report cards PDF
+          </button>
+        </div>
       </div>
 
       <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Filters</h2>
-            <p className="text-sm text-slate-300">Narrow results from teacher submissions.</p>
+            <p className="text-sm text-slate-300">
+              Use class + term for report cards. Subject filter applies to rankings and the live table.
+            </p>
           </div>
           <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-3xl">
             <select
@@ -227,6 +284,7 @@ const ReportCards = () => {
                 <th className="px-6 py-4">Subject</th>
                 <th className="px-6 py-4">Term</th>
                 <th className="px-6 py-4">Score</th>
+                <th className="px-6 py-4">Attitude</th>
                 <th className="px-6 py-4">Teacher</th>
                 <th className="px-6 py-4">Updated</th>
                 <th className="px-6 py-4">Remark</th>
@@ -235,14 +293,15 @@ const ReportCards = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-slate-400">
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
                     Loading teacher scores…
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-slate-400">
-                    No teacher scores yet. When teachers save scores in the staff portal, they appear here.
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
+                    No teacher scores yet. When teachers save scores in the staff portal, they appear here
+                    automatically.
                   </td>
                 </tr>
               ) : (
@@ -269,6 +328,7 @@ const ReportCards = () => {
                         ) : null}
                       </div>
                     </td>
+                    <td className="px-6 py-4">{row.attitude || '—'}</td>
                     <td className="px-6 py-4">{row.teacher_name}</td>
                     <td className="px-6 py-4 text-slate-400">{formatWhen(row.updated_at)}</td>
                     <td className="px-6 py-4 text-slate-300">{row.remark || '—'}</td>

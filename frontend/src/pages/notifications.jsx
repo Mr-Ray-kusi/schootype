@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import { Bell, CheckCheck, Send } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 
+import { useLivePoll } from '../hooks/useLivePoll';
+
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/30';
 
@@ -76,10 +78,7 @@ const Notifications = () => {
       .catch(() => {});
   }, [isSuperAdmin]);
 
-  useEffect(() => {
-    const id = setInterval(() => load({ silent: true }), POLL_MS);
-    return () => clearInterval(id);
-  }, [load]);
+  useLivePoll(() => load({ silent: true }), POLL_MS, true);
 
   const roots = useMemo(() => {
     const list = (items || []).filter((n) => !n.parent_id);
