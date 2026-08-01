@@ -5,6 +5,7 @@ import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { Edit2, Trash2, Search, Plus, User, Wrench } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { cachedGet, invalidateCache } from '../utils/requestCache';
 
 const NonStaff = () => {
   const [nonStaff, setNonStaff] = useState([]);
@@ -30,9 +31,12 @@ const NonStaff = () => {
 
   const fetchNonStaff = async () => {
     try {
-      const response = await axios.get('/api/non-staff');
-      setNonStaff(response.data);
-      setFilteredNonStaff(response.data);
+      const data = await cachedGet('non-staff', async () => {
+        const response = await axios.get('/api/non-staff');
+        return response.data;
+      });
+      setNonStaff(data);
+      setFilteredNonStaff(data);
     } catch (error) {
       console.error('Error fetching non-staff:', error);
     } finally {
@@ -73,6 +77,7 @@ const NonStaff = () => {
       }
       setShowModal(false);
       resetForm();
+      invalidateCache('non-staff');
       fetchNonStaff();
     } catch (error) {
       console.error('Error saving non-staff:', error);
@@ -84,6 +89,7 @@ const NonStaff = () => {
     if (window.confirm('Are you sure you want to delete this person?')) {
       try {
         await axios.delete(`/api/non-staff/${id}`);
+        invalidateCache('non-staff');
         fetchNonStaff();
       } catch (error) {
         console.error('Error deleting non-staff:', error);

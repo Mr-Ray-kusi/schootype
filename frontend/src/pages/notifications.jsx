@@ -9,7 +9,7 @@ import { useLivePoll } from '../hooks/useLivePoll';
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/30';
 
-const POLL_MS = 5000;
+const POLL_MS = 20000;
 
 const formatWhen = (iso) => {
   if (!iso) return '';

@@ -6,7 +6,7 @@ import { hasFeature as planHasFeature } from '../constants/plans';
 const AuthContext = createContext();
 
 /** How often pending school admins check whether a super admin approved their plan. */
-const PLAN_APPROVAL_POLL_MS = 5000;
+const PLAN_APPROVAL_POLL_MS = 15000;
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -167,10 +167,12 @@ export const AuthProvider = ({ children }) => {
       if (cachedSchool) {
         schoolRef.current = cachedSchool;
         setSchool(cachedSchool);
+        // Unblock the UI now — verify continues in the background.
+        setLoading(false);
       }
 
       try {
-        const response = await axios.get('/api/auth/verify', { timeout: 45000 });
+        const response = await axios.get('/api/auth/verify', { timeout: 12000 });
         if (response.data?.school) {
           persistSchool(response.data.school, cachedSchool || schoolRef.current);
         } else if (!cachedSchool) {
@@ -184,9 +186,9 @@ export const AuthProvider = ({ children }) => {
           clearSession();
         }
         // Keep cached school on transient failures so refresh does not bounce to /select-plan.
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     validateToken();
@@ -256,7 +258,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const refreshSchool = useCallback(async () => {
-    const response = await axios.get('/api/auth/verify', { timeout: 45000 });
+    const response = await axios.get('/api/auth/verify', { timeout: 12000 });
     if (response.data.school) {
       persistSchool(response.data.school);
     }
@@ -278,7 +280,7 @@ export const AuthProvider = ({ children }) => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       inFlight = true;
       try {
-        const response = await axios.get('/api/auth/verify', { timeout: 20000 });
+        const response = await axios.get('/api/auth/verify', { timeout: 10000 });
         const next = response.data?.school;
         if (cancelled || !next) return;
 

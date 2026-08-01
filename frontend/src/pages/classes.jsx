@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Plus, Edit2, Trash2, Search } from 'lucide-react';
+import { cachedGet, invalidateCache } from '../utils/requestCache';
 
 const Classes = () => {
   const [classes, setClasses] = useState([]);
@@ -26,9 +27,12 @@ const Classes = () => {
 
   const fetchClasses = async () => {
     try {
-      const response = await axios.get('/api/classes');
-      setClasses(response.data || []);
-      setFilteredClasses(response.data || []);
+      const data = await cachedGet('classes', async () => {
+        const response = await axios.get('/api/classes');
+        return response.data || [];
+      });
+      setClasses(data);
+      setFilteredClasses(data);
     } catch (error) {
       console.error('Error fetching classes:', error);
     } finally {
@@ -61,6 +65,7 @@ const Classes = () => {
       setShowModal(false);
       setEditingClass(null);
       setFormData({ name: '', form: '', capacity: '' });
+      invalidateCache('classes');
       fetchClasses();
     } catch (error) {
       console.error('Error saving class:', error);
@@ -71,6 +76,7 @@ const Classes = () => {
     if (window.confirm('Are you sure you want to delete this class?')) {
       try {
         await axios.delete(`/api/classes/${id}`);
+        invalidateCache('classes');
         fetchClasses();
       } catch (error) {
         console.error('Error deleting class:', error);

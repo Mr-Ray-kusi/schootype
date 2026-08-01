@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { Download, FileText, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
+import { cachedGet, invalidateCache } from '../utils/requestCache';
 import {
   downloadStudentReportCardsPdf,
   downloadSubjectRankingsPdf,
@@ -37,7 +38,14 @@ const ReportCards = () => {
   const loadScores = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const { data } = await axios.get('/api/report-cards/scores');
+      const data = await cachedGet(
+        'report-cards:scores',
+        async () => {
+          const res = await axios.get('/api/report-cards/scores');
+          return res.data;
+        },
+        silent ? 0 : 30000
+      );
       setScores(data.scores || []);
     } catch (err) {
       if (!silent) {
@@ -53,7 +61,7 @@ const ReportCards = () => {
     loadScores({ silent: false });
   }, [loadScores]);
 
-  useLivePoll(() => loadScores({ silent: true }), 6000, true);
+  useLivePoll(() => loadScores({ silent: true }), 20000, true);
 
   const classes = useMemo(() => {
     const set = new Set(scores.map((row) => row.class_name).filter(Boolean));
@@ -160,6 +168,7 @@ const ReportCards = () => {
     setClearing(true);
     try {
       const { data } = await axios.delete('/api/report-cards/scores');
+      invalidateCache('report-cards');
       setScores([]);
       setSelectedStudentKeys([]);
       toast.success(data?.message || 'Teacher score entries cleared');

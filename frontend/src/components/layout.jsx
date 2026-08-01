@@ -57,7 +57,10 @@ const Layout = ({ children }) => {
 
   useEffect(() => {
     refreshUnread();
-    const id = setInterval(refreshUnread, 15000);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refreshUnread();
+    }, 30000);
     return () => clearInterval(id);
   }, [refreshUnread, location.pathname]);
 

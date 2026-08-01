@@ -31,15 +31,14 @@ const Dashboard = () => {
 
   const fetchDashboardData = useCallback(async (date, { silent = false } = {}) => {
     try {
-      const statsRes = await axios.get('/api/dashboard/stats');
-      setStats(statsRes.data);
-
+      const requests = [axios.get('/api/dashboard/stats')];
       if (isPlanApproved && includesPlanFeature('attendance')) {
-        const attendanceRes = await axios.get(`/api/attendance/summary?date=${date}`);
-        setAttendanceSummary(attendanceRes.data);
-      } else {
-        setAttendanceSummary(null);
+        requests.push(axios.get(`/api/attendance/summary?date=${date}`));
       }
+
+      const [statsRes, attendanceRes] = await Promise.all(requests);
+      setStats(statsRes.data);
+      setAttendanceSummary(attendanceRes?.data || null);
     } catch (error) {
       if (!silent) console.error('Error fetching dashboard data:', error);
     } finally {
@@ -51,7 +50,7 @@ const Dashboard = () => {
     fetchDashboardData(selectedDate, { silent: false });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
 
-  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 10000, true);
+  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 20000, true);
 
   const todayLabel = format(new Date(), 'EEEE, d MMMM yyyy');
 

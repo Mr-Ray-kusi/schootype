@@ -54,7 +54,7 @@ const SuperAdmin = () => {
     fetchData({ silent: false });
   }, [fetchData]);
 
-  useLivePoll(() => fetchData({ silent: true }), 8000, true);
+  useLivePoll(() => fetchData({ silent: true }), 20000, true);
 
   const sortedSchools = (Array.isArray(schools) ? schools : []).slice().sort((a, b) => {
     const order = { pending: 0, rejected: 1, approved: 2 };

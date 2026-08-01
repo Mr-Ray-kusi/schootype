@@ -179,7 +179,10 @@ const formatSchool = (school, { includeCredentials = false } = {}) => {
     subscription_grace_days: subscription.grace_days,
     plan_price: plan?.price ?? null,
     total_paid: merged.total_paid || 0,
-    payment_records: merged.payment_records || [],
+    // Cap payment history in auth payloads — full ledgers slow every verify/login.
+    payment_records: Array.isArray(merged.payment_records)
+      ? merged.payment_records.slice(0, 20)
+      : [],
     email_verified: isSchoolEmailVerified(merged),
   };
 
@@ -1480,14 +1483,25 @@ const buildSchoolWithStats = async (school, countMaps = null) => {
 const countRowsBySchoolId = async (table, schoolIds) => {
   const counts = Object.create(null);
   if (!schoolIds.length) return counts;
-  const { data, error } = await supabase.from(table).select('school_id').in('school_id', schoolIds);
-  if (error) {
-    console.warn(`countRowsBySchoolId(${table}):`, error.message);
-    return counts;
-  }
-  for (const row of data || []) {
-    const id = row.school_id;
-    counts[id] = (counts[id] || 0) + 1;
+
+  // Prefer cheap per-school COUNT queries over downloading every row.
+  const chunkSize = 25;
+  for (let i = 0; i < schoolIds.length; i += chunkSize) {
+    const chunk = schoolIds.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map(async (schoolId) => {
+        const { count, error } = await supabase
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId);
+        if (error) {
+          console.warn(`countRowsBySchoolId(${table}, ${schoolId}):`, error.message);
+          counts[schoolId] = 0;
+          return;
+        }
+        counts[schoolId] = count || 0;
+      })
+    );
   }
   return counts;
 };
@@ -1953,13 +1967,13 @@ app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async
 
     const [students, staff, nonStaff] = await Promise.all([
       schoolIds.length
-        ? supabase.from('students').select('id', { count: 'exact' }).in('school_id', schoolIds)
+        ? supabase.from('students').select('id', { count: 'exact', head: true }).in('school_id', schoolIds)
         : Promise.resolve({ count: 0 }),
       schoolIds.length
-        ? supabase.from('staffs').select('id', { count: 'exact' }).in('school_id', schoolIds)
+        ? supabase.from('staffs').select('id', { count: 'exact', head: true }).in('school_id', schoolIds)
         : Promise.resolve({ count: 0 }),
       schoolIds.length
-        ? supabase.from('nonstaffs').select('id', { count: 'exact' }).in('school_id', schoolIds)
+        ? supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).in('school_id', schoolIds)
         : Promise.resolve({ count: 0 }),
     ]);
 
@@ -2274,7 +2288,7 @@ app.get('/api/health', async (req, res) => {
   try {
     const dbHealth = await supabase
       .from('schools')
-      .select('id', { count: 'exact' })
+      .select('id', { count: 'exact', head: true })
       .limit(1);
 
     const databaseHealthy = !dbHealth.error;
@@ -3864,9 +3878,9 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
 
     const [students, staff, nonStaff, attendance] = await Promise.all([
-      supabase.from('students').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId),
-      supabase.from('staffs').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId),
-      supabase.from('nonstaffs').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId),
+      supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
+      supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
+      supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
       supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', selectedDate),
     ]);
 
@@ -4196,11 +4210,19 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     }
 
     const [students, staff, nonStaff, messages, attendance] = await Promise.all([
-      supabase.from('students').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId),
-      supabase.from('staffs').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId),
-      supabase.from('nonstaffs').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId),
-      supabase.from('messages').select('id', { count: 'exact' }).eq('school_id', req.user.schoolId).is('reply', null),
-      supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', new Date().toISOString().split('T')[0]),
+      supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
+      supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
+      supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
+      supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', req.user.schoolId)
+        .is('reply', null),
+      supabase
+        .from('attendance')
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', req.user.schoolId)
+        .eq('date', new Date().toISOString().split('T')[0]),
     ]);
 
     res.json({
@@ -4208,7 +4230,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       totalStaff: staff.count || 0,
       totalNonStaff: nonStaff.count || 0,
       unreadMessages: messages.count || 0,
-      todayAttendance: attendance.data?.length || 0,
+      todayAttendance: attendance.count || 0,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

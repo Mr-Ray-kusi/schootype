@@ -2,11 +2,12 @@ import { useEffect, useRef } from 'react';
 
 /**
  * Poll a callback on an interval without stacking overlapping runs.
+ * Skips ticks while the tab is hidden to avoid flooding the API.
  * @param {() => void | Promise<void>} callback
  * @param {number} intervalMs
  * @param {boolean} enabled
  */
-export function useLivePoll(callback, intervalMs = 8000, enabled = true) {
+export function useLivePoll(callback, intervalMs = 20000, enabled = true) {
   const cbRef = useRef(callback);
   cbRef.current = callback;
 
@@ -18,6 +19,7 @@ export function useLivePoll(callback, intervalMs = 8000, enabled = true) {
 
     const tick = async () => {
       if (cancelled || inFlight) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       inFlight = true;
       try {
         await cbRef.current();
@@ -29,13 +31,17 @@ export function useLivePoll(callback, intervalMs = 8000, enabled = true) {
     };
 
     const id = setInterval(tick, intervalMs);
-    const onFocus = () => tick();
-    window.addEventListener('focus', onFocus);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
 
     return () => {
       cancelled = true;
       clearInterval(id);
-      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
     };
   }, [intervalMs, enabled]);
 }
