@@ -69,6 +69,7 @@ import {
 } from './emailVerification.js';
 import {
   createPlatformNotification,
+  createPlatformNotificationsBatch,
   listSchoolNotifications,
   countUnreadSchoolNotifications,
   countUnreadSuperAdminNotifications,
@@ -4272,7 +4273,7 @@ app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => 
     if (req.user.role === 'super_admin') {
       const { data: parent } = await supabase
         .from('platform_notifications')
-        .select('*')
+        .select('id, school_id, parent_id, subject')
         .eq('id', req.params.id)
         .maybeSingle();
       if (!parent) return res.status(404).json({ error: 'Notification not found' });
@@ -4290,7 +4291,7 @@ app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => 
 
     const { data: parent } = await supabase
       .from('platform_notifications')
-      .select('*')
+      .select('id, school_id, parent_id, subject')
       .eq('id', req.params.id)
       .eq('school_id', req.user.schoolId)
       .maybeSingle();
@@ -4358,17 +4359,16 @@ app.post('/api/super-admin/notifications', authenticateToken, requireSuperAdmin,
       return res.status(400).json({ error: 'Message body is required' });
     }
 
-    const created = [];
-    for (const id of targets) {
-      const row = await createPlatformNotification({
+    const subjectText = subject || 'Message from SCHOOLTYPE';
+    const created = await createPlatformNotificationsBatch(
+      targets.map((id) => ({
         schoolId: id,
         senderRole: 'super_admin',
-        subject: subject || 'Message from SCHOOLTYPE',
+        subject: subjectText,
         body,
         kind: 'message',
-      });
-      created.push(row);
-    }
+      }))
+    );
     res.json({ count: created.length, items: created });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });

@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/authcontext';
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/30';
 
-const POLL_MS = 4000;
+const POLL_MS = 5000;
 
 const formatWhen = (iso) => {
   if (!iso) return '';
@@ -47,24 +47,22 @@ const Notifications = () => {
   const [selectAllSchools, setSelectAllSchools] = useState(true);
   const [schoolSearch, setSchoolSearch] = useState('');
   const threadEndRef = useRef(null);
+  const tempIdRef = useRef(0);
 
-  const load = useCallback(
-    async ({ silent = false } = {}) => {
-      if (!silent) setLoading(true);
-      try {
-        const { data } = await axios.get('/api/notifications');
-        const nextItems = data.items || [];
-        setItems((prev) => (silent ? mergeNotificationItems(prev, nextItems) : nextItems));
-      } catch (err) {
-        if (!silent) {
-          toast.error(err.response?.data?.error || 'Failed to load notifications');
-        }
-      } finally {
-        if (!silent) setLoading(false);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    try {
+      const { data } = await axios.get('/api/notifications');
+      const nextItems = data.items || [];
+      setItems((prev) => (silent ? mergeNotificationItems(prev, nextItems) : nextItems));
+    } catch (err) {
+      if (!silent) {
+        toast.error(err.response?.data?.error || 'Failed to load notifications');
       }
-    },
-    []
-  );
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     load({ silent: false });
@@ -79,9 +77,7 @@ const Notifications = () => {
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      load({ silent: true });
-    }, POLL_MS);
+    const id = setInterval(() => load({ silent: true }), POLL_MS);
     return () => clearInterval(id);
   }, [load]);
 
@@ -130,6 +126,13 @@ const Notifications = () => {
     );
   }, [schools, schoolSearch]);
 
+  const inboxSenderForRoot = (item) => {
+    if (isSuperAdmin) {
+      return schoolNameById[item.school_id] || 'School';
+    }
+    return 'SCHOOLTYPE Admin';
+  };
+
   const labelForMessage = (msg) => {
     const mine = isSuperAdmin
       ? msg.sender_role === 'super_admin'
@@ -138,56 +141,77 @@ const Notifications = () => {
     if (mine) return 'Me';
 
     if (msg.sender_role === 'school') {
-      return (
-        schoolNameById[msg.school_id] ||
-        school?.name ||
-        'School'
-      );
+      return schoolNameById[msg.school_id] || school?.name || 'School';
     }
 
     return 'SCHOOLTYPE Admin';
   };
 
-  const openThread = async (item) => {
+  const openThread = (item) => {
     const rootId = item.parent_id || item.id;
     setSelectedId(rootId);
     setReply('');
+
     const toMark = items.filter((n) => {
       if (n.id !== rootId && n.parent_id !== rootId) return false;
       if (n.read_at) return false;
       if (isSuperAdmin) return n.sender_role === 'school';
       return n.sender_role === 'super_admin';
     });
-    await Promise.all(
+
+    if (!toMark.length) return;
+
+    setItems((prev) =>
+      prev.map((n) =>
+        toMark.some((m) => m.id === n.id) ? { ...n, read_at: new Date().toISOString() } : n
+      )
+    );
+
+    // Mark read in background so opening a thread feels instant.
+    Promise.all(
       toMark.map((n) => axios.post(`/api/notifications/${n.id}/read`).catch(() => null))
     );
-    if (toMark.length) {
-      setItems((prev) =>
-        prev.map((n) =>
-          toMark.some((m) => m.id === n.id) ? { ...n, read_at: new Date().toISOString() } : n
-        )
-      );
-    }
   };
 
   const handleReply = async (e) => {
     e.preventDefault();
-    if (!selected || !reply.trim()) {
-      toast.error('Type a reply first');
+    if (!selected || !reply.trim() || sending) {
+      if (!reply.trim()) toast.error('Type a reply first');
       return;
     }
-    setSending(true);
+
     const bodyText = reply.trim();
+    const rootId = threadRootId || selected.id;
+    const tempId = `temp-${Date.now()}-${++tempIdRef.current}`;
+    const optimistic = {
+      id: tempId,
+      school_id: selected.school_id,
+      sender_role: isSuperAdmin ? 'super_admin' : 'school',
+      subject: selected.subject ? `Re: ${String(selected.subject).replace(/^Re:\s*/i, '')}` : 'Reply',
+      body: bodyText,
+      kind: 'message',
+      parent_id: rootId,
+      created_at: new Date().toISOString(),
+      read_at: new Date().toISOString(),
+      _optimistic: true,
+    };
+
+    setReply('');
+    setItems((prev) => mergeNotificationItems(prev, [optimistic]));
+    setSelectedId(rootId);
+    setSending(true);
+
     try {
-      const rootId = threadRootId || selected.id;
       const { data } = await axios.post(`/api/notifications/${rootId}/reply`, {
         body: bodyText,
       });
-      setItems((prev) => mergeNotificationItems(prev, [data]));
-      setSelectedId(rootId);
-      setReply('');
-      toast.success('Reply sent');
+      setItems((prev) => {
+        const withoutTemp = prev.filter((n) => n.id !== tempId);
+        return mergeNotificationItems(withoutTemp, [data]);
+      });
     } catch (err) {
+      setItems((prev) => prev.filter((n) => n.id !== tempId));
+      setReply(bodyText);
       toast.error(err.response?.data?.error || 'Failed to send reply');
     } finally {
       setSending(false);
@@ -204,22 +228,25 @@ const Notifications = () => {
       toast.error('Select at least one school');
       return;
     }
+    if (sending) return;
+
     setSending(true);
+    const subjectText = composeSubject.trim() || 'Message from SCHOOLTYPE';
+    const bodyText = composeBody.trim();
     try {
       const { data } = await axios.post('/api/super-admin/notifications', {
-        subject: composeSubject.trim() || 'Message from SCHOOLTYPE',
-        body: composeBody.trim(),
+        subject: subjectText,
+        body: bodyText,
         selectAll: selectAllSchools,
         schoolIds: selectAllSchools ? [] : selectedSchoolIds,
       });
-      toast.success(`Sent to ${data.count} school${data.count === 1 ? '' : 's'}`);
       setComposeSubject('');
       setComposeBody('');
       if (Array.isArray(data.items) && data.items.length) {
         setItems((prev) => mergeNotificationItems(prev, data.items));
         setSelectedId(data.items[0].id);
       }
-      await load({ silent: true });
+      toast.success(`Sent to ${data.count} school${data.count === 1 ? '' : 's'}`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to send notification');
     } finally {
@@ -404,6 +431,7 @@ const Notifications = () => {
               {roots.map((item) => {
                 const unread = isUnreadRoot(item);
                 const active = threadRootId === item.id;
+                const sender = inboxSenderForRoot(item);
                 return (
                   <li key={item.id}>
                     <button
@@ -413,22 +441,15 @@ const Notifications = () => {
                         active ? 'bg-slate-700 text-white' : 'hover:bg-slate-800/80 text-slate-200'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className={`text-sm ${unread ? 'font-semibold text-white' : ''}`}>
-                          {item.subject || 'Notification'}
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={`truncate text-sm ${unread ? 'font-semibold text-white' : ''}`}>
+                          {sender}
                         </p>
                         {unread && (
-                          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-sky-400" />
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" />
                         )}
                       </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-400">{item.body}</p>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        {isSuperAdmin && schoolNameById[item.school_id]
-                          ? `${schoolNameById[item.school_id]} · `
-                          : ''}
-                        {formatWhen(item.created_at)}
-                        {item.kind === 'subscription_reminder' ? ' · Renewal' : ''}
-                      </p>
+                      <p className="mt-1 text-[11px] text-slate-500">{formatWhen(item.created_at)}</p>
                     </button>
                   </li>
                 );
@@ -439,14 +460,16 @@ const Notifications = () => {
 
         <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-5 lg:col-span-3 md:p-6">
           {!selected ? (
-            <p className="text-sm text-slate-400">Select a notification to read and reply.</p>
+            <p className="text-sm text-slate-400">Select a sender to open the conversation and reply.</p>
           ) : (
             <>
               <h2 className="text-lg font-semibold text-white">
-                {thread[0]?.subject || selected.subject || 'Thread'}
+                {inboxSenderForRoot(thread[0] || selected)}
               </h2>
-              {isSuperAdmin && schoolNameById[selected.school_id] && (
-                <p className="mt-1 text-sm text-slate-400">{schoolNameById[selected.school_id]}</p>
+              {(thread[0]?.subject || selected.subject) && (
+                <p className="mt-1 text-sm text-slate-400">
+                  {thread[0]?.subject || selected.subject}
+                </p>
               )}
               <div className="mt-5 max-h-[22rem] space-y-3 overflow-y-auto">
                 {thread.map((msg) => {
@@ -460,7 +483,7 @@ const Notifications = () => {
                         mine
                           ? 'ml-6 border-sky-500/25 bg-sky-500/10'
                           : 'mr-6 border-emerald-500/25 bg-emerald-500/10'
-                      }`}
+                      } ${msg._optimistic ? 'opacity-70' : ''}`}
                     >
                       <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
                         <span className="font-semibold text-slate-200">{labelForMessage(msg)}</span>

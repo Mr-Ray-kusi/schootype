@@ -57,6 +57,43 @@ export async function createPlatformNotification({
   return data;
 }
 
+/** Bulk insert for broadcasting to many schools in one round-trip. */
+export async function createPlatformNotificationsBatch(rows) {
+  const payloads = (rows || [])
+    .map((row) => ({
+      school_id: row.schoolId,
+      sender_role: row.senderRole,
+      subject: row.subject?.trim() || null,
+      body: String(row.body || '').trim(),
+      kind: row.kind || 'message',
+      parent_id: row.parentId || null,
+      created_at: new Date().toISOString(),
+    }))
+    .filter((row) => row.body && row.school_id);
+
+  if (!payloads.length) {
+    throw new Error('Notification body is required');
+  }
+
+  const { data, error } = await supabase
+    .from('platform_notifications')
+    .insert(payloads)
+    .select();
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      const err = new Error(
+        'Notifications table is missing. Run backend/migrations/add_platform_notifications.sql in Supabase.'
+      );
+      err.status = 503;
+      throw err;
+    }
+    throw error;
+  }
+
+  return data || [];
+}
+
 export async function listSchoolNotifications(schoolId, { limit = 50 } = {}) {
   const { data, error } = await supabase
     .from('platform_notifications')
