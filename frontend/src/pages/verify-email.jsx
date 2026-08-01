@@ -125,7 +125,7 @@ const VerifyEmail = () => {
       <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
         <div className="w-full max-w-md rounded-3xl border border-slate-700/80 bg-slate-900/60 p-8 text-center">
           <Link to="/" className="font-display text-2xl font-extrabold tracking-tight text-white">
-            NEXUS
+            SCHOOLTYPE
           </Link>
 
           {status === 'loading' && (

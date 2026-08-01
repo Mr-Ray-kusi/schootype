@@ -10,6 +10,7 @@ const SCHOOL_EXTRA_FIELDS = [
   'scanner_token',
   'staff_portal_token',
   'late_after_time',
+  'last_due_reminder_at',
   'next_payment_due',
   'last_payment_at',
   'subscription_frozen',
@@ -56,6 +57,7 @@ const normalizeExtras = (row = {}) => ({
   scanner_token: row.scanner_token || null,
   staff_portal_token: row.staff_portal_token || null,
   late_after_time: row.late_after_time || '08:00',
+  last_due_reminder_at: row.last_due_reminder_at || null,
   next_payment_due: toDateOnly(row.next_payment_due),
   last_payment_at: toDateOnly(row.last_payment_at),
   subscription_frozen: Boolean(row.subscription_frozen),
@@ -258,6 +260,7 @@ export function mergeSchoolWithExtras(school) {
     scanner_token: school.scanner_token || extras.scanner_token || null,
     staff_portal_token: school.staff_portal_token || extras.staff_portal_token || null,
     late_after_time: school.late_after_time || extras.late_after_time || '08:00',
+    last_due_reminder_at: school.last_due_reminder_at || extras.last_due_reminder_at || null,
     next_payment_due: toDateOnly(school.next_payment_due || extras.next_payment_due),
     last_payment_at: toDateOnly(school.last_payment_at || extras.last_payment_at),
     subscription_frozen: Boolean(
@@ -300,6 +303,10 @@ export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = 
       extras.late_after_time !== undefined
         ? extras.late_after_time
         : existing.late_after_time || '08:00',
+    last_due_reminder_at:
+      extras.last_due_reminder_at !== undefined
+        ? extras.last_due_reminder_at
+        : existing.last_due_reminder_at || null,
     next_payment_due:
       extras.next_payment_due !== undefined
         ? toDateOnly(extras.next_payment_due)
@@ -330,6 +337,7 @@ export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = 
     scanner_token: merged.scanner_token,
     staff_portal_token: merged.staff_portal_token,
     late_after_time: merged.late_after_time,
+    last_due_reminder_at: merged.last_due_reminder_at,
     next_payment_due: merged.next_payment_due,
     last_payment_at: merged.last_payment_at,
     subscription_frozen: merged.subscription_frozen,

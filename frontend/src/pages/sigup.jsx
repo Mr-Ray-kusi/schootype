@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
-import { getPlan } from '../constants/plans';
+import { getPlan, formatPlanPriceGhs } from '../constants/plans';
 import { ArrowLeft } from 'lucide-react';
 
 const Signup = () => {
@@ -105,14 +105,14 @@ const Signup = () => {
         <div className="w-full max-w-md">
           <div className="mb-8 text-center">
             <Link to="/" className="font-display text-2xl font-extrabold tracking-tight text-white">
-              NEXUS
+              SCHOOLTYPE
             </Link>
             <p className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-sky-300/90">
               Step 2 of 2
             </p>
             <h1 className="mt-3 font-display text-3xl font-bold text-white">Create account with email</h1>
             <p className="mt-2 text-sm text-slate-300">
-              {selectedPlan.name} — ₵{selectedPlan.price}/{selectedPlan.period}
+              {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year
             </p>
             <p className="mt-2 text-xs text-slate-400">
               We&apos;ll email you a secure link to verify ownership and choose a password.

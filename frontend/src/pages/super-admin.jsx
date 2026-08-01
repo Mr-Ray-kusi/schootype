@@ -172,7 +172,7 @@ const SuperAdmin = () => {
                       </span>
                       <span className="text-sm text-slate-200">
                         {item.plan_name || 'No plan'}
-                        {item.plan_price ? ` · ₵${item.plan_price}/mo` : ''}
+                        {item.plan_price ? ` · ₵${Number(item.plan_price).toLocaleString()}/yr` : ''}
                       </span>
                       <span className={`px-2 py-0.5 text-xs rounded-full capitalize ${statusStyles[status] || statusStyles.none}`}>
                         {status === 'none' ? 'awaiting plan' : status}

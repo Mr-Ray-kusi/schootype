@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from './supabaseClient.js';
 import nodemailer from 'nodemailer';
-import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature } from './plans.js';
+import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
 import {
   getSubscriptionInfo,
   initializeSubscription,
@@ -67,6 +67,16 @@ import {
   PASSWORD_SETUP_MARKER,
   getFrontendBaseUrl,
 } from './emailVerification.js';
+import {
+  createPlatformNotification,
+  listSchoolNotifications,
+  countUnreadSchoolNotifications,
+  countUnreadSuperAdminNotifications,
+  markNotificationRead,
+  markAllSchoolNotificationsRead,
+  listSuperAdminNotificationThreads,
+  runSubscriptionDueReminders,
+} from './platformNotifications.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -236,6 +246,7 @@ const insertSchoolRecord = async (record) => {
     'scanner_token',
     'staff_portal_token',
     'late_after_time',
+    'last_due_reminder_at',
     'next_payment_due',
     'last_payment_at',
     'subscription_frozen',
@@ -311,6 +322,7 @@ const updateSchoolRecord = async (id, updates) => {
     'scanner_token',
     'staff_portal_token',
     'late_after_time',
+    'last_due_reminder_at',
     'next_payment_due',
     'last_payment_at',
     'subscription_frozen',
@@ -374,6 +386,7 @@ const SCHOOL_OPTIONAL_COLUMNS = [
   'scanner_token',
   'staff_portal_token',
   'late_after_time',
+  'last_due_reminder_at',
   'next_payment_due',
   'last_payment_at',
   'subscription_frozen',
@@ -808,6 +821,7 @@ app.post('/api/auth/signup', async (req, res) => {
     if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
       return res.status(400).json({ error: 'A valid payment plan is required to create an account' });
     }
+    const resolvedPlan = resolvePlanId(paymentPlan);
 
     const existingSchool = await findSchoolByEmail(email);
     if (existingSchool) {
@@ -843,7 +857,7 @@ app.post('/api/auth/signup', async (req, res) => {
       initial_password: PASSWORD_SETUP_MARKER,
       role: 'admin',
       created_at: new Date(),
-      payment_plan: paymentPlan,
+      payment_plan: resolvedPlan,
       plan_selected_at: new Date(),
       plan_status: 'pending',
       email_verified: false,
@@ -904,7 +918,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
     try {
       await upsertSchoolExtras(school.id, {
-        payment_plan: paymentPlan,
+        payment_plan: resolvedPlan,
         plan_status: 'pending',
         plan_selected_at: new Date().toISOString(),
         logo_url: logo || null,
@@ -1366,15 +1380,16 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
     if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
       return res.status(400).json({ error: 'Invalid payment plan' });
     }
+    const resolvedPlan = resolvePlanId(paymentPlan);
 
     const planUpdates = {
-      payment_plan: paymentPlan,
+      payment_plan: resolvedPlan,
       plan_selected_at: new Date().toISOString(),
       plan_status: 'pending',
     };
 
     const { data: updatedSchool, error } = await updateSchoolRecord(req.user.schoolId, {
-      payment_plan: paymentPlan,
+      payment_plan: resolvedPlan,
       plan_selected_at: new Date(),
       plan_status: 'pending',
     });
@@ -1591,7 +1606,7 @@ app.post('/api/super-admin/broadcast-email', authenticateToken, requireSuperAdmi
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
         <div style="background-color: white; padding: 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-          <h2 style="color: #111827; margin-top: 0;">Message from NEXUS Platform Admin</h2>
+          <h2 style="color: #111827; margin-top: 0;">Message from SCHOOLTYPE Platform Admin</h2>
           <p style="color: #6b7280; margin-top: 0;">This email was sent to your school admin account.</p>
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
           <div style="color: #374151; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(cleanMessage).replace(/\n/g, '<br>')}</div>
@@ -1601,7 +1616,7 @@ app.post('/api/super-admin/broadcast-email', authenticateToken, requireSuperAdmi
               : ''
           }
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-          <p style="color: #9ca3af; font-size: 12px; margin-bottom: 0;">NEXUS · Platform notification</p>
+          <p style="color: #9ca3af; font-size: 12px; margin-bottom: 0;">SCHOOLTYPE · Platform notification</p>
         </div>
       </div>
     `;
@@ -3878,7 +3893,7 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
                     ${escapeHtml(message).replace(/\n/g, '<br>')}
                   </div>
                   <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
-                  <p style="color: #999; font-size: 12px; margin-bottom: 0;">This is an automated message from NEXUS</p>
+                  <p style="color: #999; font-size: 12px; margin-bottom: 0;">This is an automated message from SCHOOLTYPE</p>
                 </div>
               </div>
             `,
@@ -4149,6 +4164,217 @@ export const ready = initializeDatabase();
 export { app };
 export default app;
 
+// ============ PLATFORM NOTIFICATIONS + CRON ============
+
+const requireCronSecret = (req, res, next) => {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) {
+    // Allow in non-production for local testing; require secret on Vercel.
+    if (process.env.VERCEL) {
+      return res.status(503).json({ error: 'CRON_SECRET is not configured' });
+    }
+    return next();
+  }
+  const provided = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.secret;
+  if (provided !== expected) {
+    return res.status(401).json({ error: 'Unauthorized cron request' });
+  }
+  return next();
+};
+
+app.get('/api/cron/subscription-reminders', requireCronSecret, async (req, res) => {
+  try {
+    const result = await runSubscriptionDueReminders({
+      sendEmail: async ({ to, subject, text, html }) =>
+        sendAuthEmail({ to, subject, text, html }),
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('Subscription reminder cron error:', error);
+    res.status(500).json({ error: error.message || 'Reminder job failed' });
+  }
+});
+
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      const [items, unread] = await Promise.all([
+        listSuperAdminNotificationThreads({ limit: 200 }),
+        countUnreadSuperAdminNotifications(),
+      ]);
+      return res.json({ items, unread });
+    }
+    const [items, unread] = await Promise.all([
+      listSchoolNotifications(req.user.schoolId),
+      countUnreadSchoolNotifications(req.user.schoolId),
+    ]);
+    res.json({ items, unread });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      const unread = await countUnreadSuperAdminNotifications();
+      return res.json({ unread });
+    }
+    const unread = await countUnreadSchoolNotifications(req.user.schoolId);
+    res.json({ unread });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      const { data, error } = await supabase
+        .from('platform_notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('id', req.params.id)
+        .eq('sender_role', 'school')
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      return res.json(data || { ok: true });
+    }
+    const row = await markNotificationRead(req.params.id, req.user.schoolId);
+    res.json(row || { ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/notifications/read-all', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      await supabase
+        .from('platform_notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('sender_role', 'school')
+        .is('read_at', null);
+    } else {
+      await markAllSchoolNotificationsRead(req.user.schoolId);
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => {
+  try {
+    const body = String(req.body.body || req.body.message || '').trim();
+    if (!body) return res.status(400).json({ error: 'Reply message is required' });
+
+    if (req.user.role === 'super_admin') {
+      const { data: parent } = await supabase
+        .from('platform_notifications')
+        .select('*')
+        .eq('id', req.params.id)
+        .maybeSingle();
+      if (!parent) return res.status(404).json({ error: 'Notification not found' });
+      const rootId = parent.parent_id || parent.id;
+      const reply = await createPlatformNotification({
+        schoolId: parent.school_id,
+        senderRole: 'super_admin',
+        subject: parent.subject ? `Re: ${String(parent.subject).replace(/^Re:\s*/i, '')}` : 'Reply',
+        body,
+        kind: 'message',
+        parentId: rootId,
+      });
+      return res.json(reply);
+    }
+
+    const { data: parent } = await supabase
+      .from('platform_notifications')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .maybeSingle();
+
+    if (!parent) return res.status(404).json({ error: 'Notification not found' });
+
+    const rootId = parent.parent_id || parent.id;
+    const reply = await createPlatformNotification({
+      schoolId: req.user.schoolId,
+      senderRole: 'school',
+      subject: parent.subject ? `Re: ${String(parent.subject).replace(/^Re:\s*/i, '')}` : 'Reply',
+      body,
+      kind: 'message',
+      parentId: rootId,
+    });
+    res.json(reply);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/super-admin/notifications', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { schoolId, schoolIds, subject, body, parentId, selectAll } = req.body;
+    let targets = Array.isArray(schoolIds) && schoolIds.length
+      ? schoolIds
+      : schoolId
+        ? [schoolId]
+        : [];
+
+    if (selectAll || (!targets.length && !parentId)) {
+      const { data: schools, error } = await supabase
+        .from('schools')
+        .select('id, role')
+        .neq('role', 'super_admin');
+      if (error) throw error;
+      targets = (schools || []).map((s) => s.id);
+    }
+
+    if (parentId) {
+      const { data: parent } = await supabase
+        .from('platform_notifications')
+        .select('*')
+        .eq('id', parentId)
+        .maybeSingle();
+      if (!parent) return res.status(404).json({ error: 'Thread not found' });
+      if (!String(body || '').trim()) {
+        return res.status(400).json({ error: 'Message body is required' });
+      }
+      const reply = await createPlatformNotification({
+        schoolId: parent.school_id,
+        senderRole: 'super_admin',
+        subject: subject || (parent.subject ? `Re: ${String(parent.subject).replace(/^Re:\s*/i, '')}` : 'Reply'),
+        body,
+        kind: 'message',
+        parentId: parent.parent_id || parent.id,
+      });
+      return res.json({ count: 1, items: [reply] });
+    }
+
+    if (!targets.length) {
+      return res.status(400).json({ error: 'Select at least one school' });
+    }
+    if (!String(body || '').trim()) {
+      return res.status(400).json({ error: 'Message body is required' });
+    }
+
+    const created = [];
+    for (const id of targets) {
+      const row = await createPlatformNotification({
+        schoolId: id,
+        senderRole: 'super_admin',
+        subject: subject || 'Message from SCHOOLTYPE',
+        body,
+        kind: 'message',
+      });
+      created.push(row);
+    }
+    res.json({ count: created.length, items: created });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
 // Local / traditional hosting listens on a port. On Vercel the app is
 // exported and invoked as a serverless function (see /api/[[...path]].js).
 if (!process.env.VERCEL) {
@@ -4162,6 +4388,16 @@ if (!process.env.VERCEL) {
     const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
+
+    // Daily reminder sweep for local/dev hosts (Vercel uses cron).
+    const runReminders = () => {
+      runSubscriptionDueReminders({
+        sendEmail: async ({ to, subject, text, html }) =>
+          sendAuthEmail({ to, subject, text, html }),
+      }).catch((err) => console.warn('Local reminder sweep failed:', err.message));
+    };
+    setTimeout(runReminders, 15000);
+    setInterval(runReminders, 24 * 60 * 60 * 1000);
 
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {

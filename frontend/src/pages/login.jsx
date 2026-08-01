@@ -84,7 +84,7 @@ const Login = () => {
         <div className="w-full max-w-md">
           <div className="mb-8 text-center">
             <Link to="/" className="font-display text-2xl font-extrabold tracking-tight text-white">
-              NEXUS
+              SCHOOLTYPE
             </Link>
             <h1 className="mt-6 font-display text-3xl font-bold text-white">Sign in</h1>
             <p className="mt-2 text-sm text-slate-400">Access your school admin dashboard</p>

@@ -44,7 +44,7 @@ const StudentPublicId = () => {
   if (error || !data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 px-6 font-sans text-center">
-        <p className="font-display text-2xl font-bold text-white">NEXUS</p>
+        <p className="font-display text-2xl font-bold text-white">SCHOOLTYPE</p>
         <p className="text-slate-400">{error || 'Person not found'}</p>
         <Link to="/" className="text-sm text-sky-400 hover:text-sky-300">
           Go to home
@@ -99,7 +99,7 @@ const StudentPublicId = () => {
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-lg flex-col px-5 py-8">
         <header className="mb-8 text-center">
-          <p className="font-display text-xl font-extrabold tracking-tight text-white">NEXUS</p>
+          <p className="font-display text-xl font-extrabold tracking-tight text-white">SCHOOLTYPE</p>
           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">
             {isStudent ? 'Student ID' : data.type === 'staff' ? 'Staff ID' : 'School ID'}
           </p>
@@ -155,7 +155,7 @@ const StudentPublicId = () => {
         </div>
 
         <p className="mt-auto pt-8 text-center text-xs text-slate-600">
-          If you found this card, please return it to the school · NEXUS
+          If you found this card, please return it to the school · SCHOOLTYPE
         </p>
       </div>
     </div>

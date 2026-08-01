@@ -24,7 +24,7 @@ import {
   Database,
   Fingerprint,
 } from 'lucide-react';
-import { PLAN_LIST, SYSTEM_CAPABILITY_GROUPS } from '../constants/plans';
+import { PLAN_LIST, SYSTEM_CAPABILITY_GROUPS, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', to: '#home', Icon: HomeIcon },
@@ -38,7 +38,7 @@ const ABOUT_POINTS = [
   {
     Icon: Building2,
     title: 'Who we are',
-    body: 'Nexus is a school operations company building the central connection point for academic life — from enrollment and attendance to fees, messaging, and reporting.',
+    body: 'Schooltype is a school operations company building the central connection point for academic life — from enrollment and attendance to fees, messaging, and reporting.',
   },
   {
     Icon: Workflow,
@@ -94,18 +94,8 @@ const Home = () => {
   const [activeId, setActiveId] = useState('home');
 
   useEffect(() => {
-    if (loading || !token) return;
-    // Wait for school payload — missing school must not mean "no plan selected".
-    if (!school) return;
-
-    if (school?.role === 'super_admin') {
-      navigate('/super-admin', { replace: true });
-    } else if (!school?.payment_plan) {
-      navigate('/select-plan', { replace: true });
-    } else {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [token, school, loading, navigate]);
+    // Always keep "/" as the marketing home. Logged-in users can open the dashboard from the nav.
+  }, []);
 
   useEffect(() => {
     const sectionIds = NAV_ITEMS.map((item) => item.id);
@@ -163,11 +153,11 @@ const Home = () => {
           }}
         >
           <span className="landing-nav-logo flex h-10 w-10 items-center justify-center rounded-full text-sm font-extrabold text-white">
-            N
+            S
           </span>
           <span className="min-w-0 leading-tight">
             <span className="block truncate font-display text-base font-extrabold tracking-tight text-slate-900 sm:text-lg">
-              NEXUS
+              SCHOOLTYPE
             </span>
             <span className="hidden truncate text-[10px] font-medium tracking-wide text-slate-500 sm:block">
               Connect. Track. Manage.
@@ -217,15 +207,41 @@ const Home = () => {
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <Link
-            to="/plans"
-            className="landing-nav-cta group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110"
-          >
-            Get started
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
-              <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.5} />
-            </span>
-          </Link>
+          {token ? (
+            <Link
+              to={
+                school?.role === 'super_admin'
+                  ? '/super-admin'
+                  : !school?.payment_plan
+                    ? '/select-plan'
+                    : '/dashboard'
+              }
+              className="landing-nav-cta group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110"
+            >
+              Open dashboard
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+                <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+              </span>
+            </Link>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white/80 sm:inline-flex"
+              >
+                Sign in
+              </Link>
+              <Link
+                to="/plans"
+                className="landing-nav-cta group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110"
+              >
+                Get started
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+                  <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </span>
+              </Link>
+            </>
+          )}
 
           <button
             type="button"
@@ -265,13 +281,29 @@ const Home = () => {
               );
             })}
           </div>
-          <Link
-            to="/login"
-            onClick={() => setMenuOpen(false)}
-            className="mt-2 flex items-center justify-center rounded-full border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Sign in
-          </Link>
+          {token ? (
+            <Link
+              to={
+                school?.role === 'super_admin'
+                  ? '/super-admin'
+                  : !school?.payment_plan
+                    ? '/select-plan'
+                    : '/dashboard'
+              }
+              onClick={() => setMenuOpen(false)}
+              className="mt-2 flex items-center justify-center rounded-full border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Open dashboard
+            </Link>
+          ) : (
+            <Link
+              to="/login"
+              onClick={() => setMenuOpen(false)}
+              className="mt-2 flex items-center justify-center rounded-full border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       )}
     </>
@@ -310,7 +342,7 @@ const Home = () => {
         <div className="relative z-10 flex min-h-[calc(100vh-4.75rem)] flex-col justify-center px-6 pb-16 pt-8 md:px-10 lg:px-14 lg:pb-24">
           <div className="max-w-2xl">
             <p className="animate-hero-fade font-display text-4xl font-extrabold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
-              NEXUS
+              SCHOOLTYPE
             </p>
             <h1 className="animate-hero-rise mt-5 font-display text-2xl font-bold leading-snug tracking-tight text-white/95 sm:text-3xl md:text-4xl">
               The central connection point for all your school academic activities
@@ -348,12 +380,12 @@ const Home = () => {
         className="scroll-mt-28 border-t border-white/5 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 py-20 md:px-10 lg:px-14"
       >
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">About Nexus</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">About Schooltype</p>
           <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
             Built to connect every part of school life
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Nexus helps schools move from scattered registers and chats to one trusted system —
+            Schooltype helps schools move from scattered registers and chats to one trusted system —
             connecting people, attendance, academics, messaging, and payments under a single brand
             your staff and parents can rely on.
           </p>
@@ -394,7 +426,7 @@ const Home = () => {
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
             From student IDs and QR check-in to report cards, bulk messaging, and school wallets —
-            Nexus covers the daily tools administrators actually use.
+            Schooltype covers the daily tools administrators actually use.
           </p>
 
           <div className="mt-12 grid gap-12 sm:grid-cols-2">
@@ -437,9 +469,31 @@ const Home = () => {
             Choose the package that matches your school
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Each plan unlocks a clear set of modules. Start lean, then grow into attendance,
-            messaging, academics, and full finance tools as you need them.
+            Annual plans by school size. Pick the tier that matches your enrollment — billed once per year.
           </p>
+
+          <div className="mt-10 overflow-x-auto rounded-2xl border border-white/10">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-900/80 text-slate-300">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">School Size</th>
+                  <th className="px-4 py-3 font-semibold">Students</th>
+                  <th className="px-4 py-3 font-semibold">Annual Cost (USD)</th>
+                  <th className="px-4 py-3 font-semibold">Annual Cost (GHS)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-slate-200">
+                {PLAN_LIST.map((plan) => (
+                  <tr key={`row-${plan.id}`} className="bg-slate-950/40">
+                    <td className="px-4 py-3 font-medium text-white">{plan.name}</td>
+                    <td className="px-4 py-3">{plan.sizeLabel}</td>
+                    <td className="px-4 py-3">{formatPlanPriceUsd(plan)}</td>
+                    <td className="px-4 py-3">{formatPlanPriceGhs(plan)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <div className="mt-12 grid gap-8 lg:grid-cols-3">
             {PLAN_LIST.map((plan) => (
@@ -455,11 +509,12 @@ const Home = () => {
                   </p>
                 )}
                 <h3 className="font-display text-2xl font-bold text-white">{plan.name}</h3>
+                <p className="mt-1 text-sm font-medium text-sky-300">{plan.sizeLabel}</p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{plan.description}</p>
-                <p className="mt-5">
-                  <span className="font-display text-4xl font-bold text-white">₵{plan.price}</span>
-                  <span className="text-slate-400">/{plan.period}</span>
-                </p>
+                <div className="mt-5 space-y-1">
+                  <p className="font-display text-2xl font-bold text-white">{formatPlanPriceGhs(plan)}</p>
+                  <p className="text-sm text-slate-400">{formatPlanPriceUsd(plan)} USD · per year</p>
+                </div>
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-sm text-slate-300">
@@ -499,7 +554,7 @@ const Home = () => {
             Built to keep school data authentic and protected
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Nexus treats school records as sensitive operational data. Access is authenticated,
+            Schooltype treats school records as sensitive operational data. Access is authenticated,
             schools are isolated from each other, and critical actions stay behind verified
             sessions and plan-approved roles.
           </p>
@@ -519,7 +574,7 @@ const Home = () => {
       <footer className="border-t border-white/10 px-6 py-10 md:px-10 lg:px-14">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <p className="font-display text-lg font-bold text-white">NEXUS</p>
+            <p className="font-display text-lg font-bold text-white">SCHOOLTYPE</p>
             <p className="text-sm text-slate-500">Connect. Track. Manage.</p>
           </div>
           <div className="flex flex-wrap gap-4 text-sm text-slate-400">

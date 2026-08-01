@@ -1,4 +1,4 @@
-export const SUBSCRIPTION_GRACE_DAYS = 5;
+export const SUBSCRIPTION_GRACE_DAYS = 14;
 
 export function addMonths(date, months) {
   const d = new Date(`${toDateString(date)}T12:00:00`);
@@ -6,23 +6,28 @@ export function addMonths(date, months) {
   return d;
 }
 
+export function addYears(date, years) {
+  const d = new Date(`${toDateString(date)}T12:00:00`);
+  d.setFullYear(d.getFullYear() + years);
+  return d;
+}
+
 export function toDateString(date) {
   return new Date(date).toISOString().split('T')[0];
 }
 
-/** Set when a subscription is first approved — anchors the monthly billing cycle. */
+/** Set when a subscription is first approved — yearly billing cycle. */
 export function initializeSubscription(startDate = new Date()) {
   const started = toDateString(startDate);
   return {
     subscription_started_at: started,
     last_payment_at: started,
-    next_payment_due: toDateString(addMonths(started, 1)),
+    next_payment_due: toDateString(addYears(started, 1)),
   };
 }
 
 /**
- * Advance to the next billing period on renewal.
- * Dates stay on the fixed monthly schedule from subscription start.
+ * Advance to the next yearly billing period on renewal.
  */
 export function renewSubscription(school) {
   const periodEnd = school.next_payment_due;
@@ -32,11 +37,10 @@ export function renewSubscription(school) {
     return initializeSubscription(anchor || new Date());
   }
 
-  // Legacy rows: had only next_payment_due without a subscription anchor
   if (!anchor && !school.last_payment_at) {
-    const started = toDateString(addMonths(periodEnd, -1));
+    const started = toDateString(addYears(periodEnd, -1));
     const newPeriodStart = periodEnd;
-    const newPeriodEnd = toDateString(addMonths(periodEnd, 1));
+    const newPeriodEnd = toDateString(addYears(periodEnd, 1));
     return {
       subscription_started_at: started,
       last_payment_at: newPeriodStart,
@@ -45,12 +49,12 @@ export function renewSubscription(school) {
   }
 
   let periodStart = periodEnd;
-  let nextEnd = toDateString(addMonths(periodEnd, 1));
+  let nextEnd = toDateString(addYears(periodEnd, 1));
   const now = new Date();
 
   while (new Date(`${nextEnd}T23:59:59`) <= now) {
     periodStart = nextEnd;
-    nextEnd = toDateString(addMonths(nextEnd, 1));
+    nextEnd = toDateString(addYears(nextEnd, 1));
   }
 
   return {
@@ -82,6 +86,7 @@ export function getSubscriptionInfo(school) {
       reason: 'not_approved',
       in_grace_period: false,
       days_past_due: 0,
+      days_until_due: null,
     };
   }
 
@@ -92,6 +97,7 @@ export function getSubscriptionInfo(school) {
       reason: 'frozen',
       in_grace_period: false,
       days_past_due: nextPaymentDue ? daysPastDue(nextPaymentDue) : 0,
+      days_until_due: nextPaymentDue ? daysUntilDue(nextPaymentDue) : null,
     };
   }
 
@@ -102,6 +108,7 @@ export function getSubscriptionInfo(school) {
       reason: 'no_billing_date',
       in_grace_period: false,
       days_past_due: 0,
+      days_until_due: null,
     };
   }
 
@@ -111,6 +118,7 @@ export function getSubscriptionInfo(school) {
   graceEnd.setDate(graceEnd.getDate() + SUBSCRIPTION_GRACE_DAYS);
 
   const pastDue = daysPastDue(nextPaymentDue);
+  const untilDue = daysUntilDue(nextPaymentDue);
   const inGracePeriod = now > due && now <= graceEnd;
 
   if (now > graceEnd) {
@@ -120,6 +128,7 @@ export function getSubscriptionInfo(school) {
       reason: 'overdue',
       in_grace_period: false,
       days_past_due: pastDue,
+      days_until_due: untilDue,
     };
   }
 
@@ -129,6 +138,7 @@ export function getSubscriptionInfo(school) {
     reason: inGracePeriod ? 'grace_period' : 'current',
     in_grace_period: inGracePeriod,
     days_past_due: pastDue,
+    days_until_due: untilDue,
   };
 }
 
@@ -137,4 +147,11 @@ function daysPastDue(dueDateStr) {
   const now = new Date();
   if (now <= due) return 0;
   return Math.floor((now - due) / (1000 * 60 * 60 * 24));
+}
+
+function daysUntilDue(dueDateStr) {
+  const due = new Date(`${dueDateStr}T23:59:59`);
+  const now = new Date();
+  const diff = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+  return diff;
 }

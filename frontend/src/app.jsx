@@ -32,6 +32,7 @@ const SuperAdminSchool = lazy(() => import('./pages/super-admin-school'));
 const SuperAdminBroadcast = lazy(() => import('./pages/super-admin-broadcast'));
 const SuperAdminSms = lazy(() => import('./pages/super-admin-sms'));
 const SuperAdminMonitor = lazy(() => import('./pages/super-admin-monitor'));
+const Notifications = lazy(() => import('./pages/notifications'));
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-slate-900 text-slate-300">Loading...</div>
@@ -122,6 +123,7 @@ function App() {
               <Route element={<SchoolAdminRoute />}>
                 <Route element={<Layout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/notifications" element={<Notifications />} />
                   <Route element={<PlanFeatureRoute feature="students" />}>
                     <Route path="/students" element={<Students />} />
                   </Route>
@@ -176,6 +178,7 @@ function App() {
                   <Route path="/super-admin/bank-settings" element={<BankSettings />} />
                   <Route path="/super-admin/platform-wallet" element={<SchoolWallet />} />
                   <Route path="/super-admin/email-schools" element={<SuperAdminBroadcast />} />
+                  <Route path="/super-admin/notifications" element={<Notifications />} />
                   <Route path="/super-admin/sms" element={<SuperAdminSms />} />
                   <Route path="/super-admin/monitor" element={<SuperAdminMonitor />} />
                 </Route>

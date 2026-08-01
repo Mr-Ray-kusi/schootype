@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import {
@@ -23,8 +23,10 @@ import {
   Wallet,
   Mail,
   ClipboardList,
+  Bell,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 
 /** True when pathname is exactly href, or a nested path under href (segment-safe). */
 const isNavActive = (pathname, href) => {
@@ -37,9 +39,27 @@ const isNavActive = (pathname, href) => {
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { school, logout, isSuperAdmin, hasFeature, includesPlanFeature, isPlanApproved } = useAuth();
+  const [unread, setUnread] = useState(0);
+  const { school, logout, isSuperAdmin, hasFeature, includesPlanFeature, isPlanApproved, token } =
+    useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const refreshUnread = useCallback(async () => {
+    if (!token) return;
+    try {
+      const { data } = await axios.get('/api/notifications/unread-count');
+      setUnread(Number(data.unread) || 0);
+    } catch {
+      // Table may not exist until migration is applied.
+    }
+  }, [token]);
+
+  useEffect(() => {
+    refreshUnread();
+    const id = setInterval(refreshUnread, 60000);
+    return () => clearInterval(id);
+  }, [refreshUnread, location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -49,7 +69,10 @@ const Layout = ({ children }) => {
   const schoolNavSections = [
     {
       title: 'Main',
-      items: [{ name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, featureKey: 'dashboard' }],
+      items: [
+        { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, featureKey: 'dashboard' },
+        { name: 'Notifications', href: '/notifications', icon: Bell },
+      ],
     },
     {
       title: 'Academic',
@@ -93,6 +116,7 @@ const Layout = ({ children }) => {
           items: [
             { name: 'All Schools', href: '/super-admin', icon: LayoutDashboard },
             { name: 'Monitoring', href: '/super-admin/monitor', icon: ClipboardList },
+            { name: 'Notifications', href: '/super-admin/notifications', icon: Bell },
             { name: 'Email Schools', href: '/super-admin/email-schools', icon: Mail },
             { name: 'SMS Units', href: '/super-admin/sms', icon: MessageSquare },
           ],
@@ -109,6 +133,7 @@ const Layout = ({ children }) => {
         .map((section) => ({
           ...section,
           items: section.items.filter((item) => {
+            if (!item.featureKey && !item.featureKeys) return true;
             if (item.featureKeys) {
               return item.featureKeys.some((key) => includesPlanFeature(key));
             }
@@ -127,6 +152,21 @@ const Layout = ({ children }) => {
         >
           {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
+      </div>
+
+      <div className="fixed top-4 right-4 z-50">
+        <Link
+          to={isSuperAdmin ? '/super-admin/notifications' : '/notifications'}
+          className="relative flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-50 shadow-md hover:bg-slate-700"
+          aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
+        >
+          <Bell className="h-5 w-5" />
+          {unread > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-bold text-white">
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </Link>
       </div>
 
       {sidebarOpen && (
@@ -155,7 +195,7 @@ const Layout = ({ children }) => {
           )}
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-white truncate">
-              {isSuperAdmin ? 'NEXUS' : (school?.name || 'NEXUS')}
+              {isSuperAdmin ? 'SCHOOLTYPE' : (school?.name || 'SCHOOLTYPE')}
             </h1>
             <p className="text-xs text-slate-300 truncate">
               {isSuperAdmin
@@ -176,6 +216,7 @@ const Layout = ({ children }) => {
                   const active = isNavActive(location.pathname, item.href);
                   const isLocked =
                     !isSuperAdmin &&
+                    Boolean(item.featureKey || item.featureKeys) &&
                     !isPlanApproved &&
                     (item.featureKeys
                       ? !item.featureKeys.some((key) => hasFeature(key))
@@ -216,7 +257,12 @@ const Layout = ({ children }) => {
                       aria-current={active ? 'page' : undefined}
                     >
                       <item.icon className="w-5 h-5 shrink-0" />
-                      <span className="truncate">{item.name}</span>
+                      <span className="flex-1 truncate">{item.name}</span>
+                      {item.name === 'Notifications' && unread > 0 && (
+                        <span className="rounded-full bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -237,7 +283,7 @@ const Layout = ({ children }) => {
       </div>
 
       <div className="lg:ml-64 min-w-0">
-        <main className="min-w-0 overflow-x-hidden p-6">{children ?? <Outlet />}</main>
+        <main className="min-w-0 overflow-x-hidden p-6 pt-16 lg:pt-6">{children ?? <Outlet />}</main>
       </div>
     </div>
   );

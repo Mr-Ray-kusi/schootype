@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PLAN_LIST } from '../constants/plans';
+import { PLAN_LIST, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
 import { Check, ArrowLeft } from 'lucide-react';
 
 const Plans = () => {
@@ -28,7 +28,7 @@ const Plans = () => {
       <div className="relative z-10 mx-auto max-w-6xl px-6 py-8 md:py-12">
         <div className="flex items-center justify-between gap-4">
           <Link to="/" className="font-display text-xl font-extrabold tracking-tight text-white">
-            NEXUS
+            SCHOOLTYPE
           </Link>
           <Link
             to="/login"
@@ -46,7 +46,7 @@ const Plans = () => {
             Choose your plan
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-base text-slate-300">
-            Pick the package that fits your school. You’ll create your admin account next.
+            Annual pricing by school size (USD and GHS). You’ll create your admin account next.
           </p>
         </div>
 
@@ -70,11 +70,12 @@ const Plans = () => {
                   </span>
                 )}
                 <h2 className="font-display text-xl font-bold text-white">{plan.name}</h2>
+                <p className="mt-1 text-sm font-medium text-sky-300">{plan.sizeLabel}</p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{plan.description}</p>
-                <p className="mt-6">
-                  <span className="font-display text-4xl font-bold text-white">₵{plan.price}</span>
-                  <span className="text-slate-400">/{plan.period}</span>
-                </p>
+                <div className="mt-6 space-y-1">
+                  <p className="font-display text-2xl font-bold text-white">{formatPlanPriceGhs(plan)}</p>
+                  <p className="text-sm text-slate-400">{formatPlanPriceUsd(plan)} / year</p>
+                </div>
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-sm text-slate-200">

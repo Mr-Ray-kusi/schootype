@@ -229,7 +229,7 @@ const SuperAdminSchool = () => {
               <div className="flex items-baseline justify-between gap-4 flex-wrap">
                 <p className="text-lg font-semibold text-white">{school.plan_name}</p>
                 {school.plan_price != null && (
-                  <p className="text-emerald-300 font-semibold">{formatMoney(school.plan_price)}/month</p>
+                  <p className="text-emerald-300 font-semibold">{formatMoney(school.plan_price)}/year</p>
                 )}
               </div>
               {school.plan_selected_at && (
@@ -323,7 +323,7 @@ const SuperAdminSchool = () => {
             </div>
 
             <p className="text-sm text-slate-300">
-              Billing runs monthly from the subscription date. When you record a renewal, the period start and end dates advance to the next fixed month on the schedule.
+              Billing runs yearly from the subscription date. When you record a renewal, the next due date advances by one year.
               Features lock {school.subscription_grace_days || 5} days after the period end if payment is not recorded.
             </p>
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
-import { PLAN_LIST } from '../constants/plans';
+import { PLAN_LIST, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
 import { Check, School } from 'lucide-react';
 
 const SelectPlan = () => {
@@ -50,7 +50,7 @@ const SelectPlan = () => {
       <header className="border-b border-slate-700">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-2">
           <School className="w-7 h-7 text-primary-400" />
-          <span className="text-lg font-bold text-white">NEXUS</span>
+          <span className="text-lg font-bold text-white">SCHOOLTYPE</span>
         </div>
       </header>
 
@@ -81,9 +81,15 @@ const SelectPlan = () => {
                   onChange={(e) => setSelectedPlan(e.target.value)}
                   className="sr-only"
                 />
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-bold text-white">{plan.name}</h3>
-                  <span className="text-primary-400 font-semibold">₵{plan.price}/mo</span>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">{plan.name}</h3>
+                    <p className="text-xs text-sky-300 mt-1">{plan.sizeLabel}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-primary-400 font-semibold text-sm">{formatPlanPriceGhs(plan)}</p>
+                    <p className="text-xs text-slate-400">{formatPlanPriceUsd(plan)} / yr</p>
+                  </div>
                 </div>
                 <ul className="space-y-2">
                   {plan.features.map((feature) => (

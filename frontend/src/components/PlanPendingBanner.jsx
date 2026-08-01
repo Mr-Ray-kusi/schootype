@@ -1,6 +1,6 @@
 import { Clock, Lock } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
-import { FEATURE_LABELS, getPlan } from '../constants/plans';
+import { FEATURE_LABELS, getPlan, formatPlanPriceGhs } from '../constants/plans';
 
 const PlanPendingBanner = () => {
   const { school, isPlanApproved } = useAuth();
@@ -11,7 +11,8 @@ const PlanPendingBanner = () => {
 
   const status = school.plan_status || 'pending';
   const isRejected = status === 'rejected';
-  const planPrice = getPlan(school.payment_plan)?.price;
+  const plan = getPlan(school.payment_plan);
+  const planPriceLabel = formatPlanPriceGhs(plan);
 
   return (
     <div className={`rounded-xl border p-5 mb-6 ${isRejected ? 'border-red-500/40 bg-red-500/10' : 'border-amber-500/40 bg-amber-500/10'}`}>
@@ -28,7 +29,7 @@ const PlanPendingBanner = () => {
           <p className="text-sm text-slate-200 mt-1">
             {isRejected
               ? `Your ${school.plan_name || 'selected'} plan was not approved. Contact the platform admin.`
-              : `Your ${school.plan_name || 'selected'} plan${planPrice ? ` (₵${planPrice}/mo)` : ''} is pending review. Features below are locked until a super admin approves your account.`}
+              : `Your ${school.plan_name || 'selected'} plan${planPriceLabel ? ` (${planPriceLabel}/yr)` : ''} is pending review. Features below are locked until a super admin approves your account.`}
           </p>
           {school.pending_plan_features?.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">

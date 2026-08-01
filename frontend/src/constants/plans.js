@@ -1,10 +1,15 @@
 export const PAYMENT_PLANS = {
-  basic: {
-    id: 'basic',
-    name: 'Starter',
-    price: 20,
-    period: 'month',
-    description: 'Core people management for small schools just getting organized.',
+  small: {
+    id: 'small',
+    name: 'Small School',
+    sizeLabel: 'Up to 200 students',
+    price: 4650,
+    priceGhsMin: 3500,
+    priceGhsMax: 5800,
+    priceUsdMin: 300,
+    priceUsdMax: 500,
+    period: 'year',
+    description: 'Core school operations for campuses with up to 200 students.',
     features: [
       'Dashboard overview & school stats',
       'Student registry with QR code IDs',
@@ -12,7 +17,7 @@ export const PAYMENT_PLANS = {
       'Non-staff support team records',
       'Quick student enrollment form',
       'School wallet, bank & MoMo settings',
-      'Up to 175 students & 15 staff',
+      'Up to 200 students',
     ],
     featureKeys: [
       'dashboard',
@@ -23,24 +28,29 @@ export const PAYMENT_PLANS = {
       'bank-settings',
       'school-wallet',
     ],
-    limits: { maxStudents: 175, maxStaff: 15, maxNonStaff: 10 },
+    limits: { maxStudents: 200, maxStaff: 25, maxNonStaff: 15 },
     highlighted: false,
   },
-  standard: {
-    id: 'standard',
-    name: 'Professional',
-    price: 50,
-    period: 'month',
-    description: 'Attendance automation, daily operations, and bulk SMS for active schools.',
+  mid: {
+    id: 'mid',
+    name: 'Mid-sized School',
+    sizeLabel: '200 – 1,000 students',
+    price: 11650,
+    priceGhsMin: 5800,
+    priceGhsMax: 17500,
+    priceUsdMin: 500,
+    priceUsdMax: 1500,
+    period: 'year',
+    description: 'Attendance, messaging, and daily operations for growing schools.',
     features: [
-      'Everything in Starter',
+      'Everything in Small School',
       'Daily attendance tracking & summaries',
       'QR code scanner check-in',
-      'Attendance filters, export & print',
+      'Attendance filters & print',
       'Dashboard attendance charts',
       'Bulk SMS messaging to parents & staff',
       'School wallet deposits & withdrawals',
-      'Up to 450 students & 35 staff',
+      'Up to 1,000 students',
     ],
     featureKeys: [
       'dashboard',
@@ -54,17 +64,22 @@ export const PAYMENT_PLANS = {
       'bank-settings',
       'school-wallet',
     ],
-    limits: { maxStudents: 450, maxStaff: 35, maxNonStaff: 25 },
+    limits: { maxStudents: 1000, maxStaff: 80, maxNonStaff: 40 },
     highlighted: true,
   },
-  premium: {
-    id: 'premium',
-    name: 'Enterprise',
-    price: 75,
-    period: 'month',
-    description: 'Full academic, communication, and finance suite for established institutions.',
+  large: {
+    id: 'large',
+    name: 'Large School',
+    sizeLabel: '1,000+ students',
+    price: 26250,
+    priceGhsMin: 17500,
+    priceGhsMax: 35000,
+    priceUsdMin: 1500,
+    priceUsdMax: 3000,
+    period: 'year',
+    description: 'Full academic, communication, and finance suite for large institutions.',
     features: [
-      'Everything in Professional',
+      'Everything in Mid-sized School',
       'Bulk SMS & email messaging',
       'Class management & organization',
       'Report cards & teacher result uploads',
@@ -95,13 +110,51 @@ export const PAYMENT_PLANS = {
   },
 };
 
+/** Legacy monthly plan IDs → yearly size tiers */
+export const PLAN_ALIASES = {
+  basic: 'small',
+  standard: 'mid',
+  premium: 'large',
+  starter: 'small',
+  professional: 'mid',
+  enterprise: 'large',
+};
+
 export const PLAN_LIST = Object.values(PAYMENT_PLANS);
 
-export const getPlan = (planId) => PAYMENT_PLANS[planId] || null;
+export const resolvePlanId = (planId) => {
+  if (!planId) return null;
+  if (PAYMENT_PLANS[planId]) return planId;
+  return PLAN_ALIASES[planId] || planId;
+};
+
+export const getPlan = (planId) => {
+  const resolved = resolvePlanId(planId);
+  return PAYMENT_PLANS[resolved] || null;
+};
 
 export const hasFeature = (planId, featureKey) => {
   const plan = getPlan(planId);
   return plan ? plan.featureKeys.includes(featureKey) : false;
+};
+
+export const formatPlanPriceGhs = (plan) => {
+  if (!plan) return '';
+  if (plan.priceGhsMin != null && plan.priceGhsMax != null) {
+    const suffix = plan.id === 'large' ? '+' : '';
+    return `₵${plan.priceGhsMin.toLocaleString()} – ₵${plan.priceGhsMax.toLocaleString()}${suffix}`;
+  }
+  return `₵${Number(plan.price || 0).toLocaleString()}`;
+};
+
+export const formatPlanPriceUsd = (plan) => {
+  if (!plan) return '';
+  if (plan.priceUsdMin != null && plan.priceUsdMax != null) {
+    return `$${plan.priceUsdMin.toLocaleString()} – $${plan.priceUsdMax.toLocaleString()}${
+      plan.id === 'large' ? '+' : ''
+    }`;
+  }
+  return '';
 };
 
 export const FEATURE_LABELS = {
@@ -150,7 +203,7 @@ export const SYSTEM_CAPABILITY_GROUPS = [
   },
   {
     title: 'Communication',
-    items: ['Bulk SMS to parents & staff (Professional)', 'Email broadcasts (Enterprise)', 'Group & individual messaging', 'Fee payment reminders'],
+    items: ['Bulk SMS to parents & staff (Mid-sized)', 'Email broadcasts (Large)', 'In-app school notifications', 'Fee payment reminders'],
   },
   {
     title: 'Academics & Finance',
