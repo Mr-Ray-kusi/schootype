@@ -408,7 +408,7 @@ const ReportCards = () => {
                         </span>
                         {row.percent != null ? (
                           <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs text-white">
-                            {letterGrade(row.percent)} · {row.percent}%
+                            {letterGrade(row.percent)} - {row.percent}%
                           </span>
                         ) : null}
                       </div>
