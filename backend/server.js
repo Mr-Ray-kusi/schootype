@@ -3611,6 +3611,84 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
   }
 });
 
+// ============ REPORT CARDS (admin view of teacher-entered scores) ============
+
+app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.status(400).json({ error: 'Use school admin account to view report cards' });
+    }
+
+    const schoolId = req.user.schoolId;
+    const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+    const merged = school ? mergeSchoolWithExtras(school) : null;
+    if (merged && !hasPlanFeature(merged.payment_plan, 'report-cards')) {
+      return res.status(403).json({ error: 'Report cards are not included in your plan' });
+    }
+
+    const { data: scores, error } = await supabase
+      .from('student_scores')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('updated_at', { ascending: false })
+      .limit(2000);
+
+    if (error) {
+      if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+        return res.json({ scores: [], note: 'No scores yet. Teachers enter scores in the staff portal.' });
+      }
+      throw error;
+    }
+
+    const rows = scores || [];
+    const studentIds = [...new Set(rows.map((r) => r.student_id).filter(Boolean))];
+    const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))];
+
+    const [studentsRes, staffRes] = await Promise.all([
+      studentIds.length
+        ? supabase.from('students').select('id, name, class, roll_number').in('id', studentIds)
+        : Promise.resolve({ data: [] }),
+      staffIds.length
+        ? supabase.from('staffs').select('id, name, role').in('id', staffIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const studentsById = new Map((studentsRes.data || []).map((s) => [s.id, s]));
+    const staffById = new Map((staffRes.data || []).map((s) => [s.id, s]));
+
+    const enriched = rows.map((row) => {
+      const student = studentsById.get(row.student_id);
+      const teacher = staffById.get(row.staff_id);
+      const score = row.score == null ? null : Number(row.score);
+      const maxScore = row.max_score == null ? 100 : Number(row.max_score);
+      const percent =
+        score != null && maxScore > 0 ? Math.round((score / maxScore) * 1000) / 10 : null;
+      return {
+        id: row.id,
+        student_id: row.student_id,
+        student_name: student?.name || 'Student',
+        class_name: row.class_name || student?.class || '—',
+        roll_number: student?.roll_number || null,
+        subject: row.subject,
+        term: row.term || 'Term 1',
+        score,
+        max_score: maxScore,
+        percent,
+        remark: row.remark || null,
+        teacher_id: row.staff_id,
+        teacher_name: teacher?.name || 'Teacher',
+        updated_at: row.updated_at || row.created_at,
+        created_at: row.created_at,
+      };
+    });
+
+    res.json({ scores: enriched });
+  } catch (error) {
+    console.error('Report cards scores error:', error);
+    res.status(500).json({ error: error.message || 'Failed to load report card scores' });
+  }
+});
+
 // Public mobile scanner endpoints (token-based, no login)
 app.get('/api/scanner/school/:token', async (req, res) => {
   try {
