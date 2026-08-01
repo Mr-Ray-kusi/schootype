@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Bell, CheckCheck, Send } from 'lucide-react';
@@ -6,6 +6,8 @@ import { useAuth } from '../contexts/authcontext';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/30';
+
+const POLL_MS = 4000;
 
 const formatWhen = (iso) => {
   if (!iso) return '';
@@ -19,8 +21,20 @@ const formatWhen = (iso) => {
   }
 };
 
+const mergeNotificationItems = (prev, next) => {
+  const byId = new Map();
+  (prev || []).forEach((item) => byId.set(item.id, item));
+  (next || []).forEach((item) => {
+    const existing = byId.get(item.id);
+    byId.set(item.id, existing ? { ...existing, ...item } : item);
+  });
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
+};
+
 const Notifications = () => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, school } = useAuth();
   const [items, setItems] = useState([]);
   const [schools, setSchools] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,25 +46,43 @@ const Notifications = () => {
   const [selectedSchoolIds, setSelectedSchoolIds] = useState([]);
   const [selectAllSchools, setSelectAllSchools] = useState(true);
   const [schoolSearch, setSchoolSearch] = useState('');
+  const threadEndRef = useRef(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await axios.get('/api/notifications');
-      setItems(data.items || []);
-      if (isSuperAdmin) {
-        const schoolsRes = await axios.get('/api/super-admin/schools');
-        setSchools(schoolsRes.data || []);
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) setLoading(true);
+      try {
+        const { data } = await axios.get('/api/notifications');
+        const nextItems = data.items || [];
+        setItems((prev) => (silent ? mergeNotificationItems(prev, nextItems) : nextItems));
+      } catch (err) {
+        if (!silent) {
+          toast.error(err.response?.data?.error || 'Failed to load notifications');
+        }
+      } finally {
+        if (!silent) setLoading(false);
       }
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to load notifications');
-    } finally {
-      setLoading(false);
-    }
+    },
+    []
+  );
+
+  useEffect(() => {
+    load({ silent: false });
+  }, [load]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    axios
+      .get('/api/super-admin/schools')
+      .then((res) => setSchools(res.data || []))
+      .catch(() => {});
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    load();
+    const id = setInterval(() => {
+      load({ silent: true });
+    }, POLL_MS);
+    return () => clearInterval(id);
   }, [load]);
 
   const roots = useMemo(() => {
@@ -58,18 +90,29 @@ const Notifications = () => {
     return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [items]);
 
-  const selected = useMemo(
-    () => items.find((n) => n.id === selectedId) || null,
-    [items, selectedId]
-  );
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    return (
+      items.find((n) => n.id === selectedId) ||
+      items.find((n) => n.parent_id === selectedId) ||
+      null
+    );
+  }, [items, selectedId]);
+
+  const threadRootId = selected ? selected.parent_id || selected.id : null;
 
   const thread = useMemo(() => {
-    if (!selected) return [];
-    const rootId = selected.parent_id || selected.id;
+    if (!threadRootId) return [];
     return items
-      .filter((n) => n.id === rootId || n.parent_id === rootId)
+      .filter((n) => n.id === threadRootId || n.parent_id === threadRootId)
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  }, [items, selected]);
+  }, [items, threadRootId]);
+
+  useEffect(() => {
+    if (thread.length) {
+      threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [thread.length, threadRootId]);
 
   const schoolNameById = useMemo(() => {
     const map = {};
@@ -87,10 +130,28 @@ const Notifications = () => {
     );
   }, [schools, schoolSearch]);
 
+  const labelForMessage = (msg) => {
+    const mine = isSuperAdmin
+      ? msg.sender_role === 'super_admin'
+      : msg.sender_role === 'school';
+
+    if (mine) return 'Me';
+
+    if (msg.sender_role === 'school') {
+      return (
+        schoolNameById[msg.school_id] ||
+        school?.name ||
+        'School'
+      );
+    }
+
+    return 'SCHOOLTYPE Admin';
+  };
+
   const openThread = async (item) => {
-    setSelectedId(item.id);
-    setReply('');
     const rootId = item.parent_id || item.id;
+    setSelectedId(rootId);
+    setReply('');
     const toMark = items.filter((n) => {
       if (n.id !== rootId && n.parent_id !== rootId) return false;
       if (n.read_at) return false;
@@ -116,12 +177,14 @@ const Notifications = () => {
       return;
     }
     setSending(true);
+    const bodyText = reply.trim();
     try {
-      const root = thread[0] || selected;
-      const { data } = await axios.post(`/api/notifications/${root.id}/reply`, {
-        body: reply.trim(),
+      const rootId = threadRootId || selected.id;
+      const { data } = await axios.post(`/api/notifications/${rootId}/reply`, {
+        body: bodyText,
       });
-      setItems((prev) => [data, ...prev]);
+      setItems((prev) => mergeNotificationItems(prev, [data]));
+      setSelectedId(rootId);
       setReply('');
       toast.success('Reply sent');
     } catch (err) {
@@ -152,7 +215,11 @@ const Notifications = () => {
       toast.success(`Sent to ${data.count} school${data.count === 1 ? '' : 's'}`);
       setComposeSubject('');
       setComposeBody('');
-      await load();
+      if (Array.isArray(data.items) && data.items.length) {
+        setItems((prev) => mergeNotificationItems(prev, data.items));
+        setSelectedId(data.items[0].id);
+      }
+      await load({ silent: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to send notification');
     } finally {
@@ -336,7 +403,7 @@ const Notifications = () => {
             <ul className="max-h-[28rem] space-y-1 overflow-y-auto">
               {roots.map((item) => {
                 const unread = isUnreadRoot(item);
-                const active = selectedId === item.id || selected?.parent_id === item.id;
+                const active = threadRootId === item.id;
                 return (
                   <li key={item.id}>
                     <button
@@ -383,24 +450,27 @@ const Notifications = () => {
               )}
               <div className="mt-5 max-h-[22rem] space-y-3 overflow-y-auto">
                 {thread.map((msg) => {
-                  const fromPlatform = msg.sender_role === 'super_admin';
+                  const mine = isSuperAdmin
+                    ? msg.sender_role === 'super_admin'
+                    : msg.sender_role === 'school';
                   return (
                     <div
                       key={msg.id}
                       className={`rounded-2xl border px-4 py-3 ${
-                        fromPlatform
-                          ? 'border-sky-500/20 bg-sky-500/10'
-                          : 'border-emerald-500/20 bg-emerald-500/10'
+                        mine
+                          ? 'ml-6 border-sky-500/25 bg-sky-500/10'
+                          : 'mr-6 border-emerald-500/25 bg-emerald-500/10'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
-                        <span>{fromPlatform ? 'SCHOOLTYPE Admin' : 'School'}</span>
+                        <span className="font-semibold text-slate-200">{labelForMessage(msg)}</span>
                         <span>{formatWhen(msg.created_at)}</span>
                       </div>
                       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-100">{msg.body}</p>
                     </div>
                   );
                 })}
+                <div ref={threadEndRef} />
               </div>
 
               <form onSubmit={handleReply} className="mt-5 space-y-3">

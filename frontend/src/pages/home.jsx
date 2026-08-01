@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import { useEffect, useState } from 'react';
 import {
@@ -89,7 +89,6 @@ const scrollToId = (id) => {
 
 const Home = () => {
   const { token, school, loading } = useAuth();
-  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState('home');
 
@@ -133,30 +132,22 @@ const Home = () => {
     );
   }
 
-  if (token) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 font-sans text-slate-300">
-        Redirecting…
-      </div>
-    );
-  }
-
   const navBar = (
     <>
-      <div className="landing-nav mx-auto flex max-w-6xl items-center gap-2 rounded-full px-3 py-2.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)] sm:gap-3 sm:px-4">
+      <div className="landing-nav mx-auto flex max-w-6xl items-center gap-1.5 rounded-full px-2.5 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.12)] sm:gap-3 sm:px-4 sm:py-2.5">
         <a
           href="#home"
-          className="flex min-w-0 shrink-0 items-center gap-2.5 pl-1"
+          className="flex min-w-0 flex-1 items-center gap-1.5 pl-0.5 sm:flex-none sm:gap-2.5 sm:pl-1"
           onClick={(e) => {
             e.preventDefault();
             handleNavClick(NAV_ITEMS[0]);
           }}
         >
-          <span className="landing-nav-logo flex h-10 w-10 items-center justify-center rounded-full text-sm font-extrabold text-white">
+          <span className="landing-nav-logo flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-extrabold text-white sm:h-10 sm:w-10 sm:text-sm">
             S
           </span>
           <span className="min-w-0 leading-tight">
-            <span className="block truncate font-display text-base font-extrabold tracking-tight text-slate-900 sm:text-lg">
+            <span className="block truncate font-display text-[13px] font-extrabold tracking-tight text-slate-900 sm:text-lg">
               SCHOOLTYPE
             </span>
             <span className="hidden truncate text-[10px] font-medium tracking-wide text-slate-500 sm:block">
@@ -206,7 +197,7 @@ const Home = () => {
           })}
         </nav>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {token ? (
             <Link
               to={
@@ -216,11 +207,11 @@ const Home = () => {
                     ? '/select-plan'
                     : '/dashboard'
               }
-              className="landing-nav-cta group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110"
+              className="landing-nav-cta group inline-flex items-center gap-1.5 rounded-full py-1.5 pl-3 pr-1.5 text-xs font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110 sm:gap-2 sm:py-2 sm:pl-4 sm:pr-2 sm:text-sm"
             >
-              Open dashboard
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
-                <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+              <span className="whitespace-nowrap">Open dashboard</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:h-7 sm:w-7">
+                <ArrowUpRight className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={2.5} />
               </span>
             </Link>
           ) : (
@@ -233,11 +224,11 @@ const Home = () => {
               </Link>
               <Link
                 to="/plans"
-                className="landing-nav-cta group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110"
+                className="landing-nav-cta group inline-flex items-center gap-1.5 rounded-full py-1.5 pl-3 pr-1.5 text-xs font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110 sm:gap-2 sm:py-2 sm:pl-4 sm:pr-2 sm:text-sm"
               >
-                Get started
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
-                  <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+                <span className="whitespace-nowrap">Get started</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:h-7 sm:w-7">
+                  <ArrowUpRight className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={2.5} />
                 </span>
               </Link>
             </>
@@ -248,7 +239,7 @@ const Home = () => {
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="landing-nav-menu flex h-11 w-11 items-center justify-center rounded-full text-slate-700 shadow-[0_4px_14px_rgba(15,23,42,0.1)] transition hover:bg-slate-50 lg:hidden"
+            className="landing-nav-menu flex h-9 w-9 items-center justify-center rounded-full text-slate-700 shadow-[0_4px_14px_rgba(15,23,42,0.1)] transition hover:bg-slate-50 sm:h-11 sm:w-11 lg:hidden"
           >
             {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
