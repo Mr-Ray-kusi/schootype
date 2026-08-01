@@ -66,16 +66,24 @@ function pickAttitude(rows) {
   return latest?.attitude || '—';
 }
 
-function buildStudentSummaries(scores, { className, term } = {}) {
+function studentKey(row) {
+  return row.student_id || `${row.student_name}-${row.class_name}`;
+}
+
+function buildStudentSummaries(scores, { className, term, studentIds } = {}) {
+  const selected =
+    Array.isArray(studentIds) && studentIds.length > 0 ? new Set(studentIds.map(String)) : null;
+
   const filtered = scores.filter((row) => {
     if (className && className !== 'all' && row.class_name !== className) return false;
     if (term && term !== 'all' && row.term !== term) return false;
+    if (selected && !selected.has(String(studentKey(row)))) return false;
     return row.percent != null;
   });
 
   const byStudent = new Map();
   for (const row of filtered) {
-    const key = row.student_id || `${row.student_name}-${row.class_name}`;
+    const key = studentKey(row);
     if (!byStudent.has(key)) {
       byStudent.set(key, {
         student_id: row.student_id,
@@ -200,8 +208,9 @@ export function downloadStudentReportCardsPdf({
   schoolName = 'School',
   className = 'all',
   term = 'all',
+  studentIds,
 }) {
-  const summaries = buildStudentSummaries(scores, { className, term });
+  const summaries = buildStudentSummaries(scores, { className, term, studentIds });
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
 

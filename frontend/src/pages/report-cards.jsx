@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Download, FileText, RefreshCw } from 'lucide-react';
+import { Download, FileText, Printer, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
 import {
@@ -11,7 +11,7 @@ import {
 } from '../utils/reportCardPdf';
 
 const formatWhen = (iso) => {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     return new Date(iso).toLocaleString(undefined, {
       dateStyle: 'medium',
@@ -22,6 +22,8 @@ const formatWhen = (iso) => {
   }
 };
 
+const studentKey = (row) => row.student_id || `${row.student_name}-${row.class_name}`;
+
 const ReportCards = () => {
   const { school } = useAuth();
   const [scores, setScores] = useState([]);
@@ -29,6 +31,7 @@ const ReportCards = () => {
   const [selectedClass, setSelectedClass] = useState('all');
   const [selectedSubject, setSelectedSubject] = useState('all');
   const [selectedTerm, setSelectedTerm] = useState('all');
+  const [selectedStudentKeys, setSelectedStudentKeys] = useState([]);
 
   const loadScores = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -75,6 +78,30 @@ const ReportCards = () => {
     });
   }, [scores, selectedClass, selectedSubject, selectedTerm]);
 
+  const studentsForPrint = useMemo(() => {
+    const map = new Map();
+    for (const row of scores) {
+      if (selectedClass !== 'all' && row.class_name !== selectedClass) continue;
+      if (selectedTerm !== 'all' && row.term !== selectedTerm) continue;
+      const key = studentKey(row);
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          student_id: row.student_id,
+          student_name: row.student_name,
+          class_name: row.class_name,
+          roll_number: row.roll_number,
+          term: row.term,
+          entryCount: 0,
+        });
+      }
+      map.get(key).entryCount += 1;
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.student_name || '').localeCompare(String(b.student_name || ''))
+    );
+  }, [scores, selectedClass, selectedTerm]);
+
   const gradeDistribution = useMemo(() => {
     const buckets = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
     let graded = 0;
@@ -91,7 +118,7 @@ const ReportCards = () => {
   }, [filtered]);
 
   const uniqueStudents = useMemo(
-    () => new Set(filtered.map((row) => row.student_id).filter(Boolean)).size,
+    () => new Set(filtered.map((row) => studentKey(row))).size,
     [filtered]
   );
 
@@ -99,6 +126,24 @@ const ReportCards = () => {
     () => new Set(filtered.map((row) => row.teacher_id).filter(Boolean)).size,
     [filtered]
   );
+
+  const allStudentsSelected =
+    studentsForPrint.length > 0 &&
+    studentsForPrint.every((student) => selectedStudentKeys.includes(student.key));
+
+  const toggleStudent = (key) => {
+    setSelectedStudentKeys((prev) =>
+      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
+    );
+  };
+
+  const toggleSelectAllStudents = () => {
+    if (allStudentsSelected) {
+      setSelectedStudentKeys([]);
+      return;
+    }
+    setSelectedStudentKeys(studentsForPrint.map((student) => student.key));
+  };
 
   const handleRankingsPdf = () => {
     if (!filtered.length) {
@@ -115,23 +160,34 @@ const ReportCards = () => {
     toast.success('Subject rankings PDF downloaded');
   };
 
-  const handleStudentCardsPdf = () => {
+  const handleStudentCardsPdf = (studentIds) => {
+    const ids = studentIds || selectedStudentKeys;
+    if (!ids.length) {
+      toast.error('Select at least one student to print a personal report');
+      return;
+    }
+
     const scoped = scores.filter((row) => {
       if (selectedClass !== 'all' && row.class_name !== selectedClass) return false;
       if (selectedTerm !== 'all' && row.term !== selectedTerm) return false;
-      return true;
+      return ids.includes(studentKey(row));
     });
+
     if (!scoped.length) {
-      toast.error('No student scores to draft for the current class/term');
+      toast.error('No scores found for the selected students');
       return;
     }
+
     downloadStudentReportCardsPdf({
       scores,
       schoolName: school?.name || 'School',
       className: selectedClass,
       term: selectedTerm,
+      studentIds: ids,
     });
-    toast.success('Student report cards PDF downloaded');
+    toast.success(
+      ids.length === 1 ? 'Personal student report downloaded' : `${ids.length} personal reports downloaded`
+    );
   };
 
   return (
@@ -140,8 +196,7 @@ const ReportCards = () => {
         <div>
           <h1 className="text-3xl font-bold text-white">Report Cards</h1>
           <p className="mt-3 text-slate-300">
-            Live teacher scores update automatically. Download subject rankings or drafted student report
-            cards as PDF.
+            Filter teacher score entries by subject, then select students to print personal report cards.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -163,11 +218,11 @@ const ReportCards = () => {
           </button>
           <button
             type="button"
-            onClick={handleStudentCardsPdf}
+            onClick={() => handleStudentCardsPdf()}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
           >
-            <FileText className="h-4 w-4" />
-            Student report cards PDF
+            <Printer className="h-4 w-4" />
+            Print selected reports
           </button>
         </div>
       </div>
@@ -177,43 +232,52 @@ const ReportCards = () => {
           <div>
             <h2 className="text-lg font-semibold text-white">Filters</h2>
             <p className="text-sm text-slate-300">
-              Use class + term for report cards. Subject filter applies to rankings and the live table.
+              Subject filter applies to Teacher score entries. Class and term also scope personal reports.
             </p>
           </div>
           <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-3xl">
-            <select
-              value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
-              className="rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
-            >
-              {classes.map((className) => (
-                <option key={className} value={className}>
-                  {className === 'all' ? 'All classes' : className}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
-            >
-              {subjects.map((subject) => (
-                <option key={subject} value={subject}>
-                  {subject === 'all' ? 'All subjects' : subject}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedTerm}
-              onChange={(e) => setSelectedTerm(e.target.value)}
-              className="rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
-            >
-              {terms.map((term) => (
-                <option key={term} value={term}>
-                  {term === 'all' ? 'All terms' : term}
-                </option>
-              ))}
-            </select>
+            <label className="block text-sm text-slate-300">
+              Class
+              <select
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
+              >
+                {classes.map((className) => (
+                  <option key={className} value={className}>
+                    {className === 'all' ? 'All classes' : className}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-300">
+              Subject
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
+              >
+                {subjects.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject === 'all' ? 'All subjects' : subject}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-300">
+              Term
+              <select
+                value={selectedTerm}
+                onChange={(e) => setSelectedTerm(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
+              >
+                {terms.map((term) => (
+                  <option key={term} value={term}>
+                    {term === 'all' ? 'All terms' : term}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
@@ -270,9 +334,31 @@ const ReportCards = () => {
       </section>
 
       <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
-        <div className="mb-4 flex items-center gap-2">
-          <FileText className="h-5 w-5 text-sky-400" />
-          <h2 className="text-lg font-semibold text-white">Teacher score entries</h2>
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-sky-400" />
+            <div>
+              <h2 className="text-lg font-semibold text-white">Teacher score entries</h2>
+              <p className="text-sm text-slate-300">
+                Filter this table by subject above
+                {selectedSubject !== 'all' ? ` (showing ${selectedSubject})` : ''}.
+              </p>
+            </div>
+          </div>
+          <label className="block text-sm text-slate-300 md:w-64">
+            Subject
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-2.5 text-slate-50"
+            >
+              {subjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject === 'all' ? 'All subjects' : subject}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
@@ -294,14 +380,13 @@ const ReportCards = () => {
               {loading ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
-                    Loading teacher scores…
+                    Loading teacher scores...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
-                    No teacher scores yet. When teachers save scores in the staff portal, they appear here
-                    automatically.
+                    No teacher scores match the selected subject/class/term filters.
                   </td>
                 </tr>
               ) : (
@@ -319,19 +404,114 @@ const ReportCards = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <span className="font-semibold text-white">
-                          {row.score == null ? '—' : `${row.score}/${row.max_score ?? 100}`}
+                          {row.score == null ? '-' : `${row.score}/${row.max_score ?? 100}`}
                         </span>
                         {row.percent != null ? (
                           <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs text-white">
-                            {letterGrade(row.percent)} · {row.percent}%
+                            {letterGrade(row.percent)} � {row.percent}%
                           </span>
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-6 py-4">{row.attitude || '—'}</td>
+                    <td className="px-6 py-4">{row.attitude || '-'}</td>
                     <td className="px-6 py-4">{row.teacher_name}</td>
                     <td className="px-6 py-4 text-slate-400">{formatWhen(row.updated_at)}</td>
-                    <td className="px-6 py-4 text-slate-300">{row.remark || '—'}</td>
+                    <td className="px-6 py-4 text-slate-300">{row.remark || '-'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
+        <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Print personal reports</h2>
+            <p className="text-sm text-slate-300">
+              Select students (scoped by class/term) and download their personal report card PDF.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSelectAllStudents}
+              className="rounded-full border border-slate-600 px-4 py-2 text-xs text-slate-200 hover:bg-slate-700"
+            >
+              {allStudentsSelected ? 'Clear selection' : 'Select all'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStudentCardsPdf()}
+              className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Print selected ({selectedStudentKeys.length})
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
+          <table className="min-w-full text-left text-sm text-slate-200">
+            <thead>
+              <tr className="border-b border-slate-700 text-slate-300">
+                <th className="px-6 py-4">
+                  <input
+                    type="checkbox"
+                    checked={allStudentsSelected}
+                    onChange={toggleSelectAllStudents}
+                    aria-label="Select all students"
+                    className="h-4 w-4 rounded border-slate-500 bg-slate-800"
+                  />
+                </th>
+                <th className="px-6 py-4">Student</th>
+                <th className="px-6 py-4">Class</th>
+                <th className="px-6 py-4">Term</th>
+                <th className="px-6 py-4">Score entries</th>
+                <th className="px-6 py-4">Print</th>
+              </tr>
+            </thead>
+            <tbody>
+              {studentsForPrint.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-slate-400">
+                    No students available for the current class/term filters.
+                  </td>
+                </tr>
+              ) : (
+                studentsForPrint.map((student, index) => (
+                  <tr key={student.key} className={index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'}>
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudentKeys.includes(student.key)}
+                        onChange={() => toggleStudent(student.key)}
+                        aria-label={`Select ${student.student_name}`}
+                        className="h-4 w-4 rounded border-slate-500 bg-slate-800"
+                      />
+                    </td>
+                    <td className="px-6 py-4 text-white">
+                      <div>{student.student_name}</div>
+                      {student.roll_number ? (
+                        <div className="text-xs text-slate-500">{student.roll_number}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-6 py-4">{student.class_name || '-'}</td>
+                    <td className="px-6 py-4">
+                      {selectedTerm === 'all' ? student.term || '-' : selectedTerm}
+                    </td>
+                    <td className="px-6 py-4">{student.entryCount}</td>
+                    <td className="px-6 py-4">
+                      <button
+                        type="button"
+                        onClick={() => handleStudentCardsPdf([student.key])}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-xs text-slate-100 hover:bg-slate-700"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        Print report
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
