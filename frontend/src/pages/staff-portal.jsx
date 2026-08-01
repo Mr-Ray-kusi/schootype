@@ -8,8 +8,15 @@ const ROLES = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal
 const TERMS = ['Term 1', 'Term 2', 'Term 3'];
 const SESSION_KEY = 'staffPortalSession';
 
+const normalizeClassKey = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
 const StaffPortal = () => {
-  const { token } = useParams();
+  const { token: tokenParam, schoolSlug } = useParams();
+  const [token, setToken] = useState(tokenParam || null);
+  const [resolvingSlug, setResolvingSlug] = useState(Boolean(schoolSlug && !tokenParam));
   const [schoolName, setSchoolName] = useState('');
   const [linkError, setLinkError] = useState('');
   const [accessCode, setAccessCode] = useState('');
@@ -20,7 +27,8 @@ const StaffPortal = () => {
       const raw = sessionStorage.getItem(SESSION_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed?.portalToken === token) return parsed.sessionToken;
+      if (tokenParam && parsed?.portalToken === tokenParam) return parsed.sessionToken;
+      if (schoolSlug && parsed?.schoolSlug === schoolSlug) return parsed.sessionToken;
     } catch {
       /* ignore */
     }
@@ -42,6 +50,45 @@ const StaffPortal = () => {
   );
 
   useEffect(() => {
+    if (!schoolSlug || tokenParam) {
+      setResolvingSlug(false);
+      if (tokenParam) setToken(tokenParam);
+      return undefined;
+    }
+    let cancelled = false;
+    const resolve = async () => {
+      setResolvingSlug(true);
+      setLinkError('');
+      try {
+        const { data } = await axios.get(
+          `/api/public/staff-portal/${encodeURIComponent(schoolSlug)}`
+        );
+        if (!cancelled) {
+          setToken(data.token);
+          setSchoolName(data.schoolName || 'School');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLinkError(err.response?.data?.error || 'Invalid or inactive staff portal link');
+        }
+      } finally {
+        if (!cancelled) setResolvingSlug(false);
+      }
+    };
+    resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolSlug, tokenParam]);
+
+  useEffect(() => {
+    if (!token) {
+      if (!resolvingSlug && !schoolSlug) {
+        setLoadingPortal(false);
+        setLinkError('Invalid or inactive staff portal link');
+      }
+      return undefined;
+    }
     let cancelled = false;
     const loadSchool = async () => {
       setLoadingPortal(true);
@@ -61,13 +108,14 @@ const StaffPortal = () => {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, resolvingSlug, schoolSlug]);
 
   const persistSession = (nextToken, nextStaff, nextSchool) => {
     sessionStorage.setItem(
       SESSION_KEY,
       JSON.stringify({
         portalToken: token,
+        schoolSlug: schoolSlug || null,
         sessionToken: nextToken,
         staff: nextStaff,
         schoolName: nextSchool,
@@ -114,7 +162,7 @@ const StaffPortal = () => {
   );
 
   useEffect(() => {
-    if (!sessionToken) return;
+    if (!sessionToken) return undefined;
     let cancelled = false;
     const restore = async () => {
       try {
@@ -144,6 +192,7 @@ const StaffPortal = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (!token) return;
     setLoggingIn(true);
     try {
       const { data } = await axios.post(`/api/staff-portal/${token}/login`, { accessCode, role });
@@ -163,9 +212,8 @@ const StaffPortal = () => {
 
   const classStudents = useMemo(() => {
     if (!selectedClass) return students;
-    return students.filter(
-      (student) => String(student.class || '').toLowerCase() === selectedClass.toLowerCase()
-    );
+    const selectedKey = normalizeClassKey(selectedClass);
+    return students.filter((student) => normalizeClassKey(student.class) === selectedKey);
   }, [students, selectedClass]);
 
   const saveScore = async (student) => {
@@ -194,7 +242,7 @@ const StaffPortal = () => {
     }
   };
 
-  if (loadingPortal) {
+  if (resolvingSlug || loadingPortal) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">
         Loading staff portal…
@@ -228,7 +276,10 @@ const StaffPortal = () => {
           <p className="mt-2 text-sm text-slate-400">
             Enter your access code and role to open your workspace.
           </p>
-          <form onSubmit={handleLogin} className="mt-8 space-y-4 rounded-3xl border border-slate-700/80 bg-slate-900/70 p-6">
+          <form
+            onSubmit={handleLogin}
+            className="mt-8 space-y-4 rounded-3xl border border-slate-700/80 bg-slate-900/70 p-6"
+          >
             <div>
               <label className="mb-1.5 block text-sm text-slate-300">Access code</label>
               <input
@@ -377,7 +428,8 @@ const StaffPortal = () => {
                   <div className="divide-y divide-slate-800">
                     {classStudents.length === 0 ? (
                       <p className="px-5 py-8 text-center text-sm text-slate-400">
-                        No students found in this class.
+                        No students found in this class. Ask your admin to match the teacher class names with
+                        each student&apos;s class (e.g. CLASS 1).
                       </p>
                     ) : (
                       classStudents.map((student) => {
@@ -396,6 +448,7 @@ const StaffPortal = () => {
                               <p className="text-xs text-slate-500">
                                 {student.class}
                                 {student.roll_number ? ` · ${student.roll_number}` : ''}
+                                {student.parent_phone ? ` · Parent: ${student.parent_phone}` : ''}
                               </p>
                             </div>
                             <input

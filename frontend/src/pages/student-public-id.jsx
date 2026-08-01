@@ -58,6 +58,11 @@ const StudentPublicId = () => {
     ? data.class
     : data.role || (data.type === 'staff' ? 'Staff' : data.type === 'non-staff' ? 'Non-staff' : null);
 
+  const parentLabel = data.parent_relationship || 'Parent / guardian';
+  const parentPhone = data.parent_phone || data.parentPhone || null;
+  const parentEmail = data.parent_email || data.parentEmail || null;
+  const parentName = data.parent_name || data.parentName || null;
+
   const detailRows = [
     isStudent && data.roll_number
       ? { Icon: Hash, label: 'Student ID', value: data.roll_number }
@@ -65,26 +70,37 @@ const StudentPublicId = () => {
     !isStudent && data.role
       ? { Icon: Briefcase, label: 'Role', value: data.role }
       : null,
-    data.parent_name
-      ? {
-          Icon: User,
-          label: data.parent_relationship || 'Parent / guardian',
-          value: data.parent_name,
-        }
-      : null,
-    data.parent_phone
-      ? { Icon: Phone, label: 'Parent contact', value: data.parent_phone }
-      : null,
-    data.parent_email
-      ? { Icon: Mail, label: 'Parent email', value: data.parent_email }
-      : null,
-    data.house_address
-      ? { Icon: MapPin, label: 'House location', value: data.house_address }
-      : null,
     data.skills
       ? { Icon: Trophy, label: 'Skills', value: data.skills }
       : null,
   ].filter(Boolean);
+
+  const parentRows = isStudent
+    ? [
+        parentName
+          ? { Icon: User, label: parentLabel, value: parentName }
+          : null,
+        parentPhone
+          ? {
+              Icon: Phone,
+              label: 'Parent / guardian contact',
+              value: parentPhone,
+              href: `tel:${String(parentPhone).replace(/\s+/g, '')}`,
+            }
+          : null,
+        parentEmail
+          ? {
+              Icon: Mail,
+              label: 'Parent / guardian email',
+              value: parentEmail,
+              href: `mailto:${parentEmail}`,
+            }
+          : null,
+        data.house_address
+          ? { Icon: MapPin, label: 'House location', value: data.house_address }
+          : null,
+      ].filter(Boolean)
+    : [];
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950 font-sans text-white">
@@ -150,6 +166,42 @@ const StudentPublicId = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : null}
+
+          {isStudent ? (
+            <div className="border-t border-slate-700/80 bg-sky-500/5">
+              <div className="px-6 pt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300/90">
+                  Parent / guardian contact
+                </p>
+              </div>
+              {parentRows.length > 0 ? (
+                <div className="divide-y divide-slate-700/80">
+                  {parentRows.map(({ Icon, label, value, href }) => (
+                    <div key={label} className="flex items-start gap-3 px-6 py-4">
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+                        {href ? (
+                          <a
+                            href={href}
+                            className="whitespace-pre-wrap font-medium text-sky-200 underline-offset-2 hover:underline"
+                          >
+                            {value}
+                          </a>
+                        ) : (
+                          <p className="whitespace-pre-wrap text-slate-100">{value}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-6 py-4 text-sm text-slate-400">
+                  No parent/guardian contact is on file. Please return this card to the school office.
+                </p>
+              )}
             </div>
           ) : null}
         </div>

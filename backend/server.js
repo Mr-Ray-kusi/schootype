@@ -2640,9 +2640,27 @@ const parseCsvList = (value) =>
     .map((part) => part.trim())
     .filter(Boolean);
 
+/** Normalize class labels so "CLASS 1", "Class-1", and "class 1" match. */
+const normalizeClassKey = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
 const listsOverlap = (left, right) => {
-  const rightSet = new Set(right.map((item) => item.toLowerCase()));
-  return left.some((item) => rightSet.has(item.toLowerCase()));
+  const rightSet = new Set(right.map((item) => normalizeClassKey(item)));
+  return left.some((item) => rightSet.has(normalizeClassKey(item)));
+};
+
+const slugifySchoolName = (name) => {
+  const slug = String(name || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return slug || 'school';
 };
 
 const insertStaffRecord = async (record) => {
@@ -3228,7 +3246,13 @@ app.get('/api/staff-portal/link', authenticateToken, enforcePlanApproval, async 
     }
 
     const token = await ensureStaffPortalToken(req.user.schoolId);
-    res.json({ token, schoolName: merged.name });
+    const slug = slugifySchoolName(merged.name);
+    res.json({
+      token,
+      schoolName: merged.name,
+      schoolSlug: slug,
+      portalPath: `/${slug}/staff-portal`,
+    });
   } catch (error) {
     console.error('Staff portal link error:', error);
     res.status(500).json({ error: error.message || 'Failed to load staff portal link' });
@@ -3251,10 +3275,50 @@ app.post('/api/staff-portal/regenerate', authenticateToken, enforcePlanApproval,
     }
 
     const token = await regenerateStaffPortalToken(req.user.schoolId);
-    res.json({ token });
+    const slug = slugifySchoolName(merged.name);
+    res.json({
+      token,
+      schoolName: merged.name,
+      schoolSlug: slug,
+      portalPath: `/${slug}/staff-portal`,
+    });
   } catch (error) {
     console.error('Staff portal regenerate error:', error);
     res.status(500).json({ error: error.message || 'Failed to regenerate staff portal link' });
+  }
+});
+
+/** Resolve short /{school-name}/staff-portal links to the portal token. */
+app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
+  try {
+    const wanted = slugifySchoolName(req.params.schoolSlug);
+    if (!wanted) return res.status(400).json({ error: 'Invalid school link' });
+
+    const { data: schools, error } = await supabase.from('schools').select('*');
+    if (error) throw error;
+
+    const match = (schools || []).find((school) => {
+      if (String(school.role || '') === 'super_admin') return false;
+      const merged = mergeSchoolWithExtras(school);
+      if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return false;
+      if (!hasPlanFeature(merged.payment_plan, 'staff')) return false;
+      if (!getSubscriptionInfo(merged).subscription_active) return false;
+      return slugifySchoolName(merged.name) === wanted;
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: 'Staff portal not found for this school' });
+    }
+
+    const token = await ensureStaffPortalToken(match.id);
+    res.json({
+      token,
+      schoolName: mergeSchoolWithExtras(match).name,
+      schoolSlug: wanted,
+    });
+  } catch (error) {
+    console.error('Public staff portal resolve error:', error);
+    res.status(500).json({ error: error.message || 'Failed to resolve staff portal' });
   }
 });
 
@@ -3381,17 +3445,28 @@ app.get('/api/staff-portal/session/students', authenticateStaffPortal, async (re
       return res.json([]);
     }
 
-    const { data: students, error } = await supabase
+    let students = null;
+    let error = null;
+
+    ({ data: students, error } = await supabase
       .from('students')
-      .select('id, name, class, roll_number, photo_url, parent_name, parent_phone')
+      .select('id, name, class, roll_number, photo_url, parent_name, parent_phone, parent_relationship, parent_email')
       .eq('school_id', req.staffPortal.schoolId)
-      .order('name', { ascending: true });
+      .order('name', { ascending: true }));
+
+    if (error && (isMissingColumnError(error, 'parent_phone') || isMissingColumnError(error, 'parent_name') || isMissingColumnError(error, 'parent_email') || isMissingColumnError(error, 'parent_relationship'))) {
+      ({ data: students, error } = await supabase
+        .from('students')
+        .select('id, name, class, roll_number, photo_url')
+        .eq('school_id', req.staffPortal.schoolId)
+        .order('name', { ascending: true }));
+    }
 
     if (error) throw error;
 
-    const classSet = new Set(classNames.map((c) => c.toLowerCase()));
+    const classSet = new Set(classNames.map((c) => normalizeClassKey(c)));
     const filtered = (students || []).filter((student) =>
-      classSet.has(String(student.class || '').toLowerCase())
+      classSet.has(normalizeClassKey(student.class))
     );
 
     res.json(mergeStudentPhotos(filtered));

@@ -29,6 +29,7 @@ const Staff = () => {
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [portalToken, setPortalToken] = useState(null);
+  const [portalPath, setPortalPath] = useState('');
   const [portalLoading, setPortalLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
@@ -47,12 +48,17 @@ const Staff = () => {
     filterStaff();
   }, [searchTerm, staff]);
 
-  const portalUrl = portalToken ? `${window.location.origin}/staff-portal/${portalToken}` : '';
+  const portalUrl = portalPath
+    ? `${window.location.origin}${portalPath}`
+    : portalToken
+      ? `${window.location.origin}/staff-portal/${portalToken}`
+      : '';
 
   const fetchPortalLink = async () => {
     try {
       const response = await axios.get('/api/staff-portal/link');
       setPortalToken(response.data.token);
+      setPortalPath(response.data.portalPath || '');
     } catch (error) {
       console.error('Failed to load staff portal link:', error);
     } finally {
@@ -171,6 +177,7 @@ const Staff = () => {
     try {
       const response = await axios.post('/api/staff-portal/regenerate');
       setPortalToken(response.data.token);
+      setPortalPath(response.data.portalPath || '');
       toast.success('New staff portal link generated');
     } catch {
       toast.error('Failed to regenerate link');
@@ -217,7 +224,8 @@ const Staff = () => {
                 Staff portal link
               </p>
               <p className="mt-1 text-sm text-slate-400">
-                Staff open this link, then sign in with their access code and role (e.g. Teacher).
+                Short link for teachers and staff (example: /your-school-name/staff-portal). They open it, then
+                sign in with their access code and role.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

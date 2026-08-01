@@ -111,6 +111,7 @@ function App() {
               <Route path="/id/:barcode" element={<StudentPublicId />} />
               <Route path="/scan/:token" element={<MobileScanner />} />
               <Route path="/staff-portal/:token" element={<StaffPortal />} />
+              <Route path="/:schoolSlug/staff-portal" element={<StaffPortal />} />
               <Route
                 path="/select-plan"
                 element={
