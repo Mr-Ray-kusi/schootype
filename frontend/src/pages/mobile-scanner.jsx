@@ -292,7 +292,7 @@ const MobileScanner = () => {
       </header>
 
       <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
-        <div className="relative w-full max-w-sm aspect-[3/4] rounded-2xl overflow-hidden bg-black border-2 border-slate-600">
+        <div className="relative w-full max-w-md min-h-[55vh] aspect-[3/4] max-h-[72vh] rounded-2xl overflow-hidden bg-black border-2 border-slate-600">
           <video
             ref={videoRef}
             className="w-full h-full object-cover"

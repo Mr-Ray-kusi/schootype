@@ -44,7 +44,7 @@ const ReportCards = () => {
           const res = await axios.get('/api/report-cards/scores');
           return res.data;
         },
-        silent ? 0 : 30000
+        silent ? 0 : 300000
       );
       setScores(data.scores || []);
     } catch (err) {
@@ -230,11 +230,11 @@ const ReportCards = () => {
         <div>
           <h1 className="text-3xl font-bold text-white">Report Cards</h1>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
           <button
             type="button"
             onClick={() => loadScores({ silent: false })}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 sm:px-4 sm:py-2.5 sm:text-sm"
           >
             <RefreshCw className="h-4 w-4" />
             Refresh
@@ -242,7 +242,7 @@ const ReportCards = () => {
           <button
             type="button"
             onClick={handleRankingsPdf}
-            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500 sm:px-4 sm:py-2.5 sm:text-sm"
           >
             <Download className="h-4 w-4" />
             Subject rankings PDF
@@ -250,7 +250,7 @@ const ReportCards = () => {
           <button
             type="button"
             onClick={() => handleStudentCardsPdf()}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 sm:px-4 sm:py-2.5 sm:text-sm"
           >
             <Printer className="h-4 w-4" />
             Print selected reports

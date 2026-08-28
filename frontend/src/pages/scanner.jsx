@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import QRCode from 'react-qr-code';
 import { QrCode, CheckCircle, XCircle, Scan, Link2, Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
 import { extractAttendanceCode } from '../utils/studentIdQr';
 import toast from 'react-hot-toast';
@@ -53,6 +54,11 @@ const Scanner = () => {
       setResult(response.data);
       setScanCode('');
     } catch (err) {
+      if (err.offlineQueued) {
+        setResult({ message: 'Saved offline — will sync when online', user: { name: valueToSubmit, type: 'queued' } });
+        setScanCode('');
+        return;
+      }
       setError(err.response?.data?.error || 'Failed to mark attendance');
     } finally {
       setLoading(false);
@@ -97,169 +103,151 @@ const Scanner = () => {
   };
 
   return (
-    <>
-<div className="max-w-2xl mx-auto space-y-6">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Attendance Scanner</h1>
+    <div className="mx-auto w-full max-w-3xl space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-white sm:text-3xl">Attendance Scanner</h1>
+        <p className="mt-1 text-sm text-slate-400">Open the phone link at the gate, or type/scan a code here.</p>
+      </div>
+
+      <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-500/15 to-slate-900 p-4 sm:p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="rounded-xl bg-sky-600 p-2">
+            <Smartphone className="h-5 w-5 text-white" />
+          </div>
+          <h2 className="text-base font-semibold text-white sm:text-lg">Phone scanner</h2>
         </div>
 
-        {/* Mobile scanner link */}
-        <div className="bg-gradient-to-br from-primary-50 to-primary-100 border border-primary-200 rounded-xl p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="p-2 bg-primary-600 rounded-lg">
-              <Smartphone className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Phone Scanner Link</h2>
-            </div>
-          </div>
-
-          {linkLoading ? (
-            <p className="text-sm text-gray-500">Loading scanner link...</p>
-          ) : mobileScannerUrl ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 bg-white rounded-lg border border-primary-200 p-3">
-                <Link2 className="w-5 h-5 text-primary-600 shrink-0" />
+        {linkLoading ? (
+          <p className="text-sm text-slate-400">Loading scanner link...</p>
+        ) : mobileScannerUrl ? (
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+            <div className="min-w-0 space-y-3">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-950/70 p-3">
+                <Link2 className="h-5 w-5 shrink-0 text-sky-400" />
                 <input
                   type="text"
                   readOnly
                   value={mobileScannerUrl}
-                  className="flex-1 text-sm text-gray-700 bg-transparent outline-none truncate"
+                  className="min-w-0 flex-1 truncate bg-transparent text-sm text-slate-200 outline-none"
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={copyLink}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500"
                 >
-                  <Copy className="w-4 h-4" />
-                  Copy Link
+                  <Copy className="h-4 w-4" />
+                  Copy
                 </button>
                 <a
                   href={mobileScannerUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-primary-300 text-primary-700 rounded-lg hover:bg-primary-50 transition-colors text-sm font-medium"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-sky-400/40 bg-slate-900 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-slate-800"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  Open on Phone
+                  <ExternalLink className="h-4 w-4" />
+                  Open
                 </a>
                 <button
                   type="button"
                   onClick={regenerateLink}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                  title="Only use if the old link was shared publicly or compromised"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  New Link
+                  <RefreshCw className="h-4 w-4" />
+                  New link
                 </button>
               </div>
               {school?.name && (
-                <p className="text-xs text-gray-500">
-                  This link is unique to <span className="font-medium">{school.name}</span> and does not change unless you generate a new one.
+                <p className="text-xs text-slate-400">
+                  Unique to <span className="font-medium text-slate-200">{school.name}</span>.
                 </p>
               )}
             </div>
-          ) : (
-            <p className="text-sm text-red-600">Could not load scanner link. Refresh the page.</p>
-          )}
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-8">
-          <div className="flex items-center gap-2 mb-6">
-            <QrCode className="w-5 h-5 text-gray-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Desktop Scanner</h2>
-          </div>
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                QR Code Input
-              </label>
-              <div className="flex gap-2">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={scanCode}
-                  onChange={(e) => {
-                    const newValue = e.target.value;
-                    setScanCode(newValue);
-                    detectScanEnd(newValue);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && scanCode.trim()) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
-                  onBlur={() => inputRef.current?.focus()}
-                  placeholder="Scan or paste QR code value here..."
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleSubmit()}
-                  disabled={loading || !scanCode}
-                  className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  <Scan className="w-5 h-5" />
-                  {loading ? 'Processing...' : 'Mark'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        {result && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-6 animate-fade-in">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-8 h-8 text-green-600" />
-              <div>
-                <h3 className="text-lg font-semibold text-green-900">Attendance Marked Successfully!</h3>
-                <p className="text-green-700">
-                  {result.message} at {new Date().toLocaleTimeString()}
-                </p>
-                <p className="text-sm text-green-600 mt-1">
-                  Type: {result.user?.type} | Name: {result.user?.name}
-                </p>
-              </div>
+            <div className="mx-auto rounded-xl bg-white p-3">
+              <QRCode value={mobileScannerUrl} size={132} />
             </div>
           </div>
+        ) : (
+          <p className="text-sm text-red-400">Could not load scanner link. Refresh the page.</p>
         )}
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-6 animate-fade-in">
-            <div className="flex items-center gap-3">
-              <XCircle className="w-8 h-8 text-red-600" />
-              <div>
-                <h3 className="text-lg font-semibold text-red-900">Error</h3>
-                <p className="text-red-700">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-primary-50 border border-primary-200 rounded-xl p-6">
-          <h3 className="font-semibold text-primary-900 mb-2">How to Use:</h3>
-          <ul className="space-y-2 text-sm text-primary-800">
-            <li>• Copy the phone link and open it on a device at your school entrance</li>
-            <li>• Point the phone camera at each person&apos;s QR code on their ID card</li>
-            <li>• The phone shows a green confirmation when attendance is recorded</li>
-            <li>• View all attendance records on the Attendance page in this dashboard</li>
-            <li>• Use the desktop input above with a USB QR scanner if preferred</li>
-          </ul>
-        </div>
       </div>
 
-      <style>{`
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in { animation: fade-in 0.3s ease-out; }
-      `}</style>
-</>
+      <div className="rounded-2xl border border-slate-700 bg-slate-800/80 p-4 sm:p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <QrCode className="h-5 w-5 text-slate-300" />
+          <h2 className="text-base font-semibold text-white">Desktop / USB scanner</h2>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSubmit();
+          }}
+          className="space-y-3"
+        >
+          <label className="block text-sm font-medium text-slate-200">QR code input</label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              ref={inputRef}
+              type="text"
+              value={scanCode}
+              onChange={(e) => {
+                const newValue = e.target.value;
+                setScanCode(newValue);
+                detectScanEnd(newValue);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && scanCode.trim()) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder="Scan or paste QR code value"
+              className="min-h-[48px] w-full flex-1 rounded-xl border border-slate-600 px-4 py-3 text-base"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              onClick={() => handleSubmit()}
+              disabled={loading || !scanCode}
+              className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-500 disabled:opacity-50 sm:w-auto"
+            >
+              <Scan className="h-5 w-5" />
+              {loading ? 'Processing…' : 'Mark'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {result && (
+        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="mt-0.5 h-7 w-7 shrink-0 text-emerald-400" />
+            <div className="min-w-0">
+              <h3 className="font-semibold text-emerald-100">Attendance marked</h3>
+              <p className="break-words text-sm text-emerald-200">
+                {result.message} at {new Date().toLocaleTimeString()}
+              </p>
+              <p className="mt-1 text-xs text-emerald-300">
+                {result.user?.type} · {result.user?.name}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <XCircle className="mt-0.5 h-7 w-7 shrink-0 text-red-400" />
+            <div>
+              <h3 className="font-semibold text-red-100">Error</h3>
+              <p className="text-sm text-red-200">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

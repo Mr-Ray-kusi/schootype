@@ -81,6 +81,7 @@ import {
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { cacheGet, cacheSet, cacheInvalidate } from './ttlCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,6 +128,38 @@ app.use(
 );
 
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB
+const PAGE_SIZE = 50;
+const DASHBOARD_TTL_MS = 5 * 60 * 1000;
+const REPORTS_TTL_MS = 5 * 60 * 1000;
+
+const parsePagination = (req) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(PAGE_SIZE, Math.max(1, parseInt(req.query.limit, 10) || PAGE_SIZE));
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+  return { page, limit, from, to };
+};
+
+const paginatedJson = (res, items, count, page, limit) => {
+  res.json({
+    items,
+    total: count || 0,
+    page,
+    limit,
+  });
+};
+
+const generateStrongPassword = (length = 16) => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*';
+  const bytes = crypto.randomBytes(length);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+};
+
+const bumpSchoolCaches = (schoolId) => {
+  if (!schoolId) return;
+  cacheInvalidate(`dash:${schoolId}`);
+  cacheInvalidate(`reports:${schoolId}`);
+};
 
 const formatSchool = (school, { includeCredentials = false } = {}) => {
   if (school?.id) hydrateExtrasFromSchool(school);
@@ -2094,6 +2127,7 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
       });
     }
 
+    bumpSchoolCaches(req.params.id);
     res.json(await buildSchoolWithStats(updatedSchool));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2442,14 +2476,28 @@ app.get('/api/public/id/:barcode', async (req, res) => {
 // Get all students for a school
 app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { data: students, error } = await supabase
-      .from('students')
-      .select('*')
-      .eq('school_id', req.user.schoolId)
-      .order('created_at', { ascending: false });
+    const { page, limit, from, to } = parsePagination(req);
+    const q = String(req.query.q || '').trim();
+    const classFilter = String(req.query.class || '').trim();
 
+    let query = supabase
+      .from('students')
+      .select('*', { count: 'exact' })
+      .eq('school_id', req.user.schoolId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (classFilter && classFilter !== 'all') {
+      query = query.eq('class', classFilter);
+    }
+    if (q) {
+      const safe = q.replace(/[%*,]/g, '');
+      query = query.or(`name.ilike.%${safe}%,roll_number.ilike.%${safe}%`);
+    }
+
+    const { data: students, error, count } = await query;
     if (error) throw error;
-    res.json(mergeStudentPhotos(students));
+    paginatedJson(res, mergeStudentPhotos(students), count, page, limit);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2521,8 +2569,10 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
     }
 
     if (photo && saved?.id) {
-      await setStudentPhoto(saved.id, req.user.schoolId, photo);
+      setStudentPhoto(saved.id, req.user.schoolId, photo).catch(() => {});
     }
+
+    bumpSchoolCaches(req.user.schoolId);
 
     if (photo && saved && !saved.photo_url) {
       console.warn(
@@ -2610,6 +2660,7 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       }
     }
 
+    bumpSchoolCaches(req.user.schoolId);
     res.json(mergeStudentPhoto(student));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2629,6 +2680,7 @@ app.delete('/api/students/:id', authenticateToken, enforcePlanApproval, async (r
 
     if (error) throw error;
     await deleteStudentPhoto(id);
+    bumpSchoolCaches(req.user.schoolId);
     res.json({ message: 'Student deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2728,16 +2780,31 @@ const updateStaffRecord = async (id, schoolId, updates) => {
 
 app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { data: staff, error } = await supabase
-      .from('staffs')
-      .select('*')
-      .eq('school_id', req.user.schoolId)
-      .order('created_at', { ascending: false });
+    const { page, limit, from, to } = parsePagination(req);
+    const q = String(req.query.q || '').trim();
 
+    let query = supabase
+      .from('staffs')
+      .select('*', { count: 'exact' })
+      .eq('school_id', req.user.schoolId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (q) {
+      const safe = q.replace(/[%*,]/g, '');
+      query = query.or(`name.ilike.%${safe}%,role.ilike.%${safe}%`);
+    }
+
+    const { data: staff, error, count } = await query;
     if (error) throw error;
 
-    // normalize records for frontend (add camelCase secretCode)
-    res.json((staff || []).map((member) => mergePersonPhoto(normalizeStaffRecord(member))));
+    paginatedJson(
+      res,
+      (staff || []).map((member) => mergePersonPhoto(normalizeStaffRecord(member))),
+      count,
+      page,
+      limit
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2760,8 +2827,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
     }
 
     const barcode = `${req.user.schoolId}-STAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const generateSecretCode = () => `SCH-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-    const accessCode = String(secretCode || '').trim() || generateSecretCode();
+    const accessCode = String(secretCode || '').trim() || generateStrongPassword(16);
     const subjectsValue = subjects?.trim?.() ? subjects.trim() : subjects || null;
     const classesValue =
       (classNames !== undefined ? classNames : class_names)?.toString?.().trim?.() || null;
@@ -2794,6 +2860,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
     const response = normalizeStaffRecord(saved);
     if (!response.secretCode) response.secretCode = accessCode;
 
+    bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(response));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2833,7 +2900,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       }
     }
 
-    const generateSecretCode = () => `SCH-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+    const generateSecretCode = () => generateStrongPassword(16);
     const updates = {};
     if (name) updates.name = name.trim();
     if (role) updates.role = role.trim();
@@ -2864,6 +2931,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       }
     }
 
+    bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(normalizeStaffRecord(staff)));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2882,6 +2950,7 @@ app.delete('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req,
 
     if (error) throw error;
     await deletePersonPhoto(id);
+    bumpSchoolCaches(req.user.schoolId);
     res.json({ message: 'Staff deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2892,14 +2961,24 @@ app.delete('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req,
 
 app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { data: nonStaff, error } = await supabase
-      .from('nonstaffs')
-      .select('*')
-      .eq('school_id', req.user.schoolId)
-      .order('created_at', { ascending: false });
+    const { page, limit, from, to } = parsePagination(req);
+    const q = String(req.query.q || '').trim();
 
+    let query = supabase
+      .from('nonstaffs')
+      .select('*', { count: 'exact' })
+      .eq('school_id', req.user.schoolId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (q) {
+      const safe = q.replace(/[%*,]/g, '');
+      query = query.or(`name.ilike.%${safe}%,role.ilike.%${safe}%`);
+    }
+
+    const { data: nonStaff, error, count } = await query;
     if (error) throw error;
-    res.json(mergePersonPhotos(nonStaff));
+    paginatedJson(res, mergePersonPhotos(nonStaff), count, page, limit);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2933,9 +3012,10 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
     if (error) throw error;
 
     if (photo && nonStaff?.id) {
-      await setPersonPhoto(nonStaff.id, req.user.schoolId, photo);
+      setPersonPhoto(nonStaff.id, req.user.schoolId, photo).catch(() => {});
     }
 
+    bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(nonStaff));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2977,6 +3057,7 @@ app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
       }
     }
 
+    bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(nonStaff));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2995,7 +3076,187 @@ app.delete('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (
 
     if (error) throw error;
     await deletePersonPhoto(id);
+    bumpSchoolCaches(req.user.schoolId);
     res.json({ message: 'Non-staff deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============ CLASSES & SUBJECTS (Setup) ============
+
+const insertClassRecord = async (record) => {
+  const payload = { ...record };
+  const optionalColumns = ['capacity', 'form', 'fee_amount'];
+
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+    const { data, error } = await supabase.from('classes').insert([payload]).select().single();
+    if (!error) return { data, error: null };
+    const missingColumn = optionalColumns.find(
+      (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+    );
+    if (missingColumn) {
+      delete payload[missingColumn];
+      continue;
+    }
+    return { data: null, error };
+  }
+  return { data: null, error: { message: 'Failed to create class' } };
+};
+
+const updateClassRecord = async (id, schoolId, updates) => {
+  const payload = { ...updates };
+  const optionalColumns = ['capacity', 'form', 'fee_amount'];
+
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+    const { data, error } = await supabase
+      .from('classes')
+      .update(payload)
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .select()
+      .single();
+    if (!error) return { data, error: null };
+    const missingColumn = optionalColumns.find(
+      (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+    );
+    if (missingColumn) {
+      delete payload[missingColumn];
+      continue;
+    }
+    return { data: null, error };
+  }
+  return { data: null, error: { message: 'Failed to update class' } };
+};
+
+app.get('/api/classes', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('classes')
+      .select('*')
+      .eq('school_id', req.user.schoolId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/classes', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Class name is required' });
+
+    const capacityRaw = req.body.capacity;
+    const capacity =
+      capacityRaw === '' || capacityRaw === null || capacityRaw === undefined
+        ? null
+        : Number(capacityRaw);
+
+    const record = {
+      id: uuidv4(),
+      school_id: req.user.schoolId,
+      name,
+      created_at: new Date(),
+    };
+    if (capacity != null && !Number.isNaN(capacity)) record.capacity = capacity;
+
+    const { data, error } = await insertClassRecord(record);
+    if (error) throw error;
+    bumpSchoolCaches(req.user.schoolId);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/classes/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const updates = {};
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name || '').trim();
+      if (!name) return res.status(400).json({ error: 'Class name is required' });
+      updates.name = name;
+    }
+    if (req.body.capacity !== undefined) {
+      const capacityRaw = req.body.capacity;
+      updates.capacity =
+        capacityRaw === '' || capacityRaw === null ? null : Number(capacityRaw) || null;
+    }
+
+    const { data, error } = await updateClassRecord(req.params.id, req.user.schoolId, updates);
+    if (error) throw error;
+    bumpSchoolCaches(req.user.schoolId);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/classes/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('classes')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId);
+    if (error) throw error;
+    bumpSchoolCaches(req.user.schoolId);
+    res.json({ message: 'Class deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/subjects', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('subjects')
+      .select('*')
+      .eq('school_id', req.user.schoolId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      if (error.code === '42P01' || isMissingColumnError(error, 'subjects')) {
+        return res.json([]);
+      }
+      throw error;
+    }
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/subjects', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Subject name is required' });
+
+    const { data, error } = await supabase
+      .from('subjects')
+      .insert([{ id: uuidv4(), school_id: req.user.schoolId, name, created_at: new Date() }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/subjects/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('subjects')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId);
+    if (error) throw error;
+    res.json({ message: 'Subject deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3124,6 +3385,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   }
 
   if (error) throw error;
+  bumpSchoolCaches(schoolId);
 
   return {
     message: `Attendance marked for ${userName} (${punctuality === 'late' ? 'Late' : 'Early'})`,
@@ -3639,6 +3901,7 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
       saved = data;
     }
 
+    bumpSchoolCaches(req.staffPortal.schoolId);
     res.json(saved);
   } catch (error) {
     console.error('Staff portal score save error:', error);
@@ -3655,6 +3918,10 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
     }
 
     const schoolId = req.user.schoolId;
+    const cacheKey = `reports:${schoolId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json(cached);
+
     const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
     const merged = school ? mergeSchoolWithExtras(school) : null;
     if (merged && !hasPlanFeature(merged.payment_plan, 'report-cards')) {
@@ -3718,7 +3985,9 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       };
     });
 
-    res.json({ scores: enriched });
+    const payload = { scores: enriched };
+    cacheSet(cacheKey, payload, REPORTS_TTL_MS);
+    res.json(payload);
   } catch (error) {
     console.error('Report cards scores error:', error);
     res.status(500).json({ error: error.message || 'Failed to load report card scores' });
@@ -3752,6 +4021,7 @@ app.delete('/api/report-cards/scores', authenticateToken, enforcePlanApproval, a
     }
 
     const deleted = Array.isArray(data) ? data.length : 0;
+    bumpSchoolCaches(schoolId);
     res.json({
       deleted,
       message:
@@ -4188,6 +4458,10 @@ app.post('/api/messages/:id/reply', authenticateToken, enforcePlanApproval, asyn
 
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
+    const cacheKey = `dash:${req.user.schoolId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json(cached);
+
     if (req.user.role !== 'super_admin') {
       const { data: schoolAccount } = await supabase
         .from('schools')
@@ -4225,13 +4499,15 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         .eq('date', new Date().toISOString().split('T')[0]),
     ]);
 
-    res.json({
+    const payload = {
       totalStudents: students.count || 0,
       totalStaff: staff.count || 0,
       totalNonStaff: nonStaff.count || 0,
       unreadMessages: messages.count || 0,
       todayAttendance: attendance.count || 0,
-    });
+    };
+    cacheSet(cacheKey, payload, DASHBOARD_TTL_MS);
+    res.json(payload);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

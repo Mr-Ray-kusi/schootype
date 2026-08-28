@@ -4,6 +4,7 @@ import { Filter, Clock, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache } from '../utils/requestCache';
+import useLiteMode from '../hooks/useLiteMode';
 
 const Attendance = () => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -17,6 +18,7 @@ const Attendance = () => {
   const [summary, setSummary] = useState(null);
   const [lateAfterTime, setLateAfterTime] = useState('08:00');
   const [savingLateTime, setSavingLateTime] = useState(false);
+  const { liteMode } = useLiteMode();
 
   useEffect(() => {
     fetchAttendance();
@@ -155,51 +157,48 @@ const Attendance = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="text-sm font-medium text-gray-500">Students Attendance</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-2">
+              <p className="mt-2 text-2xl font-bold text-gray-900">
                 {summary.students.present} / {summary.students.total}
               </p>
-              <p className="text-sm text-green-600 mt-1">{summary.students.percentage}% Present</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="rounded-xl bg-white p-6 shadow-sm">
               <h3 className="text-sm font-medium text-gray-500">Staff Attendance</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-2">
+              <p className="mt-2 text-2xl font-bold text-gray-900">
                 {summary.staff.present} / {summary.staff.total}
               </p>
-              <p className="text-sm text-green-600 mt-1">{summary.staff.percentage}% Present</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="rounded-xl bg-white p-6 shadow-sm">
               <h3 className="text-sm font-medium text-gray-500">Non-Staff Attendance</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-2">
+              <p className="mt-2 text-2xl font-bold text-gray-900">
                 {summary.nonStaff.present} / {summary.nonStaff.total}
               </p>
-              <p className="text-sm text-green-600 mt-1">{summary.nonStaff.percentage}% Present</p>
             </div>
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4">
             <div>
               <h2 className="text-sm font-semibold text-gray-900">Late after</h2>
               <p className="mt-1 text-sm text-gray-500">
                 Scans at or before this time count as Early; after this time count as Late.
               </p>
             </div>
-            <div className="flex flex-wrap items-end gap-2">
-              <div>
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
                 <label className="mb-1 block text-xs font-medium text-gray-600">Cutoff time</label>
                 <input
                   type="time"
                   value={lateAfterTime}
                   onChange={(e) => setLateAfterTime(e.target.value)}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-slate-900"
+                  className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-slate-900"
                 />
               </div>
               <button
                 type="button"
                 onClick={saveLateSettings}
                 disabled={savingLateTime}
-                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                className="min-h-[48px] w-full rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 sm:w-auto"
               >
                 {savingLateTime ? 'Saving…' : 'Save'}
               </button>
@@ -294,7 +293,8 @@ const Attendance = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        {!liteMode && (
+        <div className="hidden overflow-hidden rounded-xl bg-white shadow-sm md:block">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -356,12 +356,20 @@ const Attendance = () => {
               </tbody>
             </table>
           </div>
-
           {filteredRecords.length === 0 && (
-            <div className="text-center py-12">
+            <div className="py-12 text-center">
               <p className="text-gray-500">No attendance records found for this date.</p>
             </div>
           )}
+        </div>
+        )}
+
+        <div className="rounded-xl bg-white p-4 shadow-sm md:hidden">
+          <p className="text-sm font-medium text-slate-300">Records today</p>
+          <p className="mt-2 text-3xl font-bold text-white">{filteredRecords.length}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Open this page on a larger screen to view the full attendance table.
+          </p>
         </div>
       </div>
 </>

@@ -1,39 +1,20 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, Upload, X, SwitchCamera, Circle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import ImageCropModal from './ImageCropModal';
+import {
+  fileToDataUrl,
+  persistImageRemote,
+} from '../utils/imageCompress';
 
-// Keep photos small so base64 fits Express JSON + durable Supabase photo_url storage.
-const MAX_BYTES = 400 * 1024;
-const MAX_DIMENSION = 960;
-
-const estimateDataUrlBytes = (dataUrl) => {
-  const base64 = dataUrl.split(',')[1] || '';
-  return Math.ceil((base64.length * 3) / 4);
-};
-
-const canvasToDataUrl = (canvas, quality = 0.9) => canvas.toDataURL('image/jpeg', quality);
-
-const compressCanvas = (canvas) => {
-  let quality = 0.92;
-  let dataUrl = canvasToDataUrl(canvas, quality);
-
-  while (estimateDataUrlBytes(dataUrl) > MAX_BYTES && quality > 0.45) {
-    quality -= 0.08;
-    dataUrl = canvasToDataUrl(canvas, quality);
-  }
-
-  if (estimateDataUrlBytes(dataUrl) > MAX_BYTES) {
-    return null;
-  }
-  return dataUrl;
-};
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 
 const PhotoCaptureInput = ({
   preview,
   onChange,
   onClear,
   label = 'Profile Photo',
-  hint = 'Take a photo with your camera/webcam, or upload an image file (JPG/PNG, max ~400KB after compress).',
+  hint = 'Take or upload a photo, then crop it. Saved at 200×200px (~80KB).',
   theme = 'dark',
 }) => {
   const fileInputRef = useRef(null);
@@ -43,6 +24,7 @@ const PhotoCaptureInput = ({
   const [showCamera, setShowCamera] = useState(false);
   const [facingMode, setFacingMode] = useState('user');
   const [cameraReady, setCameraReady] = useState(false);
+  const [cropSrc, setCropSrc] = useState(null);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -98,7 +80,13 @@ const PhotoCaptureInput = ({
     return () => stopCamera();
   }, [showCamera, facingMode, startCamera, stopCamera]);
 
-  const handleFile = (file) => {
+  const applyPhoto = async (dataUrl) => {
+    const stored = await persistImageRemote(dataUrl);
+    onChange(stored);
+    toast.success('Photo ready');
+  };
+
+  const handleFile = async (file) => {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
@@ -106,15 +94,17 @@ const PhotoCaptureInput = ({
       return;
     }
 
-    if (file.size > MAX_BYTES) {
-      toast.error('Photo must be smaller than 2MB');
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error('Photo must be smaller than 12MB');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => onChange(reader.result);
-    reader.onerror = () => toast.error('Failed to read image file');
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setCropSrc(dataUrl);
+    } catch {
+      toast.error('Failed to read image file');
+    }
   };
 
   const openCamera = () => {
@@ -142,88 +132,75 @@ const PhotoCaptureInput = ({
       return;
     }
 
-    let width = sourceWidth;
-    let height = sourceHeight;
-    if (Math.max(width, height) > MAX_DIMENSION) {
-      const scale = MAX_DIMENSION / Math.max(width, height);
-      width = Math.round(width * scale);
-      height = Math.round(height * scale);
-    }
-
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, width, height);
-
-    const dataUrl = compressCanvas(canvas);
-    if (!dataUrl) {
-      toast.error('Captured photo is too large. Move closer to the light or use Upload Image.');
-      return;
+    if (facingMode === 'user') {
+      ctx.translate(sourceWidth, 0);
+      ctx.scale(-1, 1);
     }
-
-    onChange(dataUrl);
+    ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
     closeCamera();
-    toast.success('Photo captured');
+    setCropSrc(canvas.toDataURL('image/jpeg', 0.92));
   };
 
   const isLight = theme === 'light';
 
   return (
     <div>
-      <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-gray-700' : 'text-slate-200'}`}>
+      <label className={`mb-2 block text-sm font-medium ${isLight ? 'text-gray-700' : 'text-slate-200'}`}>
         {label}
       </label>
-      <div className="flex flex-col sm:flex-row items-center gap-4">
+      <div className="flex flex-col items-center gap-4 sm:flex-row">
         <div
-          className={`w-24 h-24 rounded-xl border-2 border-dashed overflow-hidden flex items-center justify-center shrink-0 ${
+          className={`flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed ${
             isLight ? 'border-gray-300 bg-gray-50' : 'border-slate-500 bg-slate-700/50'
           }`}
         >
           {preview ? (
-            <img src={preview} alt="Preview" className="w-full h-full object-cover" />
+            <img src={preview} alt="Preview" className="h-full w-full object-cover" />
           ) : (
-            <Camera className="w-8 h-8 text-slate-400" />
+            <Camera className="h-8 w-8 text-slate-400" />
           )}
         </div>
-        <div className="flex flex-col gap-2 w-full sm:w-auto">
+        <div className="flex w-full flex-col gap-2 sm:w-auto">
           <button
             type="button"
             onClick={openCamera}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
+            className="flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm text-white hover:bg-primary-700"
           >
-            <Camera className="w-4 h-4" />
+            <Camera className="h-4 w-4" />
             Take Photo
           </button>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm ${
+            className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm ${
               isLight
                 ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 : 'bg-slate-600 text-slate-100 hover:bg-slate-500'
             }`}
           >
-            <Upload className="w-4 h-4" />
-            Upload Image
+            <Upload className="h-4 w-4" />
+            Upload & crop
           </button>
           {preview && (
             <button
               type="button"
               onClick={onClear}
-              className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm ${
+              className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm ${
                 isLight ? 'text-red-600 hover:bg-red-50' : 'text-red-400 hover:bg-red-500/10'
               }`}
             >
-              <X className="w-4 h-4" />
+              <X className="h-4 w-4" />
               Remove Photo
             </button>
           )}
         </div>
       </div>
-      <p className={`text-xs mt-2 ${isLight ? 'text-gray-500' : 'text-slate-400'}`}>{hint}</p>
+      <p className={`mt-2 text-xs ${isLight ? 'text-gray-500' : 'text-slate-400'}`}>{hint}</p>
 
-      {/* Upload only — no capture attribute so desktop opens file picker */}
       <input
         ref={fileInputRef}
         type="file"
@@ -235,31 +212,42 @@ const PhotoCaptureInput = ({
         }}
       />
 
+      {cropSrc && (
+        <ImageCropModal
+          src={cropSrc}
+          onCancel={() => setCropSrc(null)}
+          onConfirm={async (dataUrl) => {
+            setCropSrc(null);
+            await applyPhoto(dataUrl);
+          }}
+        />
+      )}
+
       {showCamera && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
-          <div className="bg-slate-800 border border-slate-600 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-600">
-              <h3 className="text-white font-semibold">Take Photo</h3>
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-600 bg-slate-800 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-600 px-4 py-3">
+              <h3 className="font-semibold text-white">Take Photo</h3>
               <button
                 type="button"
                 onClick={closeCamera}
-                className="p-1.5 rounded-lg text-slate-300 hover:bg-slate-700"
+                className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-700"
                 aria-label="Close camera"
               >
-                <X className="w-5 h-5" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="relative bg-black aspect-[4/3]">
+            <div className="relative aspect-[4/3] bg-black">
               <video
                 ref={videoRef}
-                className={`w-full h-full object-cover ${facingMode === 'user' ? 'mirror' : ''}`}
+                className={`h-full w-full object-cover ${facingMode === 'user' ? 'mirror' : ''}`}
                 playsInline
                 muted
                 autoPlay
               />
               {!cameraReady && (
-                <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-sm">
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">
                   Starting camera…
                 </div>
               )}
@@ -269,25 +257,25 @@ const PhotoCaptureInput = ({
               <button
                 type="button"
                 onClick={flipCamera}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600 text-sm"
+                className="flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-600"
                 title="Switch between front and back camera"
               >
-                <SwitchCamera className="w-4 h-4" />
+                <SwitchCamera className="h-4 w-4" />
                 Flip
               </button>
               <button
                 type="button"
                 onClick={capturePhoto}
                 disabled={!cameraReady}
-                className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 font-medium"
+                className="flex items-center justify-center gap-2 rounded-full bg-primary-600 px-6 py-2.5 font-medium text-white hover:bg-primary-700 disabled:opacity-50"
               >
-                <Circle className="w-4 h-4 fill-current" />
+                <Circle className="h-4 w-4 fill-current" />
                 Capture
               </button>
               <button
                 type="button"
                 onClick={closeCamera}
-                className="px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700 text-sm"
+                className="rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-700"
               >
                 Cancel
               </button>

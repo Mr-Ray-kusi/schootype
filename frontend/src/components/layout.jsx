@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import OfflineBanner from './OfflineBanner';
+import useLiteMode from '../hooks/useLiteMode';
 
 /** True when pathname is exactly href, or a nested path under href (segment-safe). */
 const isNavActive = (pathname, href) => {
@@ -42,6 +44,7 @@ const Layout = ({ children }) => {
   const [unread, setUnread] = useState(0);
   const { school, logout, isSuperAdmin, hasFeature, includesPlanFeature, isPlanApproved, token } =
     useAuth();
+  const { liteMode, toggleLiteMode } = useLiteMode();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -82,7 +85,7 @@ const Layout = ({ children }) => {
       items: [
         { name: 'Students', href: '/students', icon: Users, featureKey: 'students' },
         { name: 'Staffs', href: '/staff', icon: Briefcase, featureKey: 'staff' },
-        { name: 'Classes', href: '/classes', icon: BookOpen, featureKey: 'classes' },
+        { name: 'Setup', href: '/classes', icon: BookOpen, featureKey: 'classes' },
         { name: 'Attendance', href: '/attendance', icon: Calendar, featureKey: 'attendance' },
         { name: 'Non-Staffs', href: '/non-staff', icon: UserCog, featureKey: 'non-staff' },
         { name: 'Scanner', href: '/scanner', icon: QrCode, featureKey: 'scanner' },
@@ -191,6 +194,7 @@ const Layout = ({ children }) => {
             <img
               src={school.logo_url}
               alt={`${school.name} logo`}
+              loading="lazy"
               className="w-10 h-10 rounded-lg object-cover"
             />
           ) : (
@@ -274,7 +278,17 @@ const Layout = ({ children }) => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-slate-600 shrink-0">
+        <div className="shrink-0 border-t border-slate-600 p-4">
+          <button
+            type="button"
+            onClick={toggleLiteMode}
+            className="mb-2 flex w-full items-center justify-between rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
+          >
+            <span>Lite Mode</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${liteMode ? 'bg-sky-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
+              {liteMode ? 'On' : 'Off'}
+            </span>
+          </button>
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-4 py-2 w-full text-red-400 rounded-lg hover:bg-red-800 transition-colors"
@@ -286,7 +300,10 @@ const Layout = ({ children }) => {
       </div>
 
       <div className="lg:ml-64 min-w-0">
-        <main className="min-w-0 overflow-x-hidden p-6 pt-16 lg:pt-6">{children ?? <Outlet />}</main>
+        <main className="min-w-0 overflow-x-hidden p-6 pt-16 lg:pt-6">
+          <OfflineBanner />
+          {children ?? <Outlet />}
+        </main>
       </div>
     </div>
   );

@@ -428,7 +428,7 @@ const StaffPortal = () => {
                     {classStudents.length === 0 ? (
                       <p className="px-5 py-8 text-center text-sm text-slate-400">
                         No students found in this class. Ask your admin to match the teacher class names with
-                        each student&apos;s class (e.g. CLASS 1).
+                        each student&apos;s class from Setup.
                       </p>
                     ) : (
                       classStudents.map((student) => {

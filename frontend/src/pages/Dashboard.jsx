@@ -5,7 +5,9 @@ import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/authcontext';
+import { cachedGet, DASHBOARD_CACHE_MS } from '../utils/requestCache';
 import { useLivePoll } from '../hooks/useLivePoll';
+import useLiteMode from '../hooks/useLiteMode';
 import {
   Users,
   UserCog,
@@ -18,6 +20,7 @@ import {
 
 const Dashboard = () => {
   const { school, includesPlanFeature, isPlanApproved, hasFeature } = useAuth();
+  const { liteMode } = useLiteMode();
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalStaff: 0,
@@ -31,14 +34,21 @@ const Dashboard = () => {
 
   const fetchDashboardData = useCallback(async (date, { silent = false } = {}) => {
     try {
-      const requests = [axios.get('/api/dashboard/stats')];
+      const requests = [
+        cachedGet('dashboard:stats', async () => (await axios.get('/api/dashboard/stats')).data, DASHBOARD_CACHE_MS),
+      ];
       if (isPlanApproved && includesPlanFeature('attendance')) {
-        requests.push(axios.get(`/api/attendance/summary?date=${date}`));
+        requests.push(
+          cachedGet(
+            `attendance-summary:${date}`,
+            async () => (await axios.get(`/api/attendance/summary?date=${date}`)).data,
+            DASHBOARD_CACHE_MS
+          )
+        );
       }
-
-      const [statsRes, attendanceRes] = await Promise.all(requests);
-      setStats(statsRes.data);
-      setAttendanceSummary(attendanceRes?.data || null);
+      const [statsData, attendanceData] = await Promise.all(requests);
+      setStats(statsData);
+      setAttendanceSummary(attendanceData || null);
     } catch (error) {
       if (!silent) console.error('Error fetching dashboard data:', error);
     } finally {
@@ -147,6 +157,7 @@ const Dashboard = () => {
               <img
                 src={school.logo_url}
                 alt=""
+                loading="lazy"
                 className="h-14 w-14 rounded-2xl object-cover border border-slate-600 shadow-lg"
               />
             ) : (
@@ -256,6 +267,26 @@ const Dashboard = () => {
               </div>
             ) : !attendanceSummary ? (
               <p className="mt-8 text-sm text-slate-400">No attendance summary for this day.</p>
+            ) : liteMode ? (
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                {attendanceRows.map((row) => (
+                  <div key={row.name} className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+                    <p className="text-sm text-slate-400">{row.name}</p>
+                    <p className="mt-2 font-display text-2xl font-bold text-white">
+                      {row.present} / {row.total}
+                    </p>
+                  </div>
+                ))}
+                {hasFeature('attendance') && (
+                  <Link
+                    to="/attendance"
+                    className="inline-flex items-center gap-1.5 pt-2 text-sm font-medium text-sky-400 hover:text-sky-300 sm:col-span-3"
+                  >
+                    Open attendance
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              </div>
             ) : (
               <div className="mt-8 space-y-5">
                 {attendanceRows.map((row) => (

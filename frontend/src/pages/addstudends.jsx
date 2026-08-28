@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import {
@@ -17,11 +17,6 @@ import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import toast from 'react-hot-toast';
 import { invalidateCache } from '../utils/requestCache';
 
-const CLASSES = [
-  'CLASS 1', 'CLASS 2', 'CLASS 3', 'CLASS 4', 'CLASS 5', 'CLASS 6',
-  'CLASS 7', 'CLASS 8', 'CLASS 9', 'CLASS 10', 'CLASS 11', 'CLASS 12',
-];
-
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
 
@@ -30,6 +25,7 @@ const AddStudent = () => {
   const [loading, setLoading] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [schoolClasses, setSchoolClasses] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
     class: '',
@@ -58,6 +54,7 @@ const AddStudent = () => {
     try {
       const { data } = await axios.post('/api/students', { ...formData, photo });
       invalidateCache('students');
+      invalidateCache('dashboard');
       if (data?.warning) {
         toast.error(data.warning);
       } else {
@@ -65,6 +62,10 @@ const AddStudent = () => {
       }
       navigate('/students');
     } catch (error) {
+      if (error.offlineQueued) {
+        navigate('/students');
+        return;
+      }
       console.error('Error adding student:', error);
       toast.error(error.response?.data?.error || 'Failed to add student. Please try again.');
     } finally {
@@ -78,6 +79,13 @@ const AddStudent = () => {
       [e.target.name]: e.target.value,
     });
   };
+
+  useEffect(() => {
+    axios
+      .get('/api/classes')
+      .then(({ data }) => setSchoolClasses(Array.isArray(data) ? data : []))
+      .catch(() => setSchoolClasses([]));
+  }, []);
 
   return (
     <>
@@ -166,27 +174,32 @@ const AddStudent = () => {
                   className={fieldClass}
                 >
                   <option value="">Select a class</option>
-                  {CLASSES.map((cls) => (
-                    <option key={cls} value={cls}>
-                      {cls}
+                  {schoolClasses.map((cls) => (
+                    <option key={cls.id || cls.name} value={cls.name}>
+                      {cls.name}
                     </option>
                   ))}
                 </select>
+                {schoolClasses.length === 0 && (
+                  <p className="mt-1.5 text-xs text-amber-300">
+                    No classes yet. Add them in Setup before enrolling students.
+                  </p>
+                )}
               </div>
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-200">
                   Date of birth <span className="text-sky-400">*</span>
                 </label>
-                <div className="relative">
-                  <Calendar className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <div className="relative min-w-0">
+                  <Calendar className="pointer-events-none absolute left-3.5 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-slate-500 sm:block" />
                   <input
                     type="date"
                     name="dateOfBirth"
                     value={formData.dateOfBirth}
                     onChange={handleChange}
                     required
-                    className={`${fieldClass} pl-10`}
+                    className={`${fieldClass} min-h-[48px] text-base sm:pl-10`}
                   />
                 </div>
               </div>

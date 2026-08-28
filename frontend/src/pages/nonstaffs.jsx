@@ -1,17 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import AttendanceQrCode from '../components/AttendanceQrCode';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
+import PersonCard, { PersonGrid } from '../components/PersonCard';
+import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
-import { Edit2, Trash2, Search, Plus, User, Wrench } from 'lucide-react';
+import { Search, Plus, User, Wrench, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache } from '../utils/requestCache';
+import { parseListResponse, fetchAllPages } from '../utils/listApi.js';
+import { downloadPersonPack, downloadPeoplePacks, nonStaffPack } from '../utils/personPackExport';
 
 const NonStaff = () => {
   const [nonStaff, setNonStaff] = useState([]);
-  const [filteredNonStaff, setFilteredNonStaff] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [downloadingAll, setDownloadingAll] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingNonStaff, setEditingNonStaff] = useState(null);
   const [photo, setPhoto] = useState(null);
@@ -22,38 +28,34 @@ const NonStaff = () => {
   });
 
   useEffect(() => {
-    fetchNonStaff();
-  }, []);
+    const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(id);
+  }, [searchTerm]);
 
   useEffect(() => {
-    filterNonStaff();
-  }, [searchTerm, nonStaff]);
+    setPage(1);
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    fetchNonStaff();
+  }, [page, debouncedSearch]);
 
   const fetchNonStaff = async () => {
     try {
-      const data = await cachedGet('non-staff', async () => {
-        const response = await axios.get('/api/non-staff');
+      const data = await cachedGet(`non-staff:${page}:${debouncedSearch}`, async () => {
+        const response = await axios.get('/api/non-staff', {
+          params: { page, limit: 50, q: debouncedSearch || undefined },
+        });
         return response.data;
       });
-      setNonStaff(data);
-      setFilteredNonStaff(data);
+      const parsed = parseListResponse(data);
+      setNonStaff(parsed.items);
+      setTotal(parsed.total);
     } catch (error) {
       console.error('Error fetching non-staff:', error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const filterNonStaff = () => {
-    let filtered = nonStaff;
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (s) =>
-          s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          s.role?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-    setFilteredNonStaff(filtered);
   };
 
   const resetForm = () => {
@@ -80,6 +82,11 @@ const NonStaff = () => {
       invalidateCache('non-staff');
       fetchNonStaff();
     } catch (error) {
+      if (error.offlineQueued) {
+        setShowModal(false);
+        resetForm();
+        return;
+      }
       console.error('Error saving non-staff:', error);
       toast.error(error.response?.data?.error || 'Failed to save non-staff');
     }
@@ -124,17 +131,42 @@ const NonStaff = () => {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Non-Staff Management</h1>
+            <p className="mt-1 text-sm text-slate-400">{total} people</p>
           </div>
-          <button
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Add Non-Staff
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                setDownloadingAll(true);
+                try {
+                  const all = await fetchAllPages(axios, '/api/non-staff', { q: debouncedSearch || undefined });
+                  await downloadPeoplePacks(
+                    all.map((person) => nonStaffPack(person, buildPersonIdUrl(person.barcode))),
+                    'all-non-staff.zip'
+                  );
+                } catch {
+                  toast.error('Failed to download packs');
+                } finally {
+                  setDownloadingAll(false);
+                }
+              }}
+              disabled={downloadingAll || total === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {downloadingAll ? 'Preparing…' : 'Download all'}
+            </button>
+            <button
+              onClick={() => {
+                resetForm();
+                setShowModal(true);
+              }}
+              className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+            >
+              <Plus className="h-5 w-5" />
+              Add Non-Staff
+            </button>
+          </div>
         </div>
 
         <div className="relative">
@@ -148,80 +180,38 @@ const NonStaff = () => {
           />
         </div>
 
-        <div id="list-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredNonStaff.map((person) => (
-            <article
-              key={person.id}
-              className="bg-slate-800 border border-slate-600 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg hover:border-purple-500/40 transition-all"
-            >
-              <div className="flex gap-0">
-                <div className="w-36 sm:w-40 shrink-0 bg-slate-700/50 flex items-center justify-center p-4 border-r border-slate-600">
-                  {person.photo_url ? (
-                    <img
-                      src={person.photo_url}
-                      alt={person.name}
-                      className="w-full aspect-[3/4] max-h-44 object-cover rounded-xl border-2 border-slate-500 shadow-md"
-                    />
-                  ) : (
-                    <div className="w-full aspect-[3/4] max-h-44 rounded-xl bg-purple-500/20 border-2 border-purple-500/30 flex flex-col items-center justify-center gap-2">
-                      <User className="w-12 h-12 text-purple-400" />
-                      <span className="text-2xl font-bold text-purple-300">
-                        {person.name?.charAt(0)?.toUpperCase() || '?'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0 p-5 flex flex-col">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="text-xl font-bold text-white truncate">{person.name}</h3>
-                      <span className="inline-block mt-2 px-2.5 py-0.5 text-xs font-medium rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                        {person.role || 'Support Staff'}
-                      </span>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      <button
-                        onClick={() => handleEdit(person)}
-                        className="p-2 rounded-lg text-purple-400 hover:bg-purple-500/20 transition-colors"
-                        title="Edit"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(person.id)}
-                        className="p-2 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-2 text-sm text-slate-300">
-                    <Wrench className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span>Support staff attendance tracking</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-600 bg-slate-900/50 px-5 py-4">
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
-                  Attendance QR Code
-                </p>
-                <AttendanceQrCode
-                  value={buildPersonIdUrl(person.barcode)}
-                  name={person.name}
-                  size={148}
-                />
-              </div>
-            </article>
-          ))}
+        <div id="list-section">
+          <PersonGrid>
+            {nonStaff.map((person) => (
+              <PersonCard
+                key={person.id}
+                name={person.name}
+                badge={person.role || 'Support Staff'}
+                photoUrl={person.photo_url}
+                qrValue={buildPersonIdUrl(person.barcode)}
+                accent="purple"
+                downloadLabel="Download pack"
+                onEdit={() => handleEdit(person)}
+                onDelete={() => handleDelete(person.id)}
+                onDownloadPack={() =>
+                  downloadPersonPack(nonStaffPack(person, buildPersonIdUrl(person.barcode)))
+                }
+                details={[
+                  {
+                    key: 'role',
+                    icon: <Wrench className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
+                    text: person.role || 'Support staff',
+                  },
+                ]}
+              />
+            ))}
+          </PersonGrid>
         </div>
+        <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />
 
-        {filteredNonStaff.length === 0 && (
-          <div className="text-center py-16 rounded-2xl border border-dashed border-slate-600 bg-slate-800/50">
-            <User className="w-12 h-12 text-slate-500 mx-auto mb-3" />
+        {nonStaff.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
+            <User className="mx-auto mb-3 h-12 w-12 text-slate-500" />
             <p className="text-slate-300">No non-staff members found.</p>
           </div>
         )}
