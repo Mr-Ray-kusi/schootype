@@ -32,6 +32,7 @@ const SuperAdminSchool = lazy(() => import('./pages/super-admin-school'));
 const SuperAdminBroadcast = lazy(() => import('./pages/super-admin-broadcast'));
 const SuperAdminSms = lazy(() => import('./pages/super-admin-sms'));
 const SuperAdminMonitor = lazy(() => import('./pages/super-admin-monitor'));
+const SuperAdminAnalytics = lazy(() => import('./pages/super-admin-analytics'));
 const Notifications = lazy(() => import('./pages/notifications'));
 
 const LoadingScreen = () => (
@@ -182,6 +183,7 @@ function App() {
                   <Route path="/super-admin/notifications" element={<Notifications />} />
                   <Route path="/super-admin/sms" element={<SuperAdminSms />} />
                   <Route path="/super-admin/monitor" element={<SuperAdminMonitor />} />
+                  <Route path="/super-admin/analytics" element={<SuperAdminAnalytics />} />
                 </Route>
               </Route>
 

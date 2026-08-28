@@ -78,6 +78,12 @@ import {
   listSuperAdminNotificationThreads,
   runSubscriptionDueReminders,
 } from './platformNotifications.js';
+import {
+  initPlatformTelemetry,
+  recordPlatformEvent,
+  recordClientEvents,
+  getPlatformAnalytics,
+} from './platformTelemetry.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -991,6 +997,15 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(500).json({ error: 'Account email mismatch. Please try signup again.' });
     }
 
+    recordPlatformEvent({
+      eventType: 'signup',
+      schoolId: school.id,
+      schoolName: school.name,
+      email: recipientEmail,
+      role: 'admin',
+      path: '/signup',
+    }).catch(() => {});
+
     const mail = buildVerificationEmail({
       schoolName: school.name,
       email: recipientEmail,
@@ -1094,6 +1109,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!school || !isValidPassword) {
       await recordLoginFailure(email, clientIp);
+      recordPlatformEvent({
+        eventType: 'login_failed',
+        email,
+        schoolId: school?.id || null,
+        schoolName: school?.name || null,
+        role: school ? getSchoolRole(school) : null,
+      }).catch(() => {});
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -1118,6 +1140,14 @@ app.post('/api/auth/login', async (req, res) => {
     await clearLoginFailures(email);
 
     const token = signAuthToken(school);
+    recordPlatformEvent({
+      eventType: 'login',
+      schoolId: school.id,
+      schoolName: school.name,
+      email: school.email,
+      role: getSchoolRole(school),
+      path: '/login',
+    }).catch(() => {});
 
     res.json({
       token,
@@ -1985,6 +2015,38 @@ app.get('/api/super-admin/monitor', authenticateToken, requireSuperAdmin, async 
   } catch (error) {
     console.error('Super admin monitor error:', error);
     res.status(500).json({ error: error.message || 'Failed to load monitoring data' });
+  }
+});
+
+app.post('/api/telemetry', authenticateToken, async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const events = Array.isArray(payload.events) ? payload.events : [payload];
+    await recordClientEvents(
+      {
+        schoolId: req.user.schoolId,
+        email: req.user.email,
+        role: req.user.role,
+      },
+      events.map((event) => ({
+        ...event,
+        schoolName: event.schoolName || payload.schoolName || null,
+      }))
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.warn('Telemetry ingest error:', error.message || error);
+    res.json({ ok: false });
+  }
+});
+
+app.get('/api/super-admin/analytics', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const analytics = await getPlatformAnalytics();
+    res.json(analytics);
+  } catch (error) {
+    console.error('Super admin analytics error:', error);
+    res.status(500).json({ error: error.message || 'Failed to load analytics' });
   }
 });
 
@@ -4359,6 +4421,18 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       newMessage = insertedMessage;
     }
 
+    if (channel === 'sms' && smsDelivery?.sent > 0) {
+      recordPlatformEvent({
+        eventType: 'sms_sent',
+        schoolId: req.user.schoolId,
+        schoolName: schoolAccount.name,
+        email: req.user.email,
+        role: req.user.role,
+        path: '/messages',
+        meta: { count: smsDelivery.sent },
+      }).catch(() => {});
+    }
+
     if (channel === 'email' && emailReady && emailTransporter) {
       const emailList = [];
       const defaultBroadcastEmail = process.env.BROADCAST_EMAIL || process.env.EMAIL_USER;
@@ -4645,6 +4719,7 @@ async function initializeDatabase() {
     console.log('Person photo store ready');
     await initAuthSecurityStore();
     console.log('Auth security store ready');
+    await initPlatformTelemetry();
     // Wallet/SMS local stores are unavailable on Vercel — skip probing them there.
     if (!process.env.VERCEL) {
       try {

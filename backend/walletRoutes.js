@@ -30,6 +30,7 @@ import {
   failWithdrawal,
   makeWalletReference,
 } from './schoolWalletStore.js';
+import { recordPlatformEvent } from './platformTelemetry.js';
 
 function formatMoney(wallet) {
   return {
@@ -322,6 +323,14 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
 
       if (String(paystackStatus).toLowerCase() === 'failed') {
         await updateWalletTransaction(reference, { status: 'failed' });
+        recordPlatformEvent({
+          eventType: 'payment_failed',
+          schoolId,
+          email: req.user.email,
+          role: req.user.role,
+          path: '/school-wallet',
+          meta: { reference, channel: 'mobile_money' },
+        }).catch(() => {});
         return res.status(400).json({
           error: displayText || 'MoMo payment failed. Try again.',
           reference,
@@ -451,6 +460,14 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
           await creditDeposit(reference);
         } else if (verified?.status === 'failed' || verified?.status === 'abandoned') {
           await updateWalletTransaction(reference, { status: 'failed' });
+          recordPlatformEvent({
+            eventType: 'payment_failed',
+            schoolId: req.user.schoolId,
+            email: req.user.email,
+            role: req.user.role,
+            path: '/school-wallet',
+            meta: { reference, status: verified.status },
+          }).catch(() => {});
         }
       }
 
@@ -490,7 +507,15 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
 
       if (event === 'transfer.failed' || event === 'transfer.reversed') {
         const ref = data.reference;
-        if (ref) await failWithdrawal(ref, data.reason || event);
+        if (ref) {
+          const failed = await failWithdrawal(ref, data.reason || event);
+          recordPlatformEvent({
+            eventType: 'payment_failed',
+            schoolId: failed?.transaction?.school_id || failed?.wallet?.school_id || null,
+            path: '/school-wallet',
+            meta: { reference: ref, event },
+          }).catch(() => {});
+        }
       }
 
       // unused but keeps linter happy if reference used in future logging

@@ -24,11 +24,13 @@ import {
   Mail,
   ClipboardList,
   Bell,
+  Activity,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import OfflineBanner from './OfflineBanner';
 import useLiteMode from '../hooks/useLiteMode';
+import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
 
 /** True when pathname is exactly href, or a nested path under href (segment-safe). */
 const isNavActive = (pathname, href) => {
@@ -47,6 +49,7 @@ const Layout = ({ children }) => {
   const { liteMode, toggleLiteMode } = useLiteMode();
   const navigate = useNavigate();
   const location = useLocation();
+  usePlatformTelemetry();
 
   const refreshUnread = useCallback(async () => {
     if (!token) return;
@@ -121,6 +124,7 @@ const Layout = ({ children }) => {
           title: 'Platform',
           items: [
             { name: 'All Schools', href: '/super-admin', icon: LayoutDashboard },
+            { name: 'Analytics', href: '/super-admin/analytics', icon: Activity },
             { name: 'Monitoring', href: '/super-admin/monitor', icon: ClipboardList },
             { name: 'Notifications', href: '/super-admin/notifications', icon: Bell },
             { name: 'Email Schools', href: '/super-admin/email-schools', icon: Mail },
