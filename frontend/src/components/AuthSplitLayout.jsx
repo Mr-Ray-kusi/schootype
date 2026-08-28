@@ -45,15 +45,15 @@ function PromoPanel({ mode }) {
 
         <span className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-white/35 bg-black/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]">
           <GraduationCap className="h-3 w-3" />
-          {isSignup ? 'Welcome back' : 'Schooltype'}
+          Schooltype
         </span>
 
         <h2 className="max-w-xs font-serif text-[2rem] font-bold leading-tight md:text-[2.35rem]">
-          {isSignup ? "Back in the driver's seat" : 'New to the crew?'}
+          {isSignup ? "You're Welcome." : 'New to the crew?'}
         </h2>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/90 md:text-[15px]">
           {isSignup
-            ? 'Sign in to keep the school moving — attendance, fees and reports await.'
+            ? 'Sign in to keep the school moving.'
             : 'Create your school account and put academics to work in minutes.'}
         </p>
 
@@ -67,7 +67,7 @@ function PromoPanel({ mode }) {
 
       <p className="relative mt-8 text-center text-xs italic text-white/85 md:mt-0">
         {isSignup
-          ? '"The journey, not the destination, matters."'
+          ? "Let's build, manage and organise all school activities"
           : '"Every school deserves a connected academic life."'}
       </p>
     </div>

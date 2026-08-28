@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useAuth } from '../contexts/authcontext';
+import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
 import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
 import AuthSplitLayout, { AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 const Signup = () => {
   const navigate = useNavigate();
-  const { signup } = useAuth();
+  const { signup, loginWithGoogle } = useAuth();
   const [searchParams] = useSearchParams();
   const planParam = searchParams.get('plan');
   const selectedPlan = planParam ? getPlan(planParam) : null;
@@ -114,17 +115,6 @@ const Signup = () => {
           placeholder="Bright Future Academy"
         />
 
-        <AuthField
-          label="Email"
-          icon={Mail}
-          type="email"
-          name="email"
-          value={formData.email}
-          onChange={handleChange}
-          required
-          placeholder="admin@school.com"
-        />
-
         <div>
           <span className="mb-1.5 block text-[13px] font-medium text-neutral-300">
             School logo <span className="font-normal text-neutral-500">(optional)</span>
@@ -144,6 +134,41 @@ const Signup = () => {
             </label>
           )}
         </div>
+
+        <GoogleSignInButton
+          label="Sign up with Google"
+          disabled={loading}
+          onCredential={async ({ accessToken }) => {
+            if (!formData.schoolName.trim()) {
+              toast.error('Enter your school name first, then continue with Google.');
+              return;
+            }
+            const data = await loginWithGoogle({
+              accessToken,
+              schoolName: formData.schoolName.trim(),
+              logo,
+              paymentPlan: planParam,
+            });
+            toast.success('Account ready. Welcome to Schooltype.');
+            navigate(getPostAuthPath(data.school), { replace: true });
+          }}
+        />
+
+        <div className="relative my-2 text-center text-[11px] uppercase tracking-[0.14em] text-neutral-500">
+          <span className="absolute inset-x-0 top-1/2 h-px bg-neutral-700" />
+          <span className="relative bg-[#121212] px-3">or continue with email</span>
+        </div>
+
+        <AuthField
+          label="Email"
+          icon={Mail}
+          type="email"
+          name="email"
+          value={formData.email}
+          onChange={handleChange}
+          required
+          placeholder="admin@school.com"
+        />
 
         <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
           <p className="flex items-center gap-2 font-medium text-neutral-300">

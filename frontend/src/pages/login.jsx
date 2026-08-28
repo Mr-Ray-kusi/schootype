@@ -5,6 +5,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import AuthSplitLayout, { AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 const REMEMBER_KEY = 'schootype_remember_email';
 
@@ -18,7 +19,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(Boolean(pendingFromSignup));
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -96,7 +97,7 @@ const Login = () => {
   return (
     <AuthSplitLayout mode="login">
       <div>
-        <h1 className="text-[2rem] font-bold leading-tight text-white">Welcome back</h1>
+        <h1 className="text-[2rem] font-bold leading-tight text-white">Schooltype</h1>
         <p className="mt-2 text-sm text-neutral-400">
           Sign in to the school console to manage attendance, fees and reports
         </p>
@@ -119,30 +120,25 @@ const Login = () => {
         </div>
       )}
 
-      <div className="mt-8 grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => toast('School accounts sign in with email.')}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-600 bg-[#1a1a1a] py-2.5 text-sm font-medium text-white hover:bg-[#222]"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
-            <path fill="#EA4335" d="M12 10.2v3.6h5.1c-.2 1.2-.9 2.3-1.9 3l3.1 2.4c1.8-1.7 2.9-4.1 2.9-7 0-.7-.1-1.3-.2-1.9H12z" />
-            <path fill="#34A853" d="M5.3 14.3l-.8.6-2.6 2C3.6 20.2 7.5 22.5 12 22.5c3 0 5.5-1 7.3-2.7l-3.1-2.4c-.9.6-2 1-3.3 1-2.5 0-4.6-1.7-5.4-3.9z" />
-            <path fill="#FBBC05" d="M2 7.1C1.4 8.3 1 9.6 1 11s.4 2.7 1 3.9l3.4-2.6C5.1 11.5 5 10.8 5 11c0-.8.1-1.5.4-2.2z" />
-            <path fill="#4285F4" d="M12 4.8c1.7 0 3.2.6 4.3 1.7l2.6-2.6C17.5 2.1 15 1 12 1 7.5 1 3.6 3.3 1.9 6.7L5.3 9.3C6.1 7.1 8.2 4.8 12 4.8z" />
-          </svg>
-          Google
-        </button>
-        <button
-          type="button"
-          onClick={() => toast('School accounts sign in with email.')}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-600 bg-[#1a1a1a] py-2.5 text-sm font-medium text-white hover:bg-[#222]"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
-            <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.52 2.87 8.35 6.84 9.71.5.1.68-.22.68-.48 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05A9.3 9.3 0 0 1 12 6.84c.85.01 1.71.12 2.51.34 1.9-1.32 2.74-1.05 2.74-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.8-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .26.18.59.69.48A10.04 10.04 0 0 0 22 12.26C22 6.58 17.52 2 12 2z" />
-          </svg>
-          GitHub
-        </button>
+      <div className="mt-8">
+        <GoogleSignInButton
+          label="Sign in with Google"
+          disabled={loading}
+          onCredential={async ({ accessToken }) => {
+            try {
+              const data = await loginWithGoogle({ accessToken });
+              toast.success('Login successful!');
+              navigate(getPostAuthPath(data.school));
+            } catch (error) {
+              if (error.response?.data?.code === 'ACCOUNT_NOT_FOUND') {
+                toast.error('No school account for this Google email. Create an account first.');
+                navigate('/plans');
+                return;
+              }
+              throw error;
+            }
+          }}
+        />
       </div>
 
       <div className="relative my-6 text-center text-[11px] uppercase tracking-[0.14em] text-neutral-500">

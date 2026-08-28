@@ -84,6 +84,7 @@ import {
   recordClientEvents,
   getPlatformAnalytics,
 } from './platformTelemetry.js';
+import { getGoogleAuthConfig, verifyGoogleIdentity } from './googleAuth.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -1184,6 +1185,134 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/auth/google-config', (req, res) => {
+  res.json(getGoogleAuthConfig());
+});
+
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { idToken, accessToken, schoolName, logo, paymentPlan } = req.body || {};
+    const profile = await verifyGoogleIdentity({ idToken, accessToken });
+    const email = profile.email;
+
+    if (isSuperAdminEmail(email)) {
+      return res.status(400).json({
+        error: 'This email is reserved. Please use the email sign-in form instead.',
+      });
+    }
+
+    const logoError = validateLogo(logo);
+    if (logoError) {
+      return res.status(400).json({ error: logoError });
+    }
+
+    let school = await findSchoolByEmail(email);
+
+    if (!school) {
+      if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
+        return res.status(404).json({
+          error: 'No school account exists for this Google email. Choose a plan to create one.',
+          code: 'ACCOUNT_NOT_FOUND',
+        });
+      }
+
+      const clientIp = getClientIp(req);
+      const signupCheck = await checkSignupAllowed(clientIp);
+      if (!signupCheck.allowed) {
+        return res.status(429).json({ error: signupCheck.message });
+      }
+
+      const resolvedPlan = resolvePlanId(paymentPlan);
+      const name = String(schoolName || profile.name || '').trim();
+      if (!name) {
+        return res.status(400).json({ error: 'School name is required to create an account with Google.' });
+      }
+
+      const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+      const schoolRecord = {
+        name,
+        email,
+        password_hash: hashedPassword,
+        initial_password: null,
+        role: 'admin',
+        created_at: new Date(),
+        payment_plan: resolvedPlan,
+        plan_selected_at: new Date(),
+        plan_status: 'pending',
+        email_verified: true,
+      };
+      if (logo) schoolRecord.logo_url = logo;
+
+      const inserted = await insertSchoolRecord(schoolRecord);
+      if (inserted.error?.duplicate) {
+        return res.status(409).json({ error: 'An account with this email already exists. Please sign in instead.' });
+      }
+      if (inserted.error || !inserted.data) {
+        return res.status(500).json({
+          error: inserted.error?.message || 'Failed to create school account with Google.',
+        });
+      }
+      await recordSignupAttempt(clientIp);
+      school = inserted.data;
+
+      try {
+        await upsertSchoolExtras(school.id, {
+          payment_plan: resolvedPlan,
+          plan_status: 'pending',
+          plan_selected_at: new Date().toISOString(),
+          logo_url: logo || null,
+        });
+      } catch (persistError) {
+        await supabase.from('schools').delete().eq('id', school.id);
+        await deleteSchoolExtras(school.id);
+        return res.status(500).json({
+          error: persistError.message || `Failed to save plan for approval. ${PLAN_SCHEMA_HELP}`,
+        });
+      }
+
+      recordPlatformEvent({
+        eventType: 'signup',
+        schoolId: school.id,
+        schoolName: school.name,
+        email,
+        role: 'admin',
+        path: '/signup',
+      }).catch(() => {});
+    } else {
+      const repairs = {};
+      if (school.email_verified !== true) repairs.email_verified = true;
+      if (needsPasswordSetup(school)) repairs.initial_password = null;
+      if (Object.keys(repairs).length) {
+        const { data: updated } = await supabase.from('schools').update(repairs).eq('id', school.id).select().single();
+        if (updated) school = updated;
+      }
+    }
+
+    await clearLoginFailures(email);
+    const token = signAuthToken(school);
+    if (getSchoolRole(school) !== 'super_admin') {
+      recordPlatformEvent({
+        eventType: 'login',
+        schoolId: school.id,
+        schoolName: school.name,
+        email: school.email,
+        role: getSchoolRole(school),
+        path: '/login',
+      }).catch(() => {});
+    }
+
+    res.json({
+      token,
+      ...authTokenPayload(),
+      school: formatSchool(school),
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('Google auth error:', error);
+    res.status(status).json({ error: error.message || 'Google sign-in failed', code: error.code });
   }
 });
 
