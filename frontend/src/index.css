@@ -155,3 +155,42 @@
 .landing-nav-menu {
   background-color: #ffffff !important;
 }
+
+/* Sign-in / sign-up split card — keep these off the global dark input overrides */
+.auth-page .auth-field {
+  color: #f5f5f5 !important;
+  background-color: #1a1a1a !important;
+  border: 1px solid #3f3f3f !important;
+  box-shadow: none !important;
+  color-scheme: dark;
+}
+
+.auth-page .auth-field::placeholder {
+  color: #8a8a8a !important;
+}
+
+.auth-page .auth-field:focus {
+  border-color: #ff5722 !important;
+  outline: none;
+  box-shadow: 0 0 0 1px #ff5722 !important;
+}
+
+.auth-page .auth-field:-webkit-autofill,
+.auth-page .auth-field:-webkit-autofill:hover,
+.auth-page .auth-field:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f5f5f5 !important;
+  box-shadow: 0 0 0 1000px #1a1a1a inset !important;
+  -webkit-box-shadow: 0 0 0 1000px #1a1a1a inset !important;
+}
+
+.auth-accent {
+  background-color: #ff5722;
+}
+
+.auth-accent:hover {
+  background-color: #ff6a3c;
+}
+
+.auth-checkbox {
+  accent-color: #ff5722;
+}

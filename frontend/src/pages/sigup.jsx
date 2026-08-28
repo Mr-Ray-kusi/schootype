@@ -3,7 +3,8 @@ import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
-import { ArrowLeft } from 'lucide-react';
+import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
+import AuthSplitLayout, { AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -91,126 +92,83 @@ const Signup = () => {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950 font-sans text-white">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(ellipse 55% 40% at 0% 0%, rgba(14, 165, 233, 0.16), transparent 55%), #020617',
-        }}
-      />
-
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
-        <div className="w-full max-w-md">
-          <div className="mb-8 text-center">
-            <Link to="/" className="font-display text-2xl font-extrabold tracking-tight text-white">
-              SCHOOLTYPE
-            </Link>
-            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-sky-300/90">
-              Step 2 of 2
-            </p>
-            <h1 className="mt-3 font-display text-3xl font-bold text-white">Create account with email</h1>
-            <p className="mt-2 text-sm text-slate-300">
-              {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year
-            </p>
-            <p className="mt-2 text-xs text-slate-400">
-              We&apos;ll email you a secure link to verify ownership and choose a password.
-            </p>
-            <Link
-              to="/plans"
-              className="mt-2 inline-block text-xs text-sky-400 hover:text-sky-300"
-            >
-              Change plan
-            </Link>
-          </div>
-
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-4 rounded-3xl border border-slate-700/80 bg-slate-900/60 p-6 md:p-8"
-          >
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-200">School name</label>
-              <input
-                type="text"
-                name="schoolName"
-                required
-                value={formData.schoolName}
-                onChange={handleChange}
-                className="input"
-                placeholder="e.g. Bright Future Academy"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-200">Work email</label>
-              <input
-                type="email"
-                name="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="input"
-                placeholder="admin@school.com"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-200">
-                School logo <span className="font-normal text-slate-500">(optional)</span>
-              </label>
-              {logoPreview ? (
-                <div className="mt-2 flex items-center gap-4">
-                  <img
-                    src={logoPreview}
-                    alt="Logo preview"
-                    className="h-14 w-14 rounded-lg object-cover border border-slate-600"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleRemoveLogo}
-                    className="text-sm text-red-400 hover:text-red-300"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoChange}
-                  className="mt-1 block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-sky-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-sky-500"
-                />
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 w-full rounded-full bg-sky-500 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:bg-sky-400 disabled:opacity-50"
-            >
-              {loading ? 'Sending link…' : 'Continue with email'}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-slate-400">
-            Already have an account?{' '}
-            <Link to="/login" className="font-medium text-sky-400 hover:text-sky-300">
-              Sign in
-            </Link>
-          </p>
-          <p className="mt-3 text-center">
-            <Link
-              to="/plans"
-              className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back to plans
-            </Link>
-          </p>
-        </div>
+    <AuthSplitLayout mode="signup">
+      <div>
+        <h1 className="text-[2rem] font-bold leading-tight text-white">Join the crew</h1>
+        <p className="mt-2 text-sm text-neutral-400">
+          Register a school account for your admin desk · {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year
+        </p>
+        <Link to="/plans" className="mt-1 inline-block text-xs hover:underline" style={{ color: AUTH_ORANGE }}>
+          Change plan
+        </Link>
       </div>
-    </div>
+
+      <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+        <AuthField
+          label="School name"
+          icon={User}
+          name="schoolName"
+          value={formData.schoolName}
+          onChange={handleChange}
+          required
+          placeholder="Bright Future Academy"
+        />
+
+        <AuthField
+          label="Email"
+          icon={Mail}
+          type="email"
+          name="email"
+          value={formData.email}
+          onChange={handleChange}
+          required
+          placeholder="admin@school.com"
+        />
+
+        <div>
+          <span className="mb-1.5 block text-[13px] font-medium text-neutral-300">
+            School logo <span className="font-normal text-neutral-500">(optional)</span>
+          </span>
+          {logoPreview ? (
+            <div className="flex items-center gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-2">
+              <img src={logoPreview} alt="Logo preview" className="h-11 w-11 rounded-lg object-cover" />
+              <button type="button" onClick={handleRemoveLogo} className="text-sm text-red-400 hover:text-red-300">
+                Remove
+              </button>
+            </div>
+          ) : (
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-sm text-neutral-400 transition hover:border-[#ff5722]/50">
+              <ImagePlus className="h-4 w-4 text-neutral-500" />
+              <span>Upload a logo</span>
+              <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+            </label>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
+          <p className="flex items-center gap-2 font-medium text-neutral-300">
+            <ShieldCheck className="h-4 w-4 text-[#ff5722]" />
+            Password is set after email verification
+          </p>
+          <p className="mt-1 pl-6">We’ll send a secure link so you can verify ownership and choose a password.</p>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
+        >
+          {loading ? 'Sending link…' : 'Create account'}
+        </button>
+      </form>
+
+      <p className="mt-6 text-center text-sm text-neutral-400">
+        Already registered?{' '}
+        <Link to="/login" className="font-semibold hover:underline" style={{ color: AUTH_ORANGE }}>
+          Sign in
+        </Link>
+      </p>
+    </AuthSplitLayout>
   );
 };
 
