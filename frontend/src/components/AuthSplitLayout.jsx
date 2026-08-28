@@ -49,7 +49,7 @@ function PromoPanel({ mode }) {
         </span>
 
         <h2 className="max-w-xs font-serif text-[2rem] font-bold leading-tight md:text-[2.35rem]">
-          {isSignup ? 'Back in the driver’s seat' : 'New to the crew?'}
+          {isSignup ? "Back in the driver's seat" : 'New to the crew?'}
         </h2>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/90 md:text-[15px]">
           {isSignup
@@ -66,7 +66,9 @@ function PromoPanel({ mode }) {
       </div>
 
       <p className="relative mt-8 text-center text-xs italic text-white/85 md:mt-0">
-        {isSignup ? '“The journey, not the destination, matters.”' : '“Every school deserves a connected academic life.”'}
+        {isSignup
+          ? '"The journey, not the destination, matters."'
+          : '"Every school deserves a connected academic life."'}
       </p>
     </div>
   );

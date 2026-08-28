@@ -150,7 +150,7 @@ const Signup = () => {
             <ShieldCheck className="h-4 w-4 text-[#ff5722]" />
             Password is set after email verification
           </p>
-          <p className="mt-1 pl-6">We’ll send a secure link so you can verify ownership and choose a password.</p>
+          <p className="mt-1 pl-6">We'll send a secure link so you can verify ownership and choose a password.</p>
         </div>
 
         <button
