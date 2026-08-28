@@ -15,18 +15,18 @@ const PlanPendingBanner = () => {
   const planPriceLabel = formatPlanPriceGhs(plan);
 
   return (
-    <div className={`rounded-xl border p-5 mb-6 ${isRejected ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+    <div className={`rounded-xl border p-5 mb-6 ${isRejected ? 'border-red-500/40 bg-red-500/10' : 'border-amber-500/40 bg-amber-500/10'}`}>
       <div className="flex items-start gap-3">
         {isRejected ? (
-          <Lock className="w-5 h-5 text-red-600 mt-0.5 shrink-0" />
+          <Lock className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
         ) : (
-          <Clock className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+          <Clock className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
         )}
         <div className="flex-1">
-          <h3 className="font-semibold text-[#111827]">
+          <h3 className="font-semibold text-white">
             {isRejected ? 'Plan not approved' : 'Awaiting admin approval'}
           </h3>
-          <p className="text-sm text-[#6b7280] mt-1">
+          <p className="text-sm text-slate-200 mt-1">
             {isRejected
               ? `Your ${school.plan_name || 'selected'} plan was not approved. Contact the platform admin.`
               : `Your ${school.plan_name || 'selected'} plan${planPriceLabel ? ` (${planPriceLabel}/yr)` : ''} is pending review. Features below are locked until a super admin approves your account.`}
@@ -36,7 +36,7 @@ const PlanPendingBanner = () => {
               {school.pending_plan_features.map((feature) => (
                 <span
                   key={feature}
-                  className="px-2 py-1 text-xs rounded-full bg-white text-[#111827] border border-[#e6ebf4]"
+                  className="px-2 py-1 text-xs rounded-full bg-slate-800/80 text-slate-200 border border-slate-600"
                 >
                   {FEATURE_LABELS[feature] || feature}
                 </span>

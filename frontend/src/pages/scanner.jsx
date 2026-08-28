@@ -5,7 +5,6 @@ import { QrCode, CheckCircle, XCircle, Scan, Link2, Copy, ExternalLink, RefreshC
 import { extractAttendanceCode } from '../utils/studentIdQr';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
-import { ConsoleHeader, ConsoleButton, consoleFieldClass } from '../components/consoleUi';
 
 const Scanner = () => {
   const { school } = useAuth();
@@ -104,72 +103,80 @@ const Scanner = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6">
-      <ConsoleHeader
-        title="Attendance Scanner"
-        subtitle="Open the phone link at the gate, or type/scan a code here."
-      />
+    <div className="mx-auto w-full max-w-3xl space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-white sm:text-3xl">Attendance Scanner</h1>
+        <p className="mt-1 text-sm text-slate-400">Open the phone link at the gate, or type/scan a code here.</p>
+      </div>
 
-      <div className="rounded-2xl border border-[#e6ebf4] bg-white p-4 sm:p-6">
+      <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-500/15 to-slate-900 p-4 sm:p-6">
         <div className="mb-4 flex items-center gap-3">
-          <div className="rounded-xl bg-[#2f6eff] p-2">
+          <div className="rounded-xl bg-sky-600 p-2">
             <Smartphone className="h-5 w-5 text-white" />
           </div>
-          <h2 className="text-base font-semibold text-[#111827] sm:text-lg">Phone scanner</h2>
+          <h2 className="text-base font-semibold text-white sm:text-lg">Phone scanner</h2>
         </div>
 
         {linkLoading ? (
-          <p className="text-sm text-[#6b7280]">Loading scanner link...</p>
+          <p className="text-sm text-slate-400">Loading scanner link...</p>
         ) : mobileScannerUrl ? (
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
             <div className="min-w-0 space-y-3">
-              <div className="flex items-center gap-2 rounded-xl border border-[#d7deea] bg-[#f8fafc] p-3">
-                <Link2 className="h-5 w-5 shrink-0 text-[#2f6eff]" />
+              <div className="flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-950/70 p-3">
+                <Link2 className="h-5 w-5 shrink-0 text-sky-400" />
                 <input
                   type="text"
                   readOnly
                   value={mobileScannerUrl}
-                  className="min-w-0 flex-1 truncate bg-transparent text-sm text-[#111827] outline-none"
+                  className="min-w-0 flex-1 truncate bg-transparent text-sm text-slate-200 outline-none"
                 />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <ConsoleButton onClick={copyLink}>
+                <button
+                  type="button"
+                  onClick={copyLink}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500"
+                >
                   <Copy className="h-4 w-4" />
                   Copy
-                </ConsoleButton>
+                </button>
                 <a
                   href={mobileScannerUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#d7deea] bg-white px-3 py-2 text-sm font-semibold text-[#111827] hover:bg-[#f8fafc]"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-sky-400/40 bg-slate-900 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-slate-800"
                 >
                   <ExternalLink className="h-4 w-4" />
                   Open
                 </a>
-                <ConsoleButton variant="ghost" onClick={regenerateLink}>
+                <button
+                  type="button"
+                  onClick={regenerateLink}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                >
                   <RefreshCw className="h-4 w-4" />
                   New link
-                </ConsoleButton>
+                </button>
               </div>
               {school?.name && (
-                <p className="text-xs text-[#6b7280]">
-                  Unique to <span className="font-medium text-[#111827]">{school.name}</span>.
+                <p className="text-xs text-slate-400">
+                  Unique to <span className="font-medium text-slate-200">{school.name}</span>.
                 </p>
               )}
             </div>
-            <div className="mx-auto rounded-xl border border-[#e6ebf4] bg-white p-3">
+            <div className="mx-auto rounded-xl bg-white p-3">
               <QRCode value={mobileScannerUrl} size={132} />
             </div>
           </div>
         ) : (
-          <p className="text-sm text-[#ff6a3c]">Could not load scanner link. Refresh the page.</p>
+          <p className="text-sm text-red-400">Could not load scanner link. Refresh the page.</p>
         )}
       </div>
 
-      <div className="rounded-2xl border border-[#e6ebf4] bg-white p-4 sm:p-6">
+      <div className="rounded-2xl border border-slate-700 bg-slate-800/80 p-4 sm:p-6">
         <div className="mb-4 flex items-center gap-2">
-          <QrCode className="h-5 w-5 text-[#2f6eff]" />
-          <h2 className="text-base font-semibold text-[#111827]">Desktop / USB scanner</h2>
+          <QrCode className="h-5 w-5 text-slate-300" />
+          <h2 className="text-base font-semibold text-white">Desktop / USB scanner</h2>
         </div>
         <form
           onSubmit={(e) => {
@@ -178,7 +185,7 @@ const Scanner = () => {
           }}
           className="space-y-3"
         >
-          <label className="block text-sm font-medium text-[#374151]">QR code input</label>
+          <label className="block text-sm font-medium text-slate-200">QR code input</label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
               ref={inputRef}
@@ -196,31 +203,32 @@ const Scanner = () => {
                 }
               }}
               placeholder="Scan or paste QR code value"
-              className={`min-h-[48px] w-full flex-1 ${consoleFieldClass} text-base`}
+              className="min-h-[48px] w-full flex-1 rounded-xl border border-slate-600 px-4 py-3 text-base"
               autoComplete="off"
             />
-            <ConsoleButton
+            <button
+              type="button"
               onClick={() => handleSubmit()}
               disabled={loading || !scanCode}
-              className="min-h-[48px] sm:w-auto"
+              className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-500 disabled:opacity-50 sm:w-auto"
             >
               <Scan className="h-5 w-5" />
               {loading ? 'Processing…' : 'Mark'}
-            </ConsoleButton>
+            </button>
           </div>
         </form>
       </div>
 
       {result && (
-        <div className="rounded-2xl border border-[#e6ebf4] bg-white p-4 sm:p-5">
+        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 sm:p-5">
           <div className="flex items-start gap-3">
-            <CheckCircle className="mt-0.5 h-7 w-7 shrink-0 text-[#2f6eff]" />
+            <CheckCircle className="mt-0.5 h-7 w-7 shrink-0 text-emerald-400" />
             <div className="min-w-0">
-              <h3 className="font-semibold text-[#111827]">Attendance marked</h3>
-              <p className="break-words text-sm text-[#6b7280]">
+              <h3 className="font-semibold text-emerald-100">Attendance marked</h3>
+              <p className="break-words text-sm text-emerald-200">
                 {result.message} at {new Date().toLocaleTimeString()}
               </p>
-              <p className="mt-1 text-xs text-[#6b7280]">
+              <p className="mt-1 text-xs text-emerald-300">
                 {result.user?.type} · {result.user?.name}
               </p>
             </div>
@@ -229,12 +237,12 @@ const Scanner = () => {
       )}
 
       {error && (
-        <div className="rounded-2xl border border-[#ff6a3c]/30 bg-white p-4 sm:p-5">
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 sm:p-5">
           <div className="flex items-start gap-3">
-            <XCircle className="mt-0.5 h-7 w-7 shrink-0 text-[#ff6a3c]" />
+            <XCircle className="mt-0.5 h-7 w-7 shrink-0 text-red-400" />
             <div>
-              <h3 className="font-semibold text-[#111827]">Error</h3>
-              <p className="text-sm text-[#6b7280]">{error}</p>
+              <h3 className="font-semibold text-red-100">Error</h3>
+              <p className="text-sm text-red-200">{error}</p>
             </div>
           </div>
         </div>

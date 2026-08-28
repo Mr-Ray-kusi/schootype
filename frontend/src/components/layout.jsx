@@ -25,7 +25,6 @@ import {
   ClipboardList,
   Bell,
   Activity,
-  Search,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -37,6 +36,7 @@ import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
 const isNavActive = (pathname, href) => {
   if (!href) return false;
   if (pathname === href) return true;
+  // Avoid `/super-admin` matching every platform page
   if (href === '/super-admin' || href === '/') return false;
   return pathname.startsWith(`${href}/`);
 };
@@ -152,160 +152,162 @@ const Layout = ({ children }) => {
         }))
         .filter((section) => section.items.length > 0);
 
-  const notificationsHref = isSuperAdmin ? '/super-admin/notifications' : '/notifications';
-  const searchHref = isSuperAdmin ? '/super-admin' : '/students';
-
   return (
-    <div className="console-shell p-0 lg:p-3">
+    <div className="min-h-screen bg-slate-900 text-slate-50">
+      <div className="lg:hidden fixed top-4 left-4 z-50">
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="p-2 bg-slate-800 text-slate-50 rounded-lg shadow-md"
+          aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+        >
+          {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+      </div>
+
+      <div className="fixed top-4 right-4 z-50">
+        <Link
+          to={isSuperAdmin ? '/super-admin/notifications' : '/notifications'}
+          className="relative flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-50 shadow-md hover:bg-slate-700"
+          aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
+        >
+          <Bell className="h-5 w-5" />
+          {unread > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-bold text-white">
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </Link>
+      </div>
+
       {sidebarOpen && (
         <button
           type="button"
           aria-label="Close sidebar"
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <div className="console-frame relative">
-        <aside
-          className={`console-sidebar fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 lg:static lg:translate-x-0 ${
-            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
-        >
-          <div className="flex items-center gap-2.5 px-6 pb-2 pt-7">
-            {school?.logo_url ? (
-              <img
-                src={school.logo_url}
-                alt={`${school.name} logo`}
-                loading="lazy"
-                className="h-9 w-9 rounded-lg object-cover"
-              />
-            ) : (
-              <School className="h-7 w-7 text-white" />
-            )}
-            <div className="min-w-0">
-              <h1 className="truncate text-lg font-bold tracking-tight text-white">
-                {isSuperAdmin ? 'Schooltype' : school?.name || 'Schooltype'}
-              </h1>
-            </div>
+      <div
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-slate-800 shadow-xl transform transition-transform duration-300 ease-in-out ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } lg:translate-x-0`}
+      >
+        <div className="flex items-center gap-2 p-6 border-b border-slate-600 shrink-0">
+          {school?.logo_url ? (
+            <img
+              src={school.logo_url}
+              alt={`${school.name} logo`}
+              loading="lazy"
+              className="w-10 h-10 rounded-lg object-cover"
+            />
+          ) : (
+            <School className="w-8 h-8 text-primary-400" />
+          )}
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-white truncate">
+              {isSuperAdmin ? 'SCHOOLTYPE' : (school?.name || 'SCHOOLTYPE')}
+            </h1>
+            <p className="text-xs text-slate-300 truncate">
+              {isSuperAdmin
+                ? 'The central connection point for all your school academic activities'
+                : `${school?.plan_name || 'No plan'} · ${!isPlanApproved && school?.payment_plan ? 'Pending approval' : 'Admin'}`}
+            </p>
           </div>
-
-          <nav className="flex-1 overflow-y-auto py-5 pl-3">
-            {navigationSections.map((section) => (
-              <div key={section.title} className="mb-5">
-                <h2 className="mb-1 px-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">
-                  {section.title}
-                </h2>
-                <div className="space-y-0.5">
-                  {section.items.map((item) => {
-                    const active = isNavActive(location.pathname, item.href);
-                    const isLocked =
-                      !isSuperAdmin &&
-                      Boolean(item.featureKey || item.featureKeys) &&
-                      !isPlanApproved &&
-                      (item.featureKeys
-                        ? !item.featureKeys.some((key) => hasFeature(key))
-                        : Boolean(item.featureKey) && !hasFeature(item.featureKey));
-
-                    const itemClasses = `console-nav-item w-full text-left ${
-                      isLocked ? 'is-locked' : active ? 'is-active' : ''
-                    }`;
-
-                    if (isLocked) {
-                      return (
-                        <button
-                          key={item.href}
-                          type="button"
-                          onClick={() => {
-                            setSidebarOpen(false);
-                            toast.error('This feature is locked until your plan is approved by the admin.');
-                          }}
-                          className={itemClasses}
-                        >
-                          <item.icon className="h-4 w-4 shrink-0" />
-                          <span className="flex-1 truncate">{item.name}</span>
-                          <Lock className="h-3.5 w-3.5 shrink-0" />
-                        </button>
-                      );
-                    }
-
-                    return (
-                      <Link
-                        key={item.href}
-                        to={item.href}
-                        onClick={() => setSidebarOpen(false)}
-                        className={itemClasses}
-                        aria-current={active ? 'page' : undefined}
-                      >
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        <span className="flex-1 truncate">{item.name}</span>
-                        {item.name === 'Notifications' && unread > 0 && (
-                          <span className="rounded-full bg-[#ff6a3c] px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            {unread > 99 ? '99+' : unread}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-
-          <div className="space-y-3 px-6 py-5 text-xs text-white/80">
-            <button type="button" onClick={toggleLiteMode} className="block hover:text-white">
-              Lite mode {liteMode ? 'on' : 'off'}
-            </button>
-            <button type="button" onClick={handleLogout} className="inline-flex items-center gap-1.5 hover:text-white">
-              <LogOut className="h-3.5 w-3.5" />
-              Logout
-            </button>
-          </div>
-        </aside>
-
-        <div className="console-main min-w-0 flex-1 bg-white">
-          <div className="flex items-center justify-between px-4 pb-2 pt-4 sm:px-8">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen((open) => !open)}
-              className="rounded-lg p-2 text-[#111827] lg:hidden"
-              aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
-            >
-              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
-            <div className="ml-auto flex items-center gap-2">
-              <Link
-                to={notificationsHref}
-                className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#111827] hover:bg-[#f3f6fb]"
-                aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
-              >
-                <Bell className="h-5 w-5" />
-                {unread > 0 && (
-                  <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#ff6a3c]" />
-                )}
-              </Link>
-              <Link
-                to={searchHref}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-[#111827] hover:bg-[#f3f6fb]"
-                aria-label="Search"
-              >
-                <Search className="h-5 w-5" />
-              </Link>
-              <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#2f6eff] text-xs font-bold text-white">
-                {school?.logo_url ? (
-                  <img src={school.logo_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  (school?.name || 'S').charAt(0).toUpperCase()
-                )}
-              </span>
-            </div>
-          </div>
-
-          <main className="min-w-0 overflow-x-hidden px-4 pb-8 pt-2 sm:px-8">
-            <OfflineBanner />
-            {children ?? <Outlet />}
-          </main>
         </div>
+
+        <nav className="flex-1 p-4 space-y-6 overflow-y-auto">
+          {navigationSections.map((section) => (
+            <div key={section.title}>
+              <h2 className="px-4 text-xs font-semibold uppercase tracking-wide text-slate-300">
+                {section.title}
+              </h2>
+              <div className="mt-2 space-y-1">
+                {section.items.map((item) => {
+                  const active = isNavActive(location.pathname, item.href);
+                  const isLocked =
+                    !isSuperAdmin &&
+                    Boolean(item.featureKey || item.featureKeys) &&
+                    !isPlanApproved &&
+                    (item.featureKeys
+                      ? !item.featureKeys.some((key) => hasFeature(key))
+                      : Boolean(item.featureKey) && !hasFeature(item.featureKey));
+
+                  const itemClasses = `flex items-center gap-3 px-4 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                    isLocked
+                      ? 'text-slate-400 cursor-not-allowed opacity-60'
+                      : active
+                        ? 'bg-slate-700 text-white'
+                        : 'text-slate-100 hover:bg-slate-700'
+                  }`;
+
+                  if (isLocked) {
+                    return (
+                      <button
+                        key={item.href}
+                        type="button"
+                        onClick={() => {
+                          setSidebarOpen(false);
+                          toast.error('This feature is locked until your plan is approved by the admin.');
+                        }}
+                        className={`${itemClasses} w-full text-left`}
+                      >
+                        <item.icon className="w-5 h-5 shrink-0" />
+                        <span className="flex-1 truncate">{item.name}</span>
+                        <Lock className="w-4 h-4 shrink-0" />
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={itemClasses}
+                      aria-current={active ? 'page' : undefined}
+                    >
+                      <item.icon className="w-5 h-5 shrink-0" />
+                      <span className="flex-1 truncate">{item.name}</span>
+                      {item.name === 'Notifications' && unread > 0 && (
+                        <span className="rounded-full bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        <div className="shrink-0 border-t border-slate-600 p-4">
+          <button
+            type="button"
+            onClick={toggleLiteMode}
+            className="mb-2 flex w-full items-center justify-between rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
+          >
+            <span>Lite Mode</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${liteMode ? 'bg-sky-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
+              {liteMode ? 'On' : 'Off'}
+            </span>
+          </button>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 px-4 py-2 w-full text-red-400 rounded-lg hover:bg-red-800 transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="lg:ml-64 min-w-0">
+        <main className="min-w-0 overflow-x-hidden p-6 pt-16 lg:pt-6">
+          <OfflineBanner />
+          {children ?? <Outlet />}
+        </main>
       </div>
     </div>
   );

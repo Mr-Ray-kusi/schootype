@@ -169,7 +169,7 @@ const Dashboard = () => {
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
                 Overview
               </p>
-              <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-[#111827] md:text-4xl">
+              <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
               <p className="mt-1.5 text-sm text-slate-400">{todayLabel}</p>

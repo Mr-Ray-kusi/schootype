@@ -1,18 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Filter, Printer } from 'lucide-react';
+import { Filter, Clock, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache } from '../utils/requestCache';
-import {
-  ConsoleHeader,
-  ConsoleTabs,
-  ConsoleStatus,
-  ConsoleEmpty,
-  ConsoleButton,
-  ConsoleAvatar,
-  consoleFieldClass,
-} from '../components/consoleUi';
+import useLiteMode from '../hooks/useLiteMode';
 
 const Attendance = () => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -26,7 +18,7 @@ const Attendance = () => {
   const [summary, setSummary] = useState(null);
   const [lateAfterTime, setLateAfterTime] = useState('08:00');
   const [savingLateTime, setSavingLateTime] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  const { liteMode } = useLiteMode();
 
   useEffect(() => {
     fetchAttendance();
@@ -133,185 +125,254 @@ const Attendance = () => {
     window.print();
   };
 
-  const typeLabel = (type) => {
-    if (type === 'non-staff') return 'Non-staff';
-    if (type === 'staff') return 'Staff';
-    if (type === 'student') return 'Student';
-    return type || '—';
+  const getTypeColor = (type) => {
+    switch (type) {
+      case 'student':
+        return 'bg-primary-100 text-primary-800';
+      case 'staff':
+        return 'bg-green-100 text-green-800';
+      case 'non-staff':
+        return 'bg-purple-100 text-purple-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
   };
 
   if (loading) {
-    return <div className="py-12 text-center text-[#6b7280]">Loading attendance records...</div>;
+    return (
+      <>
+<div className="text-center py-12">Loading attendance records...</div>
+</>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <ConsoleHeader
-        title="Attendance"
-        subtitle={`${filteredRecords.length} record${filteredRecords.length !== 1 ? 's' : ''} found`}
-      >
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className={`${consoleFieldClass} w-auto min-w-[10.5rem]`}
-          title="Select date"
-        />
-        <input
-          type="date"
-          value={fromDate}
-          onChange={(e) => setFromDate(e.target.value)}
-          className={`${consoleFieldClass} w-auto min-w-[10.5rem]`}
-          title="Range from"
-        />
-        <input
-          type="date"
-          value={toDate}
-          onChange={(e) => setToDate(e.target.value)}
-          className={`${consoleFieldClass} w-auto min-w-[10.5rem]`}
-          title="Range to"
-        />
-        <ConsoleButton
-          variant="ghost"
-          onClick={() => {
-            invalidateCache('attendance');
-            setLoading(true);
-            fetchAttendance();
-            fetchSummary();
-          }}
-        >
-          <Filter className="h-4 w-4" />
-          Refresh
-        </ConsoleButton>
-        <ConsoleButton variant="ghost" onClick={handlePrint}>
-          <Printer className="h-4 w-4" />
-          Print
-        </ConsoleButton>
-      </ConsoleHeader>
+    <>
+<div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Attendance Management</h1>
+        </div>
 
-      <ConsoleTabs
-        tabs={[
-          { id: 'all', label: 'All' },
-          { id: 'student', label: 'Students' },
-          { id: 'staff', label: 'Staff' },
-          { id: 'non-staff', label: 'Non-staff' },
-        ]}
-        value={selectedType}
-        onChange={setSelectedType}
-      />
+        {summary && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-sm font-medium text-gray-500">Students Attendance</h3>
+              <p className="mt-2 text-2xl font-bold text-gray-900">
+                {summary.students.present} / {summary.students.total}
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-6 shadow-sm">
+              <h3 className="text-sm font-medium text-gray-500">Staff Attendance</h3>
+              <p className="mt-2 text-2xl font-bold text-gray-900">
+                {summary.staff.present} / {summary.staff.total}
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-6 shadow-sm">
+              <h3 className="text-sm font-medium text-gray-500">Non-Staff Attendance</h3>
+              <p className="mt-2 text-2xl font-bold text-gray-900">
+                {summary.nonStaff.present} / {summary.nonStaff.total}
+              </p>
+            </div>
+          </div>
+        )}
 
-      {summary && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-[#e6ebf4] bg-white p-5">
-            <h3 className="text-sm font-medium text-[#6b7280]">Students</h3>
-            <p className="mt-2 text-2xl font-bold text-[#111827]">
-              {summary.students.present} / {summary.students.total}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#e6ebf4] bg-white p-5">
-            <h3 className="text-sm font-medium text-[#6b7280]">Staff</h3>
-            <p className="mt-2 text-2xl font-bold text-[#111827]">
-              {summary.staff.present} / {summary.staff.total}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#e6ebf4] bg-white p-5">
-            <h3 className="text-sm font-medium text-[#6b7280]">Non-staff</h3>
-            <p className="mt-2 text-2xl font-bold text-[#111827]">
-              {summary.nonStaff.present} / {summary.nonStaff.total}
-            </p>
+        <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Late after</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Scans at or before this time count as Early; after this time count as Late.
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <label className="mb-1 block text-xs font-medium text-gray-600">Cutoff time</label>
+                <input
+                  type="time"
+                  value={lateAfterTime}
+                  onChange={(e) => setLateAfterTime(e.target.value)}
+                  className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-slate-900"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={saveLateSettings}
+                disabled={savingLateTime}
+                className="min-h-[48px] w-full rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 sm:w-auto"
+              >
+                {savingLateTime ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
-      )}
 
-      <div className="rounded-2xl border border-[#e6ebf4] bg-white p-4 sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-[#111827]">Late after</h2>
-            <p className="mt-1 text-sm text-[#6b7280]">
-              Scans at or before this time count as Early; after this time count as Late.
-            </p>
-          </div>
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end lg:w-auto">
-            <div className="min-w-0 flex-1 lg:w-44">
-              <label className="mb-1 block text-xs font-medium text-[#6b7280]">Cutoff time</label>
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="grid gap-4 lg:grid-cols-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Date</label>
               <input
-                type="time"
-                value={lateAfterTime}
-                onChange={(e) => setLateAfterTime(e.target.value)}
-                className={consoleFieldClass}
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
-            <ConsoleButton onClick={saveLateSettings} disabled={savingLateTime}>
-              {savingLateTime ? 'Saving…' : 'Save'}
-            </ConsoleButton>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Range From</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Range To</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Type</label>
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
+              >
+                <option value="all">All Types</option>
+                <option value="student">Students</option>
+                <option value="staff">Staff</option>
+                <option value="non-staff">Non-Staff</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Class / Role</label>
+              <select
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
+              >
+                <option value="all">All Classes / Roles</option>
+                {Array.from(
+                  new Set(attendanceRecords.map((record) => getPersonLabel(record)).filter((v) => v && v !== 'N/A'))
+                ).map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-end gap-3">
+              <button
+                onClick={() => {
+                  invalidateCache('attendance');
+                  setLoading(true);
+                  fetchAttendance();
+                  fetchSummary();
+                }}
+                className="w-full px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center justify-center gap-2"
+              >
+                <Filter className="w-4 h-4" />
+                Refresh
+              </button>
+            </div>
+            <div className="flex items-end gap-3">
+              <button
+                onClick={handlePrint}
+                className="w-full px-6 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800"
+              >
+                Print View
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={selectedClass}
-          onChange={(e) => setSelectedClass(e.target.value)}
-          className={`${consoleFieldClass} w-auto min-w-[12rem]`}
-        >
-          <option value="all">All classes / roles</option>
-          {Array.from(
-            new Set(attendanceRecords.map((record) => getPersonLabel(record)).filter((v) => v && v !== 'N/A'))
-          ).map((label) => (
-            <option key={label} value={label}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="overflow-x-auto">
-        {filteredRecords.length === 0 ? (
-          <ConsoleEmpty title="No attendance records found for this date." />
-        ) : (
-          <table className="console-table min-w-[640px]">
-            <thead>
-              <tr>
-                <th>Id</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Role / Class</th>
-                <th>Time</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRecords.map((record, index) => {
-                const punctuality = getPunctuality(record);
-                const isLate = punctuality === 'late';
-                const active = selectedId === record.id;
-                return (
-                  <tr
-                    key={record.id}
-                    className={`console-row ${active ? 'is-active' : ''}`}
-                    onClick={() => setSelectedId(record.id)}
-                  >
-                    <td className="font-semibold">#{String(index + 1).padStart(2, '0')}</td>
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <ConsoleAvatar src={record.user?.photo_url} name={getPersonName(record)} />
-                        <span className="font-medium">{getPersonName(record)}</span>
-                      </div>
-                    </td>
-                    <td className="console-muted">{typeLabel(record.user_type)}</td>
-                    <td className="console-muted">{getPersonLabel(record)}</td>
-                    <td className="console-muted">{format(new Date(record.timestamp), 'hh:mm a')}</td>
-                    <td>
-                      <ConsoleStatus tone={isLate ? 'orange' : 'blue'} label={isLate ? 'Late' : 'Early'} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {!liteMode && (
+        <div className="hidden overflow-hidden rounded-xl bg-white shadow-sm md:block">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Role/Class
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Time
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredRecords.map((record) => {
+                  const punctuality = getPunctuality(record);
+                  const isLate = punctuality === 'late';
+                  return (
+                    <tr key={record.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{getPersonName(record)}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 text-xs rounded-full ${getTypeColor(record.user_type)}`}>
+                          {record.user_type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {getPersonLabel(record)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {format(new Date(record.timestamp), 'hh:mm a')}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`flex items-center gap-1 ${
+                            isLate ? 'text-amber-600' : 'text-green-600'
+                          }`}
+                        >
+                          {isLate ? (
+                            <AlertTriangle className="w-4 h-4" />
+                          ) : (
+                            <Clock className="w-4 h-4" />
+                          )}
+                          {isLate ? 'Late' : 'Early'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {filteredRecords.length === 0 && (
+            <div className="py-12 text-center">
+              <p className="text-gray-500">No attendance records found for this date.</p>
+            </div>
+          )}
+        </div>
         )}
+
+        <div className="rounded-xl bg-white p-4 shadow-sm md:hidden">
+          <p className="text-sm font-medium text-slate-300">Records today</p>
+          <p className="mt-2 text-3xl font-bold text-white">{filteredRecords.length}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Open this page on a larger screen to view the full attendance table.
+          </p>
+        </div>
       </div>
-    </div>
+</>
   );
 };
 
