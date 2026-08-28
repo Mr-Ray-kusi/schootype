@@ -49,6 +49,15 @@ function formatTransaction(tx) {
   };
 }
 
+function sendStoreError(res, err, fallback) {
+  console.error(fallback, err);
+  const status = Number(err.status) || 500;
+  const expose = status === 400 || status === 503;
+  return res.status(status >= 400 ? status : 500).json({
+    error: expose && err.message ? err.message : fallback,
+  });
+}
+
 function handlePaystackError(res, err) {
   const rawMessage = err.message || 'Paystack request failed';
   // Never show Paystack's internal success phrasing as an error toast
@@ -87,8 +96,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         },
       });
     } catch (err) {
-      console.error('Get wallet error:', err);
-      res.status(500).json({ error: 'Failed to load wallet' });
+      sendStoreError(res, err, 'Failed to load wallet');
     }
   });
 
@@ -108,8 +116,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       const accounts = await listWalletAccounts(req.user.schoolId);
       res.json({ accounts });
     } catch (err) {
-      console.error('List wallet accounts error:', err);
-      res.status(500).json({ error: 'Failed to load bank settings' });
+      sendStoreError(res, err, 'Failed to load bank settings');
     }
   });
 

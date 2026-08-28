@@ -3,15 +3,51 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
+import { supabase } from './supabaseClient.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
 
 let dbPromise = null;
 
+/** Prefer Supabase on Vercel (or when WALLET_STORE=supabase). */
+function useCloudWallet() {
+  return Boolean(process.env.VERCEL) || String(process.env.WALLET_STORE || '').toLowerCase() === 'supabase';
+}
+
+function assertCloud() {
+  if (!supabase) {
+    const err = new Error(
+      'Supabase is required for wallets on Vercel. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+    );
+    err.status = 503;
+    throw err;
+  }
+}
+
+function throwWalletError(error) {
+  const msg = String(error?.message || error || '');
+  const missingTable = /schema cache|could not find the table|does not exist/i.test(msg);
+  if (missingTable) {
+    const err = new Error(
+      'Wallet tables are missing in Supabase. Run database/supabase_core_billing.sql then database/supabase_backend_access.sql in the SQL editor.'
+    );
+    err.status = 503;
+    throw err;
+  }
+  if (error?.code === '23503' || /foreign key/i.test(msg)) {
+    const err = new Error(
+      'This school is not in Supabase, so a wallet cannot be created. Confirm the school exists in the schools table.'
+    );
+    err.status = 503;
+    throw err;
+  }
+  throw error;
+}
+
 async function getDb() {
-  if (process.env.VERCEL) {
-    throw new Error('Wallet local store is unavailable on Vercel; configure Supabase wallet tables for production.');
+  if (useCloudWallet()) {
+    throw new Error('LOCAL_WALLET_DB_SKIP');
   }
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -75,12 +111,24 @@ function nowIso() {
 
 function parseMetadata(raw) {
   if (!raw) return {};
+  if (typeof raw === 'object') return raw;
   try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }
+}
+
+function mapWallet(row) {
+  if (!row) return null;
+  return {
+    school_id: row.school_id,
+    available_balance: Number(row.available_balance) || 0,
+    pending_balance: Number(row.pending_balance) || 0,
+    currency: row.currency || 'GHS',
+    updated_at: row.updated_at,
+  };
 }
 
 function mapAccount(row) {
@@ -97,7 +145,7 @@ function mapAccount(row) {
     provider: row.provider,
     currency: row.currency,
     paystack_recipient_code: row.paystack_recipient_code,
-    is_default: row.is_default === 1,
+    is_default: row.is_default === 1 || row.is_default === true,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -109,8 +157,8 @@ function mapTransaction(row) {
     id: row.id,
     school_id: row.school_id,
     type: row.type,
-    amount: row.amount,
-    fee: row.fee,
+    amount: Number(row.amount) || 0,
+    fee: Number(row.fee) || 0,
     status: row.status,
     channel: row.channel,
     account_id: row.account_id,
@@ -123,11 +171,61 @@ function mapTransaction(row) {
   };
 }
 
+function isDuplicateKey(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return error?.code === '23505' || msg.includes('duplicate');
+}
+
+async function ensureWalletCloud(schoolId, currency = 'GHS') {
+  assertCloud();
+  const { data, error } = await supabase
+    .from('school_wallets')
+    .select('*')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (error) throwWalletError(error);
+  if (data) return data;
+
+  const row = {
+    school_id: schoolId,
+    available_balance: 0,
+    pending_balance: 0,
+    currency,
+    updated_at: nowIso(),
+  };
+  const { data: inserted, error: insErr } = await supabase
+    .from('school_wallets')
+    .insert([row])
+    .select()
+    .single();
+  if (insErr) {
+    if (isDuplicateKey(insErr)) {
+      const { data: again, error: againErr } = await supabase
+        .from('school_wallets')
+        .select('*')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      if (againErr) throwWalletError(againErr);
+      if (again) return again;
+    }
+    throwWalletError(insErr);
+  }
+  return inserted;
+}
+
 export async function initSchoolWalletStore() {
+  if (useCloudWallet()) {
+    assertCloud();
+    const { error } = await supabase.from('school_wallets').select('school_id').limit(1);
+    if (error) throwWalletError(error);
+    return;
+  }
   await getDb();
 }
 
 export async function ensureWallet(schoolId, currency = 'GHS') {
+  if (useCloudWallet()) return ensureWalletCloud(schoolId, currency);
+
   const db = await getDb();
   const existing = await db.get('SELECT * FROM school_wallets WHERE school_id = ?', [schoolId]);
   if (existing) return existing;
@@ -143,16 +241,21 @@ export async function ensureWallet(schoolId, currency = 'GHS') {
 
 export async function getWallet(schoolId) {
   const wallet = await ensureWallet(schoolId);
-  return {
-    school_id: wallet.school_id,
-    available_balance: wallet.available_balance || 0,
-    pending_balance: wallet.pending_balance || 0,
-    currency: wallet.currency || 'GHS',
-    updated_at: wallet.updated_at,
-  };
+  return mapWallet(wallet);
 }
 
 export async function listWalletAccounts(schoolId) {
+  if (useCloudWallet()) {
+    assertCloud();
+    const { data, error } = await supabase
+      .from('wallet_accounts')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) throwWalletError(error);
+    return (data || []).map(mapAccount);
+  }
   const db = await getDb();
   const rows = await db.all(
     `SELECT * FROM wallet_accounts WHERE school_id = ? ORDER BY is_default DESC, created_at DESC`,
@@ -162,6 +265,17 @@ export async function listWalletAccounts(schoolId) {
 }
 
 export async function getWalletAccount(schoolId, accountId) {
+  if (useCloudWallet()) {
+    assertCloud();
+    const { data, error } = await supabase
+      .from('wallet_accounts')
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('id', accountId)
+      .maybeSingle();
+    if (error) throwWalletError(error);
+    return mapAccount(data);
+  }
   const db = await getDb();
   const row = await db.get(
     `SELECT * FROM wallet_accounts WHERE school_id = ? AND id = ?`,
@@ -171,12 +285,43 @@ export async function getWalletAccount(schoolId, accountId) {
 }
 
 export async function createWalletAccount(schoolId, data) {
-  const db = await getDb();
-  const id = randomUUID();
-  const timestamp = nowIso();
   const existing = await listWalletAccounts(schoolId);
   const makeDefault = existing.length === 0 || Boolean(data.is_default);
+  const id = randomUUID();
+  const timestamp = nowIso();
 
+  if (useCloudWallet()) {
+    assertCloud();
+    if (makeDefault) {
+      const { error } = await supabase
+        .from('wallet_accounts')
+        .update({ is_default: false })
+        .eq('school_id', schoolId);
+      if (error) throwWalletError(error);
+    }
+    const { error } = await supabase.from('wallet_accounts').insert([
+      {
+        id,
+        school_id: schoolId,
+        type: data.type,
+        label: data.label || null,
+        account_name: data.account_name,
+        account_number: data.account_number,
+        bank_code: data.bank_code,
+        bank_name: data.bank_name || null,
+        provider: data.provider || null,
+        currency: data.currency || 'GHS',
+        paystack_recipient_code: data.paystack_recipient_code || null,
+        is_default: makeDefault,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ]);
+    if (error) throwWalletError(error);
+    return getWalletAccount(schoolId, id);
+  }
+
+  const db = await getDb();
   if (makeDefault) {
     await db.run(`UPDATE wallet_accounts SET is_default = 0 WHERE school_id = ?`, [schoolId]);
   }
@@ -208,7 +353,6 @@ export async function createWalletAccount(schoolId, data) {
 }
 
 export async function updateWalletAccount(schoolId, accountId, patch) {
-  const db = await getDb();
   const existing = await getWalletAccount(schoolId, accountId);
   if (!existing) return null;
 
@@ -217,7 +361,38 @@ export async function updateWalletAccount(schoolId, accountId, patch) {
     ...patch,
     updated_at: nowIso(),
   };
+  const isDefault = Boolean(next.is_default || patch.is_default);
 
+  if (useCloudWallet()) {
+    assertCloud();
+    if (patch.is_default) {
+      const { error } = await supabase
+        .from('wallet_accounts')
+        .update({ is_default: false })
+        .eq('school_id', schoolId);
+      if (error) throwWalletError(error);
+    }
+    const { error } = await supabase
+      .from('wallet_accounts')
+      .update({
+        label: next.label || null,
+        account_name: next.account_name,
+        account_number: next.account_number,
+        bank_code: next.bank_code,
+        bank_name: next.bank_name || null,
+        provider: next.provider || null,
+        currency: next.currency || 'GHS',
+        paystack_recipient_code: next.paystack_recipient_code || null,
+        is_default: isDefault,
+        updated_at: next.updated_at,
+      })
+      .eq('school_id', schoolId)
+      .eq('id', accountId);
+    if (error) throwWalletError(error);
+    return getWalletAccount(schoolId, accountId);
+  }
+
+  const db = await getDb();
   if (patch.is_default) {
     await db.run(`UPDATE wallet_accounts SET is_default = 0 WHERE school_id = ?`, [schoolId]);
   }
@@ -236,7 +411,7 @@ export async function updateWalletAccount(schoolId, accountId, patch) {
       next.provider || null,
       next.currency || 'GHS',
       next.paystack_recipient_code || null,
-      (next.is_default || patch.is_default) ? 1 : 0,
+      isDefault ? 1 : 0,
       next.updated_at,
       schoolId,
       accountId,
@@ -247,10 +422,31 @@ export async function updateWalletAccount(schoolId, accountId, patch) {
 }
 
 export async function deleteWalletAccount(schoolId, accountId) {
-  const db = await getDb();
   const existing = await getWalletAccount(schoolId, accountId);
   if (!existing) return false;
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const { error } = await supabase
+      .from('wallet_accounts')
+      .delete()
+      .eq('school_id', schoolId)
+      .eq('id', accountId);
+    if (error) throwWalletError(error);
+    if (existing.is_default) {
+      const remaining = await listWalletAccounts(schoolId);
+      if (remaining[0]) {
+        const { error: defErr } = await supabase
+          .from('wallet_accounts')
+          .update({ is_default: true, updated_at: nowIso() })
+          .eq('id', remaining[0].id);
+        if (defErr) throwWalletError(defErr);
+      }
+    }
+    return true;
+  }
+
+  const db = await getDb();
   await db.run(`DELETE FROM wallet_accounts WHERE school_id = ? AND id = ?`, [schoolId, accountId]);
 
   if (existing.is_default) {
@@ -267,10 +463,34 @@ export async function deleteWalletAccount(schoolId, accountId) {
 }
 
 export async function createWalletTransaction(schoolId, data) {
-  const db = await getDb();
   const id = randomUUID();
   const timestamp = nowIso();
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const { error } = await supabase.from('wallet_transactions').insert([
+      {
+        id,
+        school_id: schoolId,
+        type: data.type,
+        amount: data.amount,
+        fee: data.fee || 0,
+        status: data.status,
+        channel: data.channel || null,
+        account_id: data.account_id || null,
+        reference: data.reference,
+        provider_reference: data.provider_reference || null,
+        description: data.description || null,
+        metadata: data.metadata || {},
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ]);
+    if (error) throwWalletError(error);
+    return getWalletTransactionByReference(data.reference);
+  }
+
+  const db = await getDb();
   await db.run(
     `INSERT INTO wallet_transactions (
       id, school_id, type, amount, fee, status, channel, account_id, reference,
@@ -298,12 +518,33 @@ export async function createWalletTransaction(schoolId, data) {
 }
 
 export async function getWalletTransactionByReference(reference) {
+  if (useCloudWallet()) {
+    assertCloud();
+    const { data, error } = await supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('reference', reference)
+      .maybeSingle();
+    if (error) throwWalletError(error);
+    return mapTransaction(data);
+  }
   const db = await getDb();
   const row = await db.get(`SELECT * FROM wallet_transactions WHERE reference = ?`, [reference]);
   return mapTransaction(row);
 }
 
 export async function listWalletTransactions(schoolId, { limit = 50 } = {}) {
+  if (useCloudWallet()) {
+    assertCloud();
+    const { data, error } = await supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throwWalletError(error);
+    return (data || []).map(mapTransaction);
+  }
   const db = await getDb();
   const rows = await db.all(
     `SELECT * FROM wallet_transactions WHERE school_id = ? ORDER BY created_at DESC LIMIT ?`,
@@ -313,7 +554,6 @@ export async function listWalletTransactions(schoolId, { limit = 50 } = {}) {
 }
 
 export async function updateWalletTransaction(reference, patch) {
-  const db = await getDb();
   const existing = await getWalletTransactionByReference(reference);
   if (!existing) return null;
 
@@ -321,6 +561,24 @@ export async function updateWalletTransaction(reference, patch) {
     ? { ...existing.metadata, ...patch.metadata }
     : existing.metadata;
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const next = {
+      metadata,
+      updated_at: nowIso(),
+    };
+    if (patch.status !== undefined) next.status = patch.status;
+    if (patch.provider_reference !== undefined) next.provider_reference = patch.provider_reference;
+    if (patch.description !== undefined) next.description = patch.description;
+    const { error } = await supabase
+      .from('wallet_transactions')
+      .update(next)
+      .eq('reference', reference);
+    if (error) throwWalletError(error);
+    return getWalletTransactionByReference(reference);
+  }
+
+  const db = await getDb();
   await db.run(
     `UPDATE wallet_transactions SET
       status = COALESCE(?, status),
@@ -346,11 +604,42 @@ export async function updateWalletTransaction(reference, patch) {
  * Apply a successful deposit once (idempotent by reference status).
  */
 export async function creditDeposit(reference) {
-  const db = await getDb();
   const tx = await getWalletTransactionByReference(reference);
   if (!tx) return null;
   if (tx.status === 'success') return { wallet: await getWallet(tx.school_id), transaction: tx };
 
+  if (useCloudWallet()) {
+    assertCloud();
+    await ensureWallet(tx.school_id);
+    const { data: marked, error: markErr } = await supabase
+      .from('wallet_transactions')
+      .update({ status: 'success', updated_at: nowIso() })
+      .eq('reference', reference)
+      .neq('status', 'success')
+      .select('id');
+    if (markErr) throwWalletError(markErr);
+    if (!marked?.length) {
+      return {
+        wallet: await getWallet(tx.school_id),
+        transaction: await getWalletTransactionByReference(reference),
+      };
+    }
+    const wallet = await getWallet(tx.school_id);
+    const { error } = await supabase
+      .from('school_wallets')
+      .update({
+        available_balance: wallet.available_balance + tx.amount,
+        updated_at: nowIso(),
+      })
+      .eq('school_id', tx.school_id);
+    if (error) throwWalletError(error);
+    return {
+      wallet: await getWallet(tx.school_id),
+      transaction: await getWalletTransactionByReference(reference),
+    };
+  }
+
+  const db = await getDb();
   await ensureWallet(tx.school_id);
   await db.run('BEGIN');
   try {
@@ -388,9 +677,36 @@ export async function creditDeposit(reference) {
  * Move available → pending when withdrawal is initiated.
  */
 export async function reserveWithdrawal(schoolId, amountMinor) {
-  const db = await getDb();
   await ensureWallet(schoolId);
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const wallet = await getWallet(schoolId);
+    if (wallet.available_balance < amountMinor) {
+      const err = new Error('Insufficient wallet balance');
+      err.status = 400;
+      throw err;
+    }
+    const { data, error } = await supabase
+      .from('school_wallets')
+      .update({
+        available_balance: wallet.available_balance - amountMinor,
+        pending_balance: wallet.pending_balance + amountMinor,
+        updated_at: nowIso(),
+      })
+      .eq('school_id', schoolId)
+      .gte('available_balance', amountMinor)
+      .select('school_id');
+    if (error) throwWalletError(error);
+    if (!data?.length) {
+      const err = new Error('Insufficient wallet balance');
+      err.status = 400;
+      throw err;
+    }
+    return getWallet(schoolId);
+  }
+
+  const db = await getDb();
   const updated = await db.run(
     `UPDATE school_wallets
      SET available_balance = available_balance - ?,
@@ -410,11 +726,31 @@ export async function reserveWithdrawal(schoolId, amountMinor) {
 }
 
 export async function completeWithdrawal(reference) {
-  const db = await getDb();
   const tx = await getWalletTransactionByReference(reference);
   if (!tx) return null;
   if (tx.status === 'success') return { wallet: await getWallet(tx.school_id), transaction: tx };
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const wallet = await getWallet(tx.school_id);
+    const nextPending = Math.max(0, wallet.pending_balance - tx.amount);
+    const { error: walletErr } = await supabase
+      .from('school_wallets')
+      .update({ pending_balance: nextPending, updated_at: nowIso() })
+      .eq('school_id', tx.school_id);
+    if (walletErr) throwWalletError(walletErr);
+    const { error: txErr } = await supabase
+      .from('wallet_transactions')
+      .update({ status: 'success', updated_at: nowIso() })
+      .eq('reference', reference);
+    if (txErr) throwWalletError(txErr);
+    return {
+      wallet: await getWallet(tx.school_id),
+      transaction: await getWalletTransactionByReference(reference),
+    };
+  }
+
+  const db = await getDb();
   await db.run('BEGIN');
   try {
     await db.run(
@@ -441,13 +777,41 @@ export async function completeWithdrawal(reference) {
 }
 
 export async function failWithdrawal(reference, reason) {
-  const db = await getDb();
   const tx = await getWalletTransactionByReference(reference);
   if (!tx) return null;
   if (tx.status === 'success' || tx.status === 'failed') {
     return { wallet: await getWallet(tx.school_id), transaction: tx };
   }
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const wallet = await getWallet(tx.school_id);
+    const release = Math.min(wallet.pending_balance, tx.amount);
+    const { error: walletErr } = await supabase
+      .from('school_wallets')
+      .update({
+        pending_balance: wallet.pending_balance - release,
+        available_balance: wallet.available_balance + tx.amount,
+        updated_at: nowIso(),
+      })
+      .eq('school_id', tx.school_id);
+    if (walletErr) throwWalletError(walletErr);
+    const { error: txErr } = await supabase
+      .from('wallet_transactions')
+      .update({
+        status: 'failed',
+        description: reason || tx.description,
+        updated_at: nowIso(),
+      })
+      .eq('reference', reference);
+    if (txErr) throwWalletError(txErr);
+    return {
+      wallet: await getWallet(tx.school_id),
+      transaction: await getWalletTransactionByReference(reference),
+    };
+  }
+
+  const db = await getDb();
   await db.run('BEGIN');
   try {
     await db.run(
@@ -504,7 +868,6 @@ export async function transferBetweenWallets({
     throw err;
   }
 
-  const db = await getDb();
   await ensureWallet(fromSchoolId);
   await ensureWallet(toSchoolId);
 
@@ -522,6 +885,74 @@ export async function transferBetweenWallets({
   const creditRef = `${reference}_in`;
   const timestamp = nowIso();
 
+  if (useCloudWallet()) {
+    assertCloud();
+    const toWallet = await getWallet(toSchoolId);
+    const { error: fromErr } = await supabase
+      .from('school_wallets')
+      .update({
+        available_balance: fromWallet.available_balance - amount,
+        updated_at: timestamp,
+      })
+      .eq('school_id', fromSchoolId);
+    if (fromErr) throwWalletError(fromErr);
+    const { error: toErr } = await supabase
+      .from('school_wallets')
+      .update({
+        available_balance: toWallet.available_balance + amount,
+        updated_at: timestamp,
+      })
+      .eq('school_id', toSchoolId);
+    if (toErr) throwWalletError(toErr);
+
+    const { error: debitErr } = await supabase.from('wallet_transactions').insert([
+      {
+        id: randomUUID(),
+        school_id: fromSchoolId,
+        type: 'debit',
+        amount,
+        fee: 0,
+        status: 'success',
+        channel: 'internal',
+        account_id: null,
+        reference: debitRef,
+        provider_reference: null,
+        description: description || 'Internal transfer out',
+        metadata: { ...metadata, direction: 'out', counterpart: toSchoolId },
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ]);
+    if (debitErr) throwWalletError(debitErr);
+    const { error: creditErr } = await supabase.from('wallet_transactions').insert([
+      {
+        id: randomUUID(),
+        school_id: toSchoolId,
+        type: 'credit',
+        amount,
+        fee: 0,
+        status: 'success',
+        channel: 'internal',
+        account_id: null,
+        reference: creditRef,
+        provider_reference: null,
+        description: description || 'Internal transfer in',
+        metadata: { ...metadata, direction: 'in', counterpart: fromSchoolId },
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ]);
+    if (creditErr) throwWalletError(creditErr);
+
+    return {
+      from_wallet: await getWallet(fromSchoolId),
+      to_wallet: await getWallet(toSchoolId),
+      reference,
+      amount_minor: amount,
+    };
+  }
+
+  const db = await getDb();
   await db.run('BEGIN');
   try {
     await db.run(

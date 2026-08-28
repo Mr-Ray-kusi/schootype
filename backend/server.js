@@ -4940,22 +4940,19 @@ async function initializeDatabase() {
     await initAuthSecurityStore();
     console.log('Auth security store ready');
     await initPlatformTelemetry();
-    // Wallet/SMS local stores are unavailable on Vercel — skip probing them there.
-    if (!process.env.VERCEL) {
-      try {
-        await initSchoolWalletStore();
-        console.log('School wallet store ready');
-      } catch (walletErr) {
-        console.warn('School wallet store unavailable:', walletErr.message || walletErr);
-        console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
-      }
-      try {
-        await initPlatformSmsStore();
-        console.log('Platform SMS store ready');
-      } catch (smsErr) {
-        console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
-        console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
-      }
+    try {
+      await initSchoolWalletStore();
+      console.log('School wallet store ready');
+    } catch (walletErr) {
+      console.warn('School wallet store unavailable:', walletErr.message || walletErr);
+      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
+    }
+    try {
+      await initPlatformSmsStore();
+      console.log('Platform SMS store ready');
+    } catch (smsErr) {
+      console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
+      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
     }
     await seedSuperAdmin();
     return true;
