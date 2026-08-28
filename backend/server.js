@@ -263,6 +263,20 @@ const isMissingColumnError = (error, column) => {
   );
 };
 
+const isNotNullColumnError = (error, column) => {
+  const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  const col = String(column || '').toLowerCase();
+  return Boolean(col) && msg.includes(col) && (msg.includes('not-null') || msg.includes('not null') || error?.code === '23502');
+};
+
+const fillIdentityCodes = (payload) => {
+  const code = payload.barcode || payload.qr_code;
+  if (!code) return payload;
+  if (!payload.barcode) payload.barcode = code;
+  if (!payload.qr_code) payload.qr_code = code;
+  return payload;
+};
+
 const findSchoolByEmail = async (email) => {
   const { data, error } = await supabase
     .from('schools')
@@ -566,7 +580,7 @@ const validateLogo = (logo) => {
 const validateImage = validateLogo;
 
 const insertStudentRecord = async (record) => {
-  const payload = { ...record };
+  const payload = fillIdentityCodes({ ...record });
   const optionalColumns = [
     'photo_url',
     'parent_phone',
@@ -577,9 +591,11 @@ const insertStudentRecord = async (record) => {
     'parent_email',
     'roll_number',
     'skills',
+    'barcode',
+    'qr_code',
   ];
 
-  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+  for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
     const { data, error } = await supabase.from('students').insert([payload]).select().single();
 
     if (!error) {
@@ -592,6 +608,15 @@ const insertStudentRecord = async (record) => {
 
     if (missingColumn) {
       delete payload[missingColumn];
+      continue;
+    }
+
+    if (isNotNullColumnError(error, 'qr_code') && payload.barcode && payload.qr_code !== payload.barcode) {
+      payload.qr_code = payload.barcode;
+      continue;
+    }
+    if (isNotNullColumnError(error, 'barcode') && payload.qr_code && payload.barcode !== payload.qr_code) {
+      payload.barcode = payload.qr_code;
       continue;
     }
 
@@ -1140,14 +1165,16 @@ app.post('/api/auth/login', async (req, res) => {
     await clearLoginFailures(email);
 
     const token = signAuthToken(school);
-    recordPlatformEvent({
-      eventType: 'login',
-      schoolId: school.id,
-      schoolName: school.name,
-      email: school.email,
-      role: getSchoolRole(school),
-      path: '/login',
-    }).catch(() => {});
+    if (getSchoolRole(school) !== 'super_admin') {
+      recordPlatformEvent({
+        eventType: 'login',
+        schoolId: school.id,
+        schoolName: school.name,
+        email: school.email,
+        role: getSchoolRole(school),
+        path: '/login',
+      }).catch(() => {});
+    }
 
     res.json({
       token,
@@ -2020,6 +2047,9 @@ app.get('/api/super-admin/monitor', authenticateToken, requireSuperAdmin, async 
 
 app.post('/api/telemetry', authenticateToken, async (req, res) => {
   try {
+    if (req.user.role === 'super_admin') {
+      return res.json({ ok: true, skipped: true });
+    }
     const payload = req.body || {};
     const events = Array.isArray(payload.events) ? payload.events : [payload];
     await recordClientEvents(
@@ -2612,6 +2642,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       roll_number: rollNumber?.trim() || null,
       skills: skills?.trim() || null,
       barcode,
+      qr_code: barcode,
       created_at: new Date(),
     };
 
@@ -2792,10 +2823,10 @@ const slugifySchoolName = (name) => {
 };
 
 const insertStaffRecord = async (record) => {
-  const payload = { ...record };
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url'];
+  const payload = fillIdentityCodes({ ...record });
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url', 'barcode', 'qr_code'];
 
-  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+  for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
     const { data, error } = await supabase.from('staffs').insert([payload]).select().single();
     if (!error) return { data, error: null };
 
@@ -2804,6 +2835,10 @@ const insertStaffRecord = async (record) => {
     );
     if (missingColumn) {
       delete payload[missingColumn];
+      continue;
+    }
+    if (isNotNullColumnError(error, 'qr_code') && payload.barcode && payload.qr_code !== payload.barcode) {
+      payload.qr_code = payload.barcode;
       continue;
     }
     return { data: null, error };
@@ -2899,6 +2934,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
       name: name.trim(),
       role: role.trim(),
       barcode,
+      qr_code: barcode,
       secret_code: accessCode,
       subjects: subjectsValue,
       class_names: classesValue,
@@ -3050,35 +3086,70 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
   try {
     const { name, role, photo } = req.body;
 
+    if (!name?.trim()) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
     const photoError = validateImage(photo);
     if (photoError) {
       return res.status(400).json({ error: photoError });
     }
 
     const barcode = `${req.user.schoolId}-NONSTAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const payload = fillIdentityCodes({
+      school_id: req.user.schoolId,
+      name: name.trim(),
+      role: role?.trim() || null,
+      barcode,
+      qr_code: barcode,
+      created_at: new Date(),
+    });
+    if (photo) payload.photo_url = photo;
 
-    const { data: nonStaff, error } = await supabase
-      .from('nonstaffs')
-      .insert([
-        {
-          school_id: req.user.schoolId,
-          name,
-          role,
-          barcode,
-          created_at: new Date(),
-        }
-      ])
-      .select()
-      .single();
+    const optionalColumns = ['photo_url', 'barcode', 'qr_code'];
+    let nonStaff = null;
+    let error = null;
+    for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
+      const result = await supabase.from('nonstaffs').insert([payload]).select().single();
+      error = result.error;
+      if (!error) {
+        nonStaff = result.data;
+        break;
+      }
+      const missingColumn = optionalColumns.find(
+        (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+      );
+      if (missingColumn) {
+        delete payload[missingColumn];
+        continue;
+      }
+      if (isNotNullColumnError(error, 'qr_code') && payload.barcode && payload.qr_code !== payload.barcode) {
+        payload.qr_code = payload.barcode;
+        continue;
+      }
+      break;
+    }
 
-    if (error) throw error;
+    if (error || !nonStaff) throw error || new Error('Failed to create non-staff record');
 
-    if (photo && nonStaff?.id) {
-      setPersonPhoto(nonStaff.id, req.user.schoolId, photo).catch(() => {});
+    let saved = nonStaff;
+    if (photo && nonStaff?.id && !nonStaff.photo_url) {
+      const repaired = await supabase
+        .from('nonstaffs')
+        .update({ photo_url: photo })
+        .eq('id', nonStaff.id)
+        .eq('school_id', req.user.schoolId)
+        .select()
+        .single();
+      if (!repaired.error && repaired.data) saved = repaired.data;
+    }
+
+    if (photo && saved?.id) {
+      await setPersonPhoto(saved.id, req.user.schoolId, photo);
     }
 
     bumpSchoolCaches(req.user.schoolId);
-    res.json(mergePersonPhoto(nonStaff));
+    res.json(mergePersonPhoto(saved));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3099,17 +3170,37 @@ app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
       if (photoError) {
         return res.status(400).json({ error: photoError });
       }
+      updates.photo_url = nextPhoto || null;
     }
 
-    const { data: nonStaff, error } = await supabase
-      .from('nonstaffs')
-      .update(updates)
-      .eq('id', id)
-      .eq('school_id', req.user.schoolId)
-      .select()
-      .single();
+    const optionalColumns = ['photo_url'];
+    let nonStaff = null;
+    let error = null;
+    const payload = { ...updates };
+    for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+      const result = await supabase
+        .from('nonstaffs')
+        .update(payload)
+        .eq('id', id)
+        .eq('school_id', req.user.schoolId)
+        .select()
+        .single();
+      error = result.error;
+      if (!error) {
+        nonStaff = result.data;
+        break;
+      }
+      const missingColumn = optionalColumns.find(
+        (column) => payload[column] !== undefined && isMissingColumnError(error, column)
+      );
+      if (missingColumn) {
+        delete payload[missingColumn];
+        continue;
+      }
+      break;
+    }
 
-    if (error) throw error;
+    if (error || !nonStaff) throw error || new Error('Failed to update non-staff');
 
     if (nextPhoto !== undefined) {
       if (nextPhoto) {

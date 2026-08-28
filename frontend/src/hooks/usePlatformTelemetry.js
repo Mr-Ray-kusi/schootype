@@ -37,13 +37,13 @@ function isTelemetryUrl(url) {
  * Records page views, heartbeats (active users), and pages slower than 3s.
  */
 export default function usePlatformTelemetry() {
-  const { token, school } = useAuth();
+  const { token, school, isSuperAdmin } = useAuth();
   const location = useLocation();
   const pageStartedAt = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const slowSentForPath = useRef(false);
 
   useEffect(() => {
-    if (!token || !school) return undefined;
+    if (!token || !school || isSuperAdmin) return undefined;
 
     const base = {
       schoolName: school.name || null,
@@ -101,10 +101,10 @@ export default function usePlatformTelemetry() {
       axios.interceptors.request.eject(requestId);
       axios.interceptors.response.eject(responseId);
     };
-  }, [token, school, location.pathname]);
+  }, [token, school, isSuperAdmin, location.pathname]);
 
   useEffect(() => {
-    if (!token || !school) return undefined;
+    if (!token || !school || isSuperAdmin) return undefined;
 
     const beat = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -127,5 +127,5 @@ export default function usePlatformTelemetry() {
       document.removeEventListener('visibilitychange', onVisible);
       flushTelemetry();
     };
-  }, [token, school, location.pathname]);
+  }, [token, school, isSuperAdmin, location.pathname]);
 }

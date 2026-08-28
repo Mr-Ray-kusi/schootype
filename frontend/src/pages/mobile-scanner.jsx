@@ -10,12 +10,84 @@ const SCAN_COOLDOWN_MS = 1600;
 
 const buildQrHints = () => {
   const hints = new Map();
-  // QR only — skipping other barcode formats makes each frame much faster.
   hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
-  hints.set(DecodeHintType.TRY_HARDER, false);
+  hints.set(DecodeHintType.TRY_HARDER, true);
   hints.set(DecodeHintType.ASSUME_GS1, false);
   return hints;
 };
+
+async function applySharpFocus(stream) {
+  const track = stream?.getVideoTracks?.()?.[0];
+  if (!track?.applyConstraints) return;
+
+  const caps = track.getCapabilities?.() || {};
+  const advanced = [];
+
+  if (Array.isArray(caps.focusMode)) {
+    if (caps.focusMode.includes('continuous')) advanced.push({ focusMode: 'continuous' });
+    else if (caps.focusMode.includes('auto')) advanced.push({ focusMode: 'auto' });
+    else if (caps.focusMode.includes('single-shot')) advanced.push({ focusMode: 'single-shot' });
+  }
+
+  if (caps.pointsOfInterest) {
+    advanced.push({ pointsOfInterest: [{ x: 0.5, y: 0.5 }] });
+  }
+
+  if (typeof caps.sharpness?.max === 'number') {
+    advanced.push({ sharpness: caps.sharpness.max });
+  }
+
+  try {
+    if (advanced.length) {
+      await track.applyConstraints({ advanced });
+    } else {
+      await track.applyConstraints({
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        facingMode: 'environment',
+      });
+    }
+  } catch {
+    // Device may ignore focus constraints; the high-res stream still helps.
+  }
+}
+
+async function openRearCamera() {
+  const attempts = [
+    {
+      audio: false,
+      video: {
+        facingMode: { exact: 'environment' },
+        width: { min: 1280, ideal: 1920 },
+        height: { min: 720, ideal: 1080 },
+        frameRate: { ideal: 30 },
+      },
+    },
+    {
+      audio: false,
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 },
+      },
+    },
+    { audio: false, video: { facingMode: { ideal: 'environment' } } },
+    { audio: false, video: true },
+  ];
+
+  let lastError = null;
+  for (const constraints of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      await applySharpFocus(stream);
+      return stream;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('Camera unavailable');
+}
 
 const MobileScanner = () => {
   const { token } = useParams();
@@ -78,88 +150,55 @@ const MobileScanner = () => {
 
     try {
       const reader = new BrowserQRCodeReader(buildQrHints(), {
-        delayBetweenScanAttempts: 40,
+        delayBetweenScanAttempts: 80,
         delayBetweenScanSuccess: 400,
         tryPlayVideoTimeout: 5000,
       });
       readerRef.current = reader;
 
-      const constraintSets = [
-        {
-          audio: false,
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 960 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 },
-          },
-        },
-        {
-          audio: false,
-          video: { facingMode: 'environment' },
-        },
-        {
-          audio: false,
-          video: true,
-        },
-      ];
-
-      let controls = null;
-      let lastError = null;
-
-      for (const constraints of constraintSets) {
-        try {
-          controls = await reader.decodeFromConstraints(
-            constraints,
-            videoRef.current,
-            (result, error) => {
-              if (!mountedRef.current || scanLockRef.current) return;
-              if (error && !(error instanceof NotFoundException)) {
-                // Ignore continuous "not found" frames; log unexpected decode errors once.
-                if (error?.name && error.name !== 'NotFoundException') {
-                  console.warn('QR decode error:', error.name, error.message);
-                }
-                return;
-              }
-              if (!result) return;
-
-              const text = result.getText()?.trim();
-              if (text) {
-                markAttendanceRef.current(text);
-              }
-            }
-          );
-          lastError = null;
-          break;
-        } catch (err) {
-          lastError = err;
-          try {
-            reader.reset?.();
-          } catch {
-            // ignore and try next constraints
-          }
-        }
+      const stream = await openRearCamera();
+      const video = videoRef.current;
+      if (!video) {
+        stream.getTracks().forEach((track) => track.stop());
+        throw new Error('Camera view is not ready');
       }
 
-      if (!controls) {
-        throw lastError || new Error('Camera unavailable');
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      try {
+        await video.play();
+      } catch {
+        // zxing may attach and play the stream itself
+      }
+
+      const onResult = (result, error) => {
+        if (!mountedRef.current || scanLockRef.current) return;
+        if (error && !(error instanceof NotFoundException)) {
+          if (error?.name && error.name !== 'NotFoundException') {
+            console.warn('QR decode error:', error.name, error.message);
+          }
+          return;
+        }
+        if (!result) return;
+        const text = result.getText?.()?.trim?.() || '';
+        if (text) markAttendanceRef.current(text);
+      };
+
+      let controls = null;
+      if (typeof reader.decodeFromStream === 'function') {
+        controls = await reader.decodeFromStream(stream, video, onResult);
+      } else {
+        controls = await reader.decodeFromConstraints(
+          { audio: false, video: { facingMode: { ideal: 'environment' } } },
+          video,
+          onResult
+        );
       }
 
       controlsRef.current = controls;
-
-      const video = videoRef.current;
-      if (video) {
-        video.setAttribute('playsinline', 'true');
-        video.setAttribute('webkit-playsinline', 'true');
-        video.muted = true;
-        video.playsInline = true;
-        try {
-          await video.play();
-        } catch {
-          // zxing may already be playing the stream
-        }
-      }
-
       if (mountedRef.current) setCameraReady(true);
     } catch (err) {
       if (!mountedRef.current) return;
@@ -295,10 +334,25 @@ const MobileScanner = () => {
         <div className="relative w-full max-w-md min-h-[55vh] aspect-[3/4] max-h-[72vh] rounded-2xl overflow-hidden bg-black border-2 border-slate-600">
           <video
             ref={videoRef}
-            className="w-full h-full object-cover"
+            className="h-full w-full object-contain bg-black"
             playsInline
             muted
             autoPlay
+            onClick={async (event) => {
+              const video = videoRef.current;
+              const track = video?.srcObject?.getVideoTracks?.()?.[0];
+              if (!track?.getCapabilities || !track.applyConstraints) return;
+              const caps = track.getCapabilities();
+              if (!caps.pointsOfInterest) return;
+              const rect = video.getBoundingClientRect();
+              const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+              const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+              try {
+                await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x, y }] }] });
+              } catch {
+                // tap-to-focus is optional
+              }
+            }}
           />
           {!cameraReady && !cameraError && !feedback && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-slate-200 gap-2">
@@ -310,7 +364,7 @@ const MobileScanner = () => {
             <div className="absolute inset-0 pointer-events-none">
               <div className="absolute inset-8 border-2 border-primary-400/70 rounded-xl" />
               <div className="absolute bottom-4 left-0 right-0 text-center text-sm text-white/90 bg-black/40 py-2">
-                Point camera at QR code
+                Hold the QR still, 15–25cm from the camera. Tap to focus.
               </div>
             </div>
           )}

@@ -163,6 +163,9 @@ export async function recordPlatformEvent(input) {
 }
 
 export function recordClientEvents(user, events) {
+  if (String(user?.role || '').toLowerCase() === 'super_admin') {
+    return Promise.resolve([]);
+  }
   const list = Array.isArray(events) ? events : [events];
   const accepted = [];
   for (const raw of list.slice(0, 20)) {
@@ -186,6 +189,14 @@ export function recordClientEvents(user, events) {
     );
   }
   return Promise.all(accepted);
+}
+
+function isSchoolUsageEvent(event) {
+  const role = String(event?.role || '').toLowerCase();
+  if (role === 'super_admin') return false;
+  const path = String(event?.path || '');
+  if (path.startsWith('/super-admin')) return false;
+  return true;
 }
 
 async function loadEventsSince(since) {
@@ -353,7 +364,7 @@ export async function getPlatformAnalytics() {
   const dayStart = startOfDay(now);
   const weekStart = startOfWeek(now);
   const lookback = daysAgo(LOOKBACK_DAYS);
-  const events = await loadEventsSince(lookback);
+  const events = (await loadEventsSince(lookback)).filter(isSchoolUsageEvent);
 
   const inRange = (type, since) =>
     events.filter((event) => event.event_type === type && new Date(event.created_at) >= since);
