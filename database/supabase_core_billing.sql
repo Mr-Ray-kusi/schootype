@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS wallet_accounts (
 CREATE INDEX IF NOT EXISTS idx_wallet_accounts_school
   ON wallet_accounts (school_id);
 
+ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS paystack_subaccount_code TEXT;
+
 CREATE TABLE IF NOT EXISTS wallet_transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -136,7 +138,41 @@ CREATE TABLE IF NOT EXISTS school_sms_balances (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ========== Auth rate limits (login / signup / resend) ==========
+-- School fee collections (parents pay via Paystack: MoMo, bank, bank transfer / USSD)
+CREATE TABLE IF NOT EXISTS fee_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id UUID REFERENCES schools(id) ON DELETE CASCADE,
+  payer_type TEXT NOT NULL DEFAULT 'student',
+  payer_id UUID,
+  payer_name TEXT,
+  payer_class TEXT,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  payment_method TEXT DEFAULT 'paystack',
+  payment_month TEXT,
+  payment_reference TEXT,
+  status TEXT DEFAULT 'success',
+  channel TEXT,
+  currency TEXT DEFAULT 'GHS',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS payment_reference TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'success';
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS channel TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GHS';
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS payer_class TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fee_payments_reference
+  ON fee_payments (payment_reference)
+  WHERE payment_reference IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_fee_payments_school_month
+  ON fee_payments (school_id, payment_month, created_at DESC);
+
+ALTER TABLE classes ADD COLUMN IF NOT EXISTS fee_amount NUMERIC DEFAULT 0;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee NUMERIC DEFAULT 0;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS fee_status TEXT DEFAULT 'unpaid';
+
 CREATE TABLE IF NOT EXISTS auth_rate_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   kind TEXT NOT NULL,

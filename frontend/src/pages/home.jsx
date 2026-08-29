@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import { useEffect, useState } from 'react';
 import {
@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { id: 'home', label: 'Home', to: '#home', Icon: HomeIcon },
   { id: 'about', label: 'About', to: '#about', Icon: Users },
   { id: 'features', label: 'Features', to: '#features', Icon: Hexagon },
+  { id: 'fees', label: 'Fees', to: '/fees', Icon: Wallet },
   { id: 'plans', label: 'Plans', to: '#plans', Icon: CreditCard },
   { id: 'security', label: 'Security', to: '#security', Icon: Shield },
 ];
@@ -89,6 +90,7 @@ const scrollToId = (id) => {
 
 const Home = () => {
   const { token, school, loading } = useAuth();
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState('home');
 
@@ -97,7 +99,7 @@ const Home = () => {
   }, []);
 
   useEffect(() => {
-    const sectionIds = NAV_ITEMS.map((item) => item.id);
+    const sectionIds = NAV_ITEMS.filter((item) => item.to.startsWith('#')).map((item) => item.id);
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
@@ -119,6 +121,10 @@ const Home = () => {
   const handleNavClick = (item) => {
     setActiveId(item.id);
     setMenuOpen(false);
+    if (item.to.startsWith('/')) {
+      navigate(item.to);
+      return;
+    }
     if (item.to.startsWith('#')) {
       scrollToId(item.id);
     }
@@ -159,7 +165,7 @@ const Home = () => {
         <nav className="landing-nav-rail mx-auto hidden min-w-0 flex-1 items-stretch justify-center rounded-full px-1.5 py-1 lg:flex">
           {NAV_ITEMS.map((item, index) => {
             const isActive = activeId === item.id;
-            const showDivider = index === 1 || index === 3;
+            const showDivider = index === 2 || index === 4;
             const content = (
               <>
                 <item.Icon
@@ -248,7 +254,7 @@ const Home = () => {
 
       {menuOpen && (
         <div className="landing-nav mx-auto mt-2 max-w-6xl overflow-hidden rounded-[1.5rem] p-3 shadow-[0_12px_40px_rgba(15,23,42,0.14)] lg:hidden">
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-3">
             {NAV_ITEMS.map((item) => {
               const isActive = activeId === item.id;
               return (
@@ -355,6 +361,12 @@ const Home = () => {
                 Get started
               </a>
               <Link
+                to="/fees"
+                className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10"
+              >
+                Pay school fees
+              </Link>
+              <Link
                 to="/login"
                 className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10"
               >
@@ -446,6 +458,45 @@ const Home = () => {
             <Wallet className="h-5 w-5 text-sky-400" strokeWidth={1.75} />
             <p>Plus school wallet, bank, and MoMo settings for deposits and payouts.</p>
           </div>
+        </div>
+      </section>
+
+      {/* Fees payment */}
+      <section
+        id="fees"
+        className="scroll-mt-28 border-t border-white/5 bg-slate-950 px-6 py-20 md:px-10 lg:px-14"
+      >
+        <div className="mx-auto max-w-6xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Fees payment</p>
+          <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
+            Parents pay school fees online
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
+            Choose the school, enter the student ID, and pay with MoMo or bank. After you confirm the
+            PIN, the amount is credited to that school — Fees Paid, the school wallet, and the account
+            saved in Bank Settings.
+          </p>
+
+          <div className="mt-10 grid gap-6 sm:grid-cols-3">
+            {[
+              { step: '1', title: 'Select the school', body: 'Pick the school name, then enter the student ID from the ID card.' },
+              { step: '2', title: 'Pay with MoMo or bank', body: 'Enter the amount, choose MoMo or bank, then confirm the PIN on your phone or bank.' },
+              { step: '3', title: 'School receives the money', body: 'The payment is recorded for that student and settled to the school’s own account.' },
+            ].map((item) => (
+              <div key={item.step} className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">Step {item.step}</p>
+                <h3 className="mt-3 font-display text-xl font-bold text-white">{item.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-400">{item.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <Link
+            to="/fees"
+            className="mt-10 inline-flex items-center justify-center rounded-full bg-sky-500 px-7 py-3.5 text-sm font-semibold text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400"
+          >
+            Pay school fees
+          </Link>
         </div>
       </section>
 
@@ -569,6 +620,9 @@ const Home = () => {
             <p className="text-sm text-slate-500">Connect. Track. Manage.</p>
           </div>
           <div className="flex flex-wrap gap-4 text-sm text-slate-400">
+            <Link to="/fees" className="hover:text-white">
+              Fees payment
+            </Link>
             <Link to="/privacy" className="hover:text-white">
               Privacy
             </Link>

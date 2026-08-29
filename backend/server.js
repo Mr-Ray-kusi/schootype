@@ -58,6 +58,7 @@ import {
 } from './authSecurity.js';
 import { initSchoolWalletStore, creditInternalFunds, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
+import { registerFeeRoutes } from './feeRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
@@ -2725,6 +2726,7 @@ app.delete('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin,
 
 // Health check endpoint
 registerWalletRoutes(app, { authenticateToken, enforcePlanApproval });
+registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
   enforcePlanApproval,
@@ -2793,6 +2795,7 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         photo_url: withPhoto.photo_url || null,
         roll_number: withPhoto.roll_number || null,
         skills: withPhoto.skills || null,
+        barcode: withPhoto.barcode || barcode,
         school_name: school?.name || 'School',
         school_logo_url: school?.logo_url || null,
       });
@@ -3647,6 +3650,11 @@ app.post('/api/classes', authenticateToken, enforcePlanApproval, async (req, res
       created_at: new Date(),
     };
     if (capacity != null && !Number.isNaN(capacity)) record.capacity = capacity;
+    const feeRaw = req.body.fee_amount ?? req.body.feeAmount;
+    if (feeRaw !== undefined && feeRaw !== '' && feeRaw !== null) {
+      const feeAmount = Number(feeRaw);
+      if (Number.isFinite(feeAmount) && feeAmount >= 0) record.fee_amount = feeAmount;
+    }
 
     const { data, error } = await insertClassRecord(record);
     if (error) throw error;
@@ -3669,6 +3677,10 @@ app.put('/api/classes/:id', authenticateToken, enforcePlanApproval, async (req, 
       const capacityRaw = req.body.capacity;
       updates.capacity =
         capacityRaw === '' || capacityRaw === null ? null : Number(capacityRaw) || null;
+    }
+    if (req.body.fee_amount !== undefined || req.body.feeAmount !== undefined) {
+      const feeRaw = req.body.fee_amount ?? req.body.feeAmount;
+      updates.fee_amount = feeRaw === '' || feeRaw === null ? 0 : Number(feeRaw) || 0;
     }
 
     const { data, error } = await updateClassRecord(req.params.id, req.user.schoolId, updates);

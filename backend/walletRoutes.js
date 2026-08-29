@@ -3,6 +3,7 @@ import {
   listBanks,
   resolveAccountNumber,
   createTransferRecipient,
+  createSubaccount,
   chargeMobileMoney,
   verifyTransaction,
   initiateTransfer,
@@ -32,6 +33,7 @@ import {
   failWithdrawal,
   makeWalletReference,
 } from './schoolWalletStore.js';
+import { settleSchoolFeeFromPaystack } from './feePayments.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
 import { findPlatformSchoolId } from './smsBilling.js';
 import { getDemoMoneyClearBaselineMinor } from './platformSmsStore.js';
@@ -195,6 +197,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       let resolvedName = account_name;
       let provider = type === 'mobile_money' ? momoProviderFromBankCode(bank_code) : null;
       let recipientCode = null;
+      let subaccountCode = null;
 
       if (configured && type === 'bank' && resolve) {
         try {
@@ -222,6 +225,18 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         if (type === 'mobile_money' && !provider) {
           provider = momoProviderFromBankCode(bank_code);
         }
+        try {
+          const schoolName = req.user?.schoolName || req.user?.name || resolvedName;
+          const sub = await createSubaccount({
+            businessName: schoolName || resolvedName,
+            bankCode: bank_code,
+            accountNumber: account_number,
+            description: `Schootype fees · ${schoolName || schoolId}`,
+          });
+          subaccountCode = sub?.subaccount_code || null;
+        } catch (err) {
+          console.warn('Paystack subaccount create skipped:', err.message);
+        }
       }
 
       const account = await createWalletAccount(schoolId, {
@@ -234,6 +249,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         provider,
         currency,
         paystack_recipient_code: recipientCode,
+        paystack_subaccount_code: subaccountCode,
         is_default: Boolean(is_default),
       });
 
@@ -554,17 +570,22 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
 
       if (event === 'charge.success' || event === 'transaction.success') {
         const ref = data.reference;
-        if (ref) await creditDeposit(ref);
+        const metadata = data.metadata && typeof data.metadata === 'object' ? data.metadata : {};
+        if (metadata.kind === 'school_fee') {
+          await settleSchoolFeeFromPaystack(data);
+        } else if (ref) {
+          await creditDeposit(ref);
+        }
       }
 
       if (event === 'transfer.success') {
         const ref = data.reference;
-        if (ref) await completeWithdrawal(ref);
+        if (ref && !String(ref).startsWith('feeout_')) await completeWithdrawal(ref);
       }
 
       if (event === 'transfer.failed' || event === 'transfer.reversed') {
         const ref = data.reference;
-        if (ref) {
+        if (ref && !String(ref).startsWith('feeout_')) {
           const failed = await failWithdrawal(ref, data.reason || event);
           recordPlatformEvent({
             eventType: 'payment_failed',

@@ -331,6 +331,12 @@ const SchoolWallet = () => {
               <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
                 {title}
               </h1>
+              {!isSuperAdmin ? (
+                <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                  Successful parent fee payments increase this wallet and settle to your Bank Settings
+                  account. Fees Paid lists the student for each payment.
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 self-start">

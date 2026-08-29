@@ -1,0 +1,242 @@
+import { supabase } from './supabaseClient.js';
+import { creditInternalFunds, listWalletAccounts, updateWalletAccount } from './schoolWalletStore.js';
+import { createSubaccount, fromMinorUnits, initiateTransfer, toMinorUnits } from './paystack.js';
+
+export function currentFeeMonth() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Accra',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  return `${year}-${month}`;
+}
+
+function isMissingTable(error) {
+  const msg = String(error?.message || error?.details || '').toLowerCase();
+  return error?.code === '42P01' || msg.includes('does not exist') || msg.includes('could not find the table');
+}
+
+export async function getClassFeeAmount(schoolId, className) {
+  if (!schoolId || !className) return 0;
+  const { data: classRow } = await supabase
+    .from('classes')
+    .select('fee_amount, name')
+    .eq('school_id', schoolId)
+    .eq('name', className)
+    .maybeSingle();
+  if (classRow && Number(classRow.fee_amount) > 0) return Number(classRow.fee_amount);
+
+  const { data: named } = await supabase
+    .from('class_fees')
+    .select('fee_amount')
+    .eq('school_id', schoolId)
+    .eq('class_name', className)
+    .maybeSingle();
+  return Number(named?.fee_amount) || 0;
+}
+
+export function resolveStudentFeeAmount(student, classFee) {
+  const personal = Number(student?.monthly_fee);
+  if (Number.isFinite(personal) && personal > 0) return personal;
+  return Number(classFee) || 0;
+}
+
+export async function findSuccessfulFeePayment({ schoolId, studentId, month, reference }) {
+  if (reference) {
+    const { data, error } = await supabase
+      .from('fee_payments')
+      .select('*')
+      .eq('payment_reference', reference)
+      .maybeSingle();
+    if (!error && data) return data;
+  }
+  if (!schoolId || !studentId || !month) return null;
+  const { data, error } = await supabase
+    .from('fee_payments')
+    .select('*')
+    .eq('school_id', schoolId)
+    .eq('payer_id', studentId)
+    .eq('payment_month', month)
+    .in('status', ['success', 'paid'])
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return null;
+    const { data: fallback } = await supabase
+      .from('fee_payments')
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('payer_id', studentId)
+      .eq('payment_month', month)
+      .limit(1)
+      .maybeSingle();
+    return fallback || null;
+  }
+  return data || null;
+}
+
+export async function recordFeePayment(row) {
+  const payload = {
+    school_id: row.school_id,
+    payer_type: row.payer_type || 'student',
+    payer_id: row.payer_id || null,
+    payer_name: row.payer_name || null,
+    payer_class: row.payer_class || null,
+    amount: Number(row.amount) || 0,
+    payment_method: row.payment_method || 'paystack',
+    payment_month: row.payment_month || currentFeeMonth(),
+    payment_reference: row.payment_reference || null,
+    status: row.status || 'success',
+    channel: row.channel || null,
+    currency: row.currency || 'GHS',
+    created_at: row.created_at || new Date().toISOString(),
+  };
+
+  const optional = ['payment_reference', 'status', 'channel', 'currency', 'payer_id', 'payer_class'];
+  let attempt = { ...payload };
+  for (let i = 0; i <= optional.length; i++) {
+    const { data, error } = await supabase.from('fee_payments').insert([attempt]).select().maybeSingle();
+    if (!error) return data;
+    if (isMissingTable(error)) {
+      const err = new Error(
+        'fee_payments table is missing. Run database/migrations.sql in the Supabase SQL editor.'
+      );
+      err.status = 503;
+      throw err;
+    }
+    if (String(error.message || '').toLowerCase().includes('duplicate') || error.code === '23505') {
+      const { data: existing } = await supabase
+        .from('fee_payments')
+        .select('*')
+        .eq('payment_reference', payload.payment_reference)
+        .maybeSingle();
+      return existing;
+    }
+    const missing = optional.find(
+      (column) =>
+        attempt[column] !== undefined &&
+        String(error.message || error.details || '').includes(column)
+    );
+    if (missing) {
+      delete attempt[missing];
+      continue;
+    }
+    throw error;
+  }
+  return null;
+}
+
+/**
+ * Resolve the school's Bank Settings payout destination.
+ * Bank accounts become Paystack subaccounts (split at charge time).
+ * MoMo (or failed subaccount) uses a transfer recipient after success.
+ */
+export async function getFeePayoutAccount(schoolId, schoolName) {
+  if (!schoolId) return { hasPayout: false, account: null, subaccountCode: null, recipientCode: null };
+  const accounts = await listWalletAccounts(schoolId);
+  if (!accounts.length) return { hasPayout: false, account: null, subaccountCode: null, recipientCode: null };
+
+  const preferred =
+    accounts.find((row) => row.is_default) ||
+    accounts.find((row) => row.type === 'bank') ||
+    accounts[0];
+
+  let subaccountCode = preferred.paystack_subaccount_code || null;
+  if (!subaccountCode && preferred.account_number && preferred.bank_code) {
+    try {
+      const created = await createSubaccount({
+        businessName: schoolName || preferred.account_name || 'School',
+        bankCode: preferred.bank_code,
+        accountNumber: preferred.account_number,
+        description: `Schootype fees · ${schoolName || schoolId}`,
+      });
+      subaccountCode = created?.subaccount_code || null;
+      if (subaccountCode) {
+        await updateWalletAccount(schoolId, preferred.id, {
+          paystack_subaccount_code: subaccountCode,
+        });
+      }
+    } catch (err) {
+      console.warn('Paystack subaccount create skipped:', err.message);
+    }
+  }
+
+  const recipientCode = preferred.paystack_recipient_code || null;
+  return {
+    hasPayout: Boolean(subaccountCode || recipientCode),
+    account: preferred,
+    subaccountCode,
+    recipientCode,
+  };
+}
+
+async function payoutFeeToSchoolAccount(data, metadata, amountMinor) {
+  if (metadata.settle_mode === 'subaccount' && metadata.subaccount_code) return;
+  const recipientCode = metadata.recipient_code;
+  if (!recipientCode || !amountMinor) return;
+  const payoutRef = `feeout_${String(data.reference || '').slice(0, 40)}`;
+  try {
+    await initiateTransfer({
+      amountMinor,
+      currency: data.currency || 'GHS',
+      recipientCode,
+      reference: payoutRef,
+      reason: `School fees · ${metadata.payer_name || 'Student'}`.trim(),
+    });
+  } catch (err) {
+    // Wallet is already credited; the school can withdraw from School Wallet if this transfer fails.
+    console.warn('Fee payout transfer skipped:', err.message);
+  }
+}
+
+export async function settleSchoolFeeFromPaystack(data = {}) {
+  const metadata = data.metadata && typeof data.metadata === 'object' ? data.metadata : {};
+  if (metadata.kind !== 'school_fee') return null;
+
+  const reference = data.reference;
+  const schoolId = metadata.school_id;
+  const amountMinor = Number(data.amount) || toMinorUnits(metadata.amount_major || 0);
+  if (!reference || !schoolId || amountMinor <= 0) return null;
+
+  await creditInternalFunds(schoolId, amountMinor, {
+    reference,
+    description: `School fees · ${metadata.payer_name || 'Student'} · ${metadata.payment_month || ''}`.trim(),
+    metadata: {
+      kind: 'school_fee',
+      student_id: metadata.student_id || null,
+      channel: data.channel || null,
+      payment_month: metadata.payment_month || currentFeeMonth(),
+      settle_mode: metadata.settle_mode || null,
+      settled_externally: metadata.settle_mode === 'subaccount' || metadata.settle_mode === 'transfer',
+    },
+  });
+
+  await recordFeePayment({
+    school_id: schoolId,
+    payer_type: 'student',
+    payer_id: metadata.student_id || null,
+    payer_name: metadata.payer_name || null,
+    payer_class: metadata.payer_class || null,
+    amount: fromMinorUnits(amountMinor),
+    payment_method: data.channel || metadata.payment_method || 'paystack',
+    payment_month: metadata.payment_month || currentFeeMonth(),
+    payment_reference: reference,
+    status: 'success',
+    channel: data.channel || null,
+    currency: data.currency || 'GHS',
+  });
+
+  if (metadata.student_id) {
+    await supabase
+      .from('students')
+      .update({ fee_status: 'paid' })
+      .eq('id', metadata.student_id)
+      .eq('school_id', schoolId);
+  }
+
+  await payoutFeeToSchoolAccount(data, metadata, amountMinor);
+
+  return { reference, schoolId };
+}

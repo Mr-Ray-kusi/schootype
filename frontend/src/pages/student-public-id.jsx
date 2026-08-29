@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { GraduationCap, User, Hash, Briefcase, Trophy } from 'lucide-react';
+import { GraduationCap, User, Hash, Briefcase, Trophy, CreditCard } from 'lucide-react';
 
 const StudentPublicId = () => {
   const { barcode } = useParams();
@@ -135,6 +135,18 @@ const StudentPublicId = () => {
                 </div>
               ))}
             </div>
+          ) : null}
+        </div>
+
+        <div className="mt-6 text-center">
+          {isStudent && (data.barcode || barcode) ? (
+            <Link
+              to={`/pay/${encodeURIComponent(data.barcode || barcode)}`}
+              className="inline-flex items-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400"
+            >
+              <CreditCard className="h-4 w-4" />
+              Pay school fees
+            </Link>
           ) : null}
         </div>
 

@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, BookOpen, GraduationCap } from 'lucide-react';
+import { Plus, Trash2, BookOpen, GraduationCap, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
 
-const emptyClassRow = () => ({ name: '', capacity: '' });
+const emptyClassRow = () => ({ name: '', capacity: '', feeAmount: '' });
 const emptySubjectRow = () => ({ name: '' });
 
 const Setup = () => {
@@ -20,11 +20,18 @@ const Setup = () => {
   const [subjectRows, setSubjectRows] = useState([emptySubjectRow()]);
   const [savingClasses, setSavingClasses] = useState(false);
   const [savingSubjects, setSavingSubjects] = useState(false);
+  const [classFeeDrafts, setClassFeeDrafts] = useState({});
+  const [savingFees, setSavingFees] = useState(false);
 
   const load = async () => {
     const apply = ([classData, subjectData]) => {
       setClasses(classData);
       setSubjects(subjectData);
+      const drafts = {};
+      for (const item of classData || []) {
+        drafts[item.id] = Number(item.fee_amount) > 0 ? String(item.fee_amount) : '';
+      }
+      setClassFeeDrafts(drafts);
     };
     const cachedClasses = peekCache('classes');
     const cachedSubjects = peekCache('subjects');
@@ -78,6 +85,7 @@ const Setup = () => {
         await axios.post('/api/classes', {
           name: row.name.trim(),
           capacity: row.capacity || null,
+          fee_amount: row.feeAmount === '' ? 0 : Number(row.feeAmount) || 0,
         });
       }
       invalidateCache('classes');
@@ -116,6 +124,32 @@ const Setup = () => {
     }
   };
 
+  const saveClassFees = async () => {
+    if (!classes.length) {
+      toast.error('Add a class first, then set its fee.');
+      return;
+    }
+    setSavingFees(true);
+    try {
+      await Promise.all(
+        classes.map((item) => {
+          const raw = classFeeDrafts[item.id];
+          const feeAmount = raw === '' || raw == null ? 0 : Number(raw);
+          return axios.put(`/api/classes/${item.id}`, {
+            fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
+          });
+        })
+      );
+      invalidateCache('classes');
+      toast.success('Class fees saved');
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to save class fees');
+    } finally {
+      setSavingFees(false);
+    }
+  };
+
   const deleteClass = async (id) => {
     if (!window.confirm('Delete this class?')) return;
     try {
@@ -148,7 +182,7 @@ const Setup = () => {
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">Academic</p>
         <h1 className="mt-2 text-3xl font-bold text-white">Setup</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Add only the classes and subjects your school uses. Student enrollment uses these names.
+          Add the classes and subjects your school uses, and set the fee each class should pay.
         </p>
       </div>
 
@@ -173,7 +207,7 @@ const Setup = () => {
 
           <div className="space-y-3">
             {classRows.map((row, index) => (
-              <div key={index} className="grid gap-3 sm:grid-cols-2">
+              <div key={index} className="grid gap-3 sm:grid-cols-3">
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-200">Class Name</label>
                   <input
@@ -203,6 +237,22 @@ const Setup = () => {
                     placeholder="e.g. 45"
                   />
                 </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-200">Term fee (GHS)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={row.feeAmount}
+                    onChange={(e) => {
+                      const next = [...classRows];
+                      next[index] = { ...next[index], feeAmount: e.target.value };
+                      setClassRows(next);
+                    }}
+                    className={fieldClass}
+                    placeholder="e.g. 350"
+                  />
+                </div>
               </div>
             ))}
           </div>
@@ -217,23 +267,54 @@ const Setup = () => {
           </button>
         </form>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-8 border-t border-slate-700/80 pt-6">
+          <h3 className="text-sm font-semibold text-white">Fees by class</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            Set how much each class pays. Parents will see this amount on Fees payment.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {classes.map((item) => (
-            <div key={item.id} className="flex items-start justify-between rounded-2xl border border-slate-700 bg-slate-800/70 p-4">
-              <div>
-                <p className="font-semibold text-white">{item.name}</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Capacity: {item.capacity || 'Not set'}
-                </p>
+            <div key={item.id} className="rounded-2xl border border-slate-700 bg-slate-800/70 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-white">{item.name}</p>
+                  <p className="mt-1 text-xs text-slate-400">Capacity: {item.capacity || 'Not set'}</p>
+                </div>
+                <button type="button" onClick={() => deleteClass(item.id)} className="p-1 text-red-400 hover:text-red-300">
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
-              <button type="button" onClick={() => deleteClass(item.id)} className="p-1 text-red-400 hover:text-red-300">
-                <Trash2 className="h-4 w-4" />
-              </button>
+              <label className="mt-3 block text-xs font-medium text-slate-300">
+                Fee to pay (GHS)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={classFeeDrafts[item.id] ?? ''}
+                  onChange={(e) =>
+                    setClassFeeDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                  }
+                  className={`${fieldClass} mt-1.5 py-2`}
+                  placeholder="0.00"
+                />
+              </label>
             </div>
           ))}
         </div>
-        {classes.length === 0 && (
-          <p className="mt-4 text-sm text-slate-500">No classes yet. Add class names above.</p>
+        {classes.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">No classes yet. Add class names above, then set each class fee.</p>
+        ) : (
+          <button
+            type="button"
+            onClick={saveClassFees}
+            disabled={savingFees}
+            className="mt-4 inline-flex items-center gap-2 rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {savingFees ? 'Saving fees…' : 'Save class fees'}
+          </button>
         )}
       </section>
 

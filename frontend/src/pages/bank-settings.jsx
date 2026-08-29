@@ -160,6 +160,10 @@ const BankSettings = () => {
               <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
                 Bank Settings
               </h1>
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-400">
+                Parent fee payments settle into this school’s saved bank or MoMo account. Set one
+                account as default so Fees payment on the website pays you directly.
+              </p>
             </div>
 
             <Link

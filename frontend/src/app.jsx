@@ -9,6 +9,8 @@ import Plans from './pages/plans';
 import SelectPlan from './pages/select-plan';
 import MobileScanner from './pages/mobile-scanner';
 import StudentPublicId from './pages/student-public-id';
+import FeesPay from './pages/fees-pay';
+import FeesReceipt from './pages/fees-receipt';
 import StaffPortal from './pages/staff-portal';
 import Layout from './components/layout';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -112,6 +114,9 @@ function App() {
               <Route path="/signup" element={<Signup />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
               <Route path="/id/:barcode" element={<StudentPublicId />} />
+              <Route path="/fees" element={<FeesPay />} />
+              <Route path="/pay/receipt" element={<FeesReceipt />} />
+              <Route path="/pay/:barcode" element={<FeesPay />} />
               <Route path="/scan/:token" element={<MobileScanner />} />
               <Route path="/staff-portal/:token" element={<StaffPortal />} />
               <Route path="/:schoolSlug/staff-portal" element={<StaffPortal />} />

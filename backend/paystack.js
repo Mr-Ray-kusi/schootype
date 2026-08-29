@@ -2,6 +2,8 @@ import crypto from 'crypto';
 
 const PAYSTACK_BASE = 'https://api.paystack.co';
 
+export const GHANA_CHECKOUT_CHANNELS = ['card', 'bank', 'bank_transfer', 'mobile_money'];
+
 export function getPaystackConfig() {
   const secretKey = process.env.PAYSTACK_SECRET_KEY || '';
   const publicKey = process.env.PAYSTACK_PUBLIC_KEY || '';
@@ -109,6 +111,36 @@ export async function createTransferRecipient({ type, name, accountNumber, bankC
   });
 }
 
+/** Percent of each fee payment kept by the platform. Schools receive the rest. */
+export function getPlatformFeePercent() {
+  const n = Number(process.env.PAYSTACK_PLATFORM_PERCENT);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : 0;
+}
+
+/**
+ * Creates a Paystack split subaccount so parent fee payments settle into
+ * this school's own bank (or MoMo) instead of the platform merchant.
+ */
+export async function createSubaccount({
+  businessName,
+  bankCode,
+  accountNumber,
+  percentageCharge,
+  description,
+}) {
+  return paystackRequest('/subaccount', {
+    method: 'POST',
+    body: {
+      business_name: businessName,
+      settlement_bank: String(bankCode),
+      account_number: String(accountNumber),
+      percentage_charge:
+        percentageCharge == null ? getPlatformFeePercent() : Number(percentageCharge),
+      description: description || undefined,
+    },
+  });
+}
+
 export async function initializeTransaction({
   email,
   amountMinor,
@@ -117,18 +149,25 @@ export async function initializeTransaction({
   callbackUrl,
   channels,
   metadata,
+  subaccount,
+  bearer,
 }) {
+  const body = {
+    email,
+    amount: amountMinor,
+    currency,
+    reference,
+    callback_url: callbackUrl,
+    channels,
+    metadata,
+  };
+  if (subaccount) {
+    body.subaccount = subaccount;
+    body.bearer = bearer || 'subaccount';
+  }
   return paystackRequest('/transaction/initialize', {
     method: 'POST',
-    body: {
-      email,
-      amount: amountMinor,
-      currency,
-      reference,
-      callback_url: callbackUrl,
-      channels,
-      metadata,
-    },
+    body,
   });
 }
 
@@ -140,20 +179,27 @@ export async function chargeMobileMoney({
   provider,
   reference,
   metadata,
+  subaccount,
+  bearer,
 }) {
+  const body = {
+    email,
+    amount: amountMinor,
+    currency,
+    reference,
+    metadata,
+    mobile_money: {
+      phone: normalizeGhanaPhone(phone),
+      provider: String(provider).toLowerCase(),
+    },
+  };
+  if (subaccount) {
+    body.subaccount = subaccount;
+    body.bearer = bearer || 'subaccount';
+  }
   return paystackRequest('/charge', {
     method: 'POST',
-    body: {
-      email,
-      amount: amountMinor,
-      currency,
-      reference,
-      metadata,
-      mobile_money: {
-        phone: normalizeGhanaPhone(phone),
-        provider: String(provider).toLowerCase(),
-      },
-    },
+    body,
   });
 }
 

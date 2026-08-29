@@ -73,6 +73,7 @@ async function getDb() {
           provider TEXT,
           currency TEXT NOT NULL DEFAULT 'GHS',
           paystack_recipient_code TEXT,
+          paystack_subaccount_code TEXT,
           is_default INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
@@ -99,6 +100,11 @@ async function getDb() {
         CREATE INDEX IF NOT EXISTS idx_wallet_tx_school ON wallet_transactions(school_id);
         CREATE INDEX IF NOT EXISTS idx_wallet_tx_reference ON wallet_transactions(reference);
       `);
+      try {
+        await db.exec(`ALTER TABLE wallet_accounts ADD COLUMN paystack_subaccount_code TEXT`);
+      } catch {
+        // Column already exists on upgraded local DBs.
+      }
       return db;
     });
   }
@@ -145,6 +151,7 @@ function mapAccount(row) {
     provider: row.provider,
     currency: row.currency,
     paystack_recipient_code: row.paystack_recipient_code,
+    paystack_subaccount_code: row.paystack_subaccount_code || null,
     is_default: row.is_default === 1 || row.is_default === true,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -332,12 +339,39 @@ export async function createWalletAccount(schoolId, data) {
         provider: data.provider || null,
         currency: data.currency || 'GHS',
         paystack_recipient_code: data.paystack_recipient_code || null,
+        paystack_subaccount_code: data.paystack_subaccount_code || null,
         is_default: makeDefault,
         created_at: timestamp,
         updated_at: timestamp,
       },
     ]);
-    if (error) throwWalletError(error);
+    if (error) {
+      const missingSub =
+        String(error.message || error.details || '').includes('paystack_subaccount_code');
+      if (missingSub) {
+        const retry = await supabase.from('wallet_accounts').insert([
+          {
+            id,
+            school_id: schoolId,
+            type: data.type,
+            label: data.label || null,
+            account_name: data.account_name,
+            account_number: data.account_number,
+            bank_code: data.bank_code,
+            bank_name: data.bank_name || null,
+            provider: data.provider || null,
+            currency: data.currency || 'GHS',
+            paystack_recipient_code: data.paystack_recipient_code || null,
+            is_default: makeDefault,
+            created_at: timestamp,
+            updated_at: timestamp,
+          },
+        ]);
+        if (retry.error) throwWalletError(retry.error);
+        return getWalletAccount(schoolId, id);
+      }
+      throwWalletError(error);
+    }
     return getWalletAccount(schoolId, id);
   }
 
@@ -349,8 +383,8 @@ export async function createWalletAccount(schoolId, data) {
   await db.run(
     `INSERT INTO wallet_accounts (
       id, school_id, type, label, account_name, account_number, bank_code, bank_name,
-      provider, currency, paystack_recipient_code, is_default, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      provider, currency, paystack_recipient_code, paystack_subaccount_code, is_default, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       schoolId,
@@ -363,6 +397,7 @@ export async function createWalletAccount(schoolId, data) {
       data.provider || null,
       data.currency || 'GHS',
       data.paystack_recipient_code || null,
+      data.paystack_subaccount_code || null,
       makeDefault ? 1 : 0,
       timestamp,
       timestamp,
@@ -392,22 +427,32 @@ export async function updateWalletAccount(schoolId, accountId, patch) {
         .eq('school_id', schoolId);
       if (error) throwWalletError(error);
     }
-    const { error } = await supabase
+    const payload = {
+      label: next.label || null,
+      account_name: next.account_name,
+      account_number: next.account_number,
+      bank_code: next.bank_code,
+      bank_name: next.bank_name || null,
+      provider: next.provider || null,
+      currency: next.currency || 'GHS',
+      paystack_recipient_code: next.paystack_recipient_code || null,
+      paystack_subaccount_code: next.paystack_subaccount_code || null,
+      is_default: isDefault,
+      updated_at: next.updated_at,
+    };
+    let { error } = await supabase
       .from('wallet_accounts')
-      .update({
-        label: next.label || null,
-        account_name: next.account_name,
-        account_number: next.account_number,
-        bank_code: next.bank_code,
-        bank_name: next.bank_name || null,
-        provider: next.provider || null,
-        currency: next.currency || 'GHS',
-        paystack_recipient_code: next.paystack_recipient_code || null,
-        is_default: isDefault,
-        updated_at: next.updated_at,
-      })
+      .update(payload)
       .eq('school_id', schoolId)
       .eq('id', accountId);
+    if (error && String(error.message || error.details || '').includes('paystack_subaccount_code')) {
+      delete payload.paystack_subaccount_code;
+      ({ error } = await supabase
+        .from('wallet_accounts')
+        .update(payload)
+        .eq('school_id', schoolId)
+        .eq('id', accountId));
+    }
     if (error) throwWalletError(error);
     return getWalletAccount(schoolId, accountId);
   }
@@ -420,7 +465,7 @@ export async function updateWalletAccount(schoolId, accountId, patch) {
   await db.run(
     `UPDATE wallet_accounts SET
       label = ?, account_name = ?, account_number = ?, bank_code = ?, bank_name = ?,
-      provider = ?, currency = ?, paystack_recipient_code = ?, is_default = ?, updated_at = ?
+      provider = ?, currency = ?, paystack_recipient_code = ?, paystack_subaccount_code = ?, is_default = ?, updated_at = ?
      WHERE school_id = ? AND id = ?`,
     [
       next.label || null,
@@ -431,6 +476,7 @@ export async function updateWalletAccount(schoolId, accountId, patch) {
       next.provider || null,
       next.currency || 'GHS',
       next.paystack_recipient_code || null,
+      next.paystack_subaccount_code || null,
       isDefault ? 1 : 0,
       next.updated_at,
       schoolId,

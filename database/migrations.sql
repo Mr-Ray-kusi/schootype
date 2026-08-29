@@ -46,8 +46,17 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   amount NUMERIC NOT NULL,
   payment_method TEXT DEFAULT 'cash',
   payment_month TEXT,
+  payment_reference TEXT,
+  status TEXT DEFAULT 'success',
+  channel TEXT,
+  currency TEXT DEFAULT 'GHS',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS payment_reference TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'success';
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS channel TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GHS';
 
 -- Report card uploads
 CREATE TABLE IF NOT EXISTS report_cards (
@@ -177,3 +186,5 @@ CREATE INDEX IF NOT EXISTS idx_platform_events_school_created
   ON platform_events (school_id, created_at DESC);
 
 ALTER TABLE IF EXISTS platform_events DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS paystack_subaccount_code TEXT;

@@ -1,0 +1,501 @@
+import {
+  getPaystackConfig,
+  initializeTransaction,
+  verifyTransaction,
+  chargeMobileMoney,
+  GHANA_CHECKOUT_CHANNELS,
+  toMinorUnits,
+  fromMinorUnits,
+} from './paystack.js';
+import { getFrontendBaseUrl } from './emailVerification.js';
+import { makeWalletReference } from './schoolWalletStore.js';
+import { supabase } from './supabaseClient.js';
+import {
+  currentFeeMonth,
+  getClassFeeAmount,
+  resolveStudentFeeAmount,
+  findSuccessfulFeePayment,
+  settleSchoolFeeFromPaystack,
+  getFeePayoutAccount,
+} from './feePayments.js';
+
+function handlePaystackError(res, err) {
+  const status = err.status || 500;
+  return res.status(status >= 400 ? status : 502).json({
+    error: err.message || 'Paystack request failed',
+    code: err.code || 'PAYSTACK_ERROR',
+  });
+}
+
+function publicStudentSummary(student, school, amount, month, paid) {
+  return {
+    school_id: student.school_id,
+    school_name: school?.name || 'School',
+    school_logo_url: school?.logo_url || null,
+    student_id: student.id,
+    student_name: student.name,
+    class_name: student.class || null,
+    roll_number: student.roll_number || null,
+    barcode: student.barcode,
+    amount,
+    currency: getPaystackConfig().currency,
+    payment_month: month,
+    paid: Boolean(paid),
+    paid_at: paid?.created_at || null,
+    paystack_configured: getPaystackConfig().configured,
+    channels: ['mobile_money', 'bank'],
+  };
+}
+
+async function loadStudentFeeContext(barcode) {
+  const code = String(barcode || '').trim();
+  if (!code) return null;
+  const { data: student, error } = await supabase.from('students').select('*').eq('barcode', code).maybeSingle();
+  if (error || !student) return null;
+  const [{ data: school }, classFee] = await Promise.all([
+    supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
+    getClassFeeAmount(student.school_id, student.class),
+  ]);
+  const month = currentFeeMonth();
+  const amount = resolveStudentFeeAmount(student, classFee);
+  const paid = amount > 0 ? await findSuccessfulFeePayment({
+    schoolId: student.school_id,
+    studentId: student.id,
+    month,
+  }) : null;
+  return { student, school, amount, month, paid };
+}
+
+async function findStudentInSchool(schoolId, studentId) {
+  const school = String(schoolId || '').trim();
+  const code = String(studentId || '').trim();
+  if (!school || !code) return null;
+
+  const byBarcode = await supabase
+    .from('students')
+    .select('*')
+    .eq('school_id', school)
+    .eq('barcode', code)
+    .maybeSingle();
+  if (byBarcode.data) return byBarcode.data;
+
+  const byRoll = await supabase
+    .from('students')
+    .select('*')
+    .eq('school_id', school)
+    .eq('roll_number', code)
+    .maybeSingle();
+  if (byRoll.data) return byRoll.data;
+
+  const byId = await supabase
+    .from('students')
+    .select('*')
+    .eq('school_id', school)
+    .eq('id', code)
+    .maybeSingle();
+  return byId.data || null;
+}
+
+async function loadStudentFeeBySchool(schoolId, studentId) {
+  const student = await findStudentInSchool(schoolId, studentId);
+  if (!student) return null;
+  const [{ data: school }, classFee] = await Promise.all([
+    supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
+    getClassFeeAmount(student.school_id, student.class),
+  ]);
+  const month = currentFeeMonth();
+  const amount = resolveStudentFeeAmount(student, classFee);
+  const paid = await findSuccessfulFeePayment({
+    schoolId: student.school_id,
+    studentId: student.id,
+    month,
+  });
+  return { student, school, amount, month, paid };
+}
+
+function normalizePayMethod(method) {
+  const value = String(method || '').toLowerCase();
+  if (value === 'momo' || value === 'mobile_money') return 'momo';
+  if (value === 'bank' || value === 'bank_transfer') return 'bank';
+  return '';
+}
+
+async function startFeePayment({
+  student,
+  school,
+  amount,
+  month,
+  email,
+  method = 'bank',
+  phone,
+  provider,
+}) {
+  const { currency, configured, publicKey } = getPaystackConfig();
+  if (!configured) {
+    const err = new Error('Paystack is not configured. Add live PAYSTACK_SECRET_KEY on the server.');
+    err.status = 503;
+    err.code = 'PAYSTACK_NOT_CONFIGURED';
+    throw err;
+  }
+  const payAmount = Number(amount);
+  if (!Number.isFinite(payAmount) || payAmount < 1) {
+    const err = new Error('Enter an amount of at least GHS 1.00.');
+    err.status = 400;
+    throw err;
+  }
+
+  const payout = await getFeePayoutAccount(student.school_id, school?.name);
+  const payMethod = normalizePayMethod(method) || 'bank';
+  const reference = makeWalletReference('fee');
+  const frontend = getFrontendBaseUrl();
+  const metadata = {
+    kind: 'school_fee',
+    school_id: student.school_id,
+    student_id: student.id,
+    payer_name: student.name,
+    payer_class: student.class || null,
+    payment_month: month,
+    amount_major: payAmount,
+    payment_method: payMethod,
+    settle_mode: payout.subaccountCode ? 'subaccount' : payout.recipientCode ? 'transfer' : 'wallet',
+    subaccount_code: payout.subaccountCode || null,
+    recipient_code: payout.recipientCode || null,
+    account_id: payout.account?.id || null,
+    cancel_action: `${frontend}/fees`,
+  };
+
+  const chargeArgs = {
+    email: email || school?.email || `fees+${student.id}@schootype.app`,
+    amountMinor: toMinorUnits(payAmount),
+    currency,
+    reference,
+    metadata,
+    subaccount: payout.subaccountCode || undefined,
+    bearer: payout.subaccountCode ? 'subaccount' : undefined,
+  };
+
+  if (payMethod === 'momo') {
+    if (!phone || !provider) {
+      const err = new Error('Enter the MoMo number and network, then confirm the PIN on your phone.');
+      err.status = 400;
+      throw err;
+    }
+    let charge;
+    try {
+      charge = await chargeMobileMoney({
+        ...chargeArgs,
+        phone,
+        provider,
+      });
+    } catch (err) {
+      if (chargeArgs.subaccount) {
+        console.warn('MoMo fee charge without subaccount:', err.message);
+        metadata.settle_mode = payout.recipientCode ? 'transfer' : 'wallet';
+        metadata.subaccount_code = null;
+        charge = await chargeMobileMoney({
+          ...chargeArgs,
+          subaccount: undefined,
+          bearer: undefined,
+          phone,
+          provider,
+        });
+      } else {
+        throw err;
+      }
+    }
+    return {
+      mode: 'momo',
+      reference,
+      status: charge?.status || 'pay_offline',
+      display_text:
+        charge?.display_text ||
+        `A payment prompt was sent. Open MoMo on your phone and enter your PIN to pay ${school?.name || 'the school'}.`,
+      public_key: publicKey || null,
+      amount: payAmount,
+      currency,
+      month,
+      payout_ready: payout.hasPayout,
+    };
+  }
+
+  const checkoutArgs = {
+    ...chargeArgs,
+    callbackUrl: `${frontend}/pay/receipt?reference=${encodeURIComponent(reference)}`,
+    channels: payMethod === 'bank' ? ['bank', 'bank_transfer'] : GHANA_CHECKOUT_CHANNELS,
+  };
+  let initialized;
+  try {
+    initialized = await initializeTransaction(checkoutArgs);
+  } catch (err) {
+    if (checkoutArgs.subaccount) {
+      console.warn('Fee checkout without subaccount:', err.message);
+      metadata.settle_mode = payout.recipientCode ? 'transfer' : 'wallet';
+      metadata.subaccount_code = null;
+      initialized = await initializeTransaction({
+        ...checkoutArgs,
+        subaccount: undefined,
+        bearer: undefined,
+      });
+    } else {
+      throw err;
+    }
+  }
+  return {
+    mode: 'checkout',
+    authorization_url: initialized.authorization_url,
+    access_code: initialized.access_code,
+    reference,
+    public_key: publicKey || null,
+    amount: payAmount,
+    currency,
+    month,
+    payout_ready: payout.hasPayout,
+  };
+}
+
+export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval }) {
+  app.get('/api/public/fees/verify/:reference', async (req, res) => {
+    try {
+      const reference = req.params.reference;
+      const verified = await verifyTransaction(reference);
+      if (verified?.status === 'success') {
+        await settleSchoolFeeFromPaystack(verified);
+      }
+      const meta = verified?.metadata || {};
+      res.json({
+        status: verified?.status || 'unknown',
+        reference,
+        amount: fromMinorUnits(verified?.amount),
+        currency: verified?.currency || 'GHS',
+        channel: verified?.channel || null,
+        student_name: meta.payer_name || null,
+        payment_month: meta.payment_month || null,
+      });
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Fee verify error:', err);
+      res.status(500).json({ error: 'Failed to verify fee payment' });
+    }
+  });
+
+  app.get('/api/public/schools', async (_req, res) => {
+    try {
+      let rows;
+      const first = await supabase.from('schools').select('id, name, role').order('name', { ascending: true });
+      if (first.error) {
+        const retry = await supabase.from('schools').select('id, name').order('name', { ascending: true });
+        if (retry.error) throw retry.error;
+        rows = retry.data || [];
+      } else {
+        rows = first.data || [];
+      }
+      const schools = rows
+        .filter((school) => school.name && String(school.role || '') !== 'super_admin')
+        .map((school) => ({ id: school.id, name: school.name }));
+      res.json({ schools });
+    } catch (err) {
+      console.error('Public schools list error:', err);
+      res.status(500).json({ error: 'Failed to load schools' });
+    }
+  });
+
+  app.post('/api/public/fees/lookup', async (req, res) => {
+    try {
+      const schoolId = String(req.body?.schoolId || '').trim();
+      const studentId = String(req.body?.studentId || '').trim();
+      if (!schoolId || !studentId) {
+        return res.status(400).json({ error: 'Select a school and enter the student ID.' });
+      }
+      const ctx = await loadStudentFeeBySchool(schoolId, studentId);
+      if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      res.json(publicStudentSummary(ctx.student, ctx.school, ctx.amount, ctx.month, ctx.paid));
+    } catch (err) {
+      console.error('Public fee lookup error:', err);
+      res.status(500).json({ error: 'Failed to find this student' });
+    }
+  });
+
+  app.post('/api/public/fees/pay', async (req, res) => {
+    try {
+      const schoolId = String(req.body?.schoolId || '').trim();
+      const studentId = String(req.body?.studentId || '').trim();
+      const method = normalizePayMethod(req.body?.method);
+      const amount = Number(req.body?.amount);
+      if (!method) return res.status(400).json({ error: 'Select MoMo or bank.' });
+      const ctx = await loadStudentFeeBySchool(schoolId, studentId);
+      if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      const payment = await startFeePayment({
+        student: ctx.student,
+        school: ctx.school,
+        amount: Number.isFinite(amount) && amount > 0 ? amount : ctx.amount,
+        month: ctx.month,
+        email: req.body?.email || ctx.student.parent_email || ctx.school?.email,
+        method,
+        phone: req.body?.phone,
+        provider: req.body?.provider,
+      });
+      res.json(payment);
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Public fee pay error:', err);
+      res.status(500).json({ error: 'Failed to start fee payment' });
+    }
+  });
+
+  app.get('/api/public/fees/:barcode', async (req, res) => {
+    try {
+      const ctx = await loadStudentFeeContext(req.params.barcode);
+      if (!ctx) return res.status(404).json({ error: 'Student not found' });
+      const { student, school, amount, month, paid } = ctx;
+      res.json(publicStudentSummary(student, school, amount, month, paid));
+    } catch (err) {
+      console.error('Public fee lookup error:', err);
+      res.status(500).json({ error: 'Failed to load fee details' });
+    }
+  });
+
+  app.post('/api/public/fees/:barcode/checkout', async (req, res) => {
+    try {
+      const ctx = await loadStudentFeeContext(req.params.barcode);
+      if (!ctx) return res.status(404).json({ error: 'Student not found' });
+      const { student, school, amount, month } = ctx;
+      const requested = Number(req.body?.amount);
+      const payAmount = Number.isFinite(requested) && requested > 0 ? requested : amount;
+      if (!(payAmount > 0)) {
+        return res.status(400).json({ error: 'Enter an amount, or ask the school to set a class fee in Setup.' });
+      }
+      const checkout = await startFeePayment({
+        student,
+        school,
+        amount: payAmount,
+        month,
+        email: req.body?.email || student.parent_email || school?.email,
+        method: req.body?.method || 'bank',
+        phone: req.body?.phone,
+        provider: req.body?.provider,
+      });
+      res.json(checkout);
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Fee checkout error:', err);
+      res.status(500).json({ error: 'Failed to start fee payment' });
+    }
+  });
+
+  app.get('/api/fees/overview', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const schoolId = req.user.schoolId;
+      const month = String(req.query.month || currentFeeMonth());
+      const [{ data: students, error: studentError }, { data: classes }, { data: payments, error: payError }] =
+        await Promise.all([
+          supabase
+            .from('students')
+            .select('id, name, class, roll_number, barcode, monthly_fee, fee_status')
+            .eq('school_id', schoolId)
+            .order('name', { ascending: true }),
+          supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
+          supabase
+            .from('fee_payments')
+            .select('*')
+            .eq('school_id', schoolId)
+            .eq('payment_month', month)
+            .order('created_at', { ascending: false }),
+        ]);
+      if (studentError) throw studentError;
+
+      const classFeeByName = new Map(
+        (classes || []).map((row) => [row.name, Number(row.fee_amount) || 0])
+      );
+      const paidByStudent = new Map();
+      for (const payment of payments || []) {
+        if (payment.payer_id && !paidByStudent.has(payment.payer_id)) {
+          paidByStudent.set(payment.payer_id, payment);
+        }
+      }
+
+      const rows = (students || []).map((student) => {
+        const amount = resolveStudentFeeAmount(student, classFeeByName.get(student.class) || 0);
+        const payment = paidByStudent.get(student.id) || null;
+        return {
+          ...student,
+          fee_amount: amount,
+          payment_month: month,
+          paid: Boolean(payment),
+          payment,
+          pay_path: student.barcode ? `/pay/${encodeURIComponent(student.barcode)}` : null,
+        };
+      });
+
+      const billed = rows.filter((row) => row.fee_amount > 0);
+      const paid = billed.filter((row) => row.paid);
+      const unpaid = billed.filter((row) => !row.paid);
+      const paidAmount = paid.reduce((sum, row) => sum + Number(row.payment?.amount || row.fee_amount || 0), 0);
+      const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.fee_amount || 0), 0);
+
+      res.json({
+        month,
+        totals: {
+          billed: billed.length,
+          paid: paid.length,
+          unpaid: unpaid.length,
+          paid_amount: paidAmount,
+          unpaid_amount: unpaidAmount,
+        },
+        paid,
+        unpaid,
+        payments: payments || [],
+        pay_error: payError?.message || null,
+      });
+    } catch (err) {
+      console.error('Fee overview error:', err);
+      res.status(500).json({ error: err.message || 'Failed to load fees' });
+    }
+  });
+
+  app.post('/api/fees/:studentId/checkout', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const { data: student, error } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', req.params.studentId)
+        .eq('school_id', req.user.schoolId)
+        .maybeSingle();
+      if (error || !student) return res.status(404).json({ error: 'Student not found' });
+      const [classFee, { data: school }] = await Promise.all([
+        getClassFeeAmount(student.school_id, student.class),
+        supabase.from('schools').select('id, name, email').eq('id', student.school_id).maybeSingle(),
+      ]);
+      const month = currentFeeMonth();
+      const amount = resolveStudentFeeAmount(student, classFee);
+      if (!(amount > 0)) {
+        return res.status(400).json({ error: 'Set a class fee in Setup before collecting payment.' });
+      }
+      const paid = await findSuccessfulFeePayment({
+        schoolId: student.school_id,
+        studentId: student.id,
+        month,
+      });
+      if (paid) {
+        return res.status(409).json({ error: 'This student has already paid for this month.', code: 'ALREADY_PAID' });
+      }
+      const checkout = await startFeePayment({
+        student,
+        school,
+        amount,
+        month,
+        email: student.parent_email || req.user.email,
+        method: req.body?.method || 'bank',
+        phone: req.body?.phone,
+        provider: req.body?.provider,
+      });
+      res.json({
+        ...checkout,
+        pay_url: `${getFrontendBaseUrl()}/pay/${encodeURIComponent(student.barcode)}`,
+      });
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Admin fee checkout error:', err);
+      res.status(500).json({ error: 'Failed to start fee payment' });
+    }
+  });
+}
