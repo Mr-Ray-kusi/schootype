@@ -19,7 +19,7 @@ import {
 } from './platformSmsStore.js';
 import { resolveSmsRecipients, getSmsProviderStatus } from './smsProvider.js';
 
-async function findPlatformSchoolId(supabase) {
+export async function findPlatformSchoolId(supabase) {
   if (process.env.PLATFORM_WALLET_SCHOOL_ID) {
     return process.env.PLATFORM_WALLET_SCHOOL_ID;
   }
@@ -179,7 +179,7 @@ export function registerSmsBillingRoutes(app, {
       await transferBetweenWallets({
         fromSchoolId: req.user.schoolId,
         toSchoolId: platformSchoolId,
-        amount: amountMinor,
+        amountMinor,
         reference,
         description: `Buy ${units} SMS units`,
         metadata: { kind: 'sms_unit_purchase', units },

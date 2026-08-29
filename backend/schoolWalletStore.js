@@ -844,6 +844,65 @@ export function makeWalletReference(prefix = 'wlt') {
   return `${prefix}_${Date.now()}_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
 }
 
+export async function sumSuccessfulCreditsByKind(schoolId, kind) {
+  const rows = await listWalletTransactions(schoolId, { limit: 5000 });
+  return rows
+    .filter(
+      (tx) =>
+        tx.status === 'success' &&
+        tx.type === 'credit' &&
+        tx.metadata?.kind === kind
+    )
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+}
+
+/**
+ * Credit a wallet from platform revenue (subscription payments, sync gaps).
+ * Idempotent by transaction reference.
+ */
+export async function creditInternalFunds(schoolId, amountMinor, {
+  reference,
+  description,
+  metadata = {},
+} = {}) {
+  const amount = Math.round(Number(amountMinor) || 0);
+  if (amount <= 0) {
+    return { wallet: await getWallet(schoolId), transaction: null };
+  }
+  if (!reference) {
+    const err = new Error('Wallet credit reference is required');
+    err.status = 400;
+    throw err;
+  }
+
+  await ensureWallet(schoolId);
+  const existing = await getWalletTransactionByReference(reference);
+  if (existing?.status === 'success') {
+    return { wallet: await getWallet(schoolId), transaction: existing };
+  }
+  if (existing) {
+    return creditDeposit(reference);
+  }
+
+  try {
+    await createWalletTransaction(schoolId, {
+      type: 'credit',
+      amount,
+      status: 'pending',
+      channel: 'internal',
+      reference,
+      description: description || 'Internal credit',
+      metadata,
+    });
+  } catch (err) {
+    const again = await getWalletTransactionByReference(reference);
+    if (again) return creditDeposit(reference);
+    throw err;
+  }
+
+  return creditDeposit(reference);
+}
+
 /**
  * Move funds from one school wallet to another (internal transfer).
  * Creates paired ledger rows on both wallets.

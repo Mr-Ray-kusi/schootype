@@ -56,10 +56,10 @@ import {
   recordResendAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
-import { initSchoolWalletStore } from './schoolWalletStore.js';
+import { initSchoolWalletStore, creditInternalFunds, makeWalletReference } from './schoolWalletStore.js';
 import { registerWalletRoutes } from './walletRoutes.js';
 import { initPlatformSmsStore } from './platformSmsStore.js';
-import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits } from './smsBilling.js';
+import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
 import {
   createEmailVerificationToken,
@@ -2565,6 +2565,24 @@ app.post('/api/super-admin/schools/:id/record-payment', authenticateToken, requi
       total_paid: (Number(extras?.total_paid) || 0) + amount,
       payment_records: JSON.stringify(records),
     });
+
+    const amountMinor = Math.round(Number(amount) * 100);
+    const platformSchoolId = await findPlatformSchoolId(supabase);
+    if (platformSchoolId && amountMinor > 0) {
+      try {
+        await creditInternalFunds(platformSchoolId, amountMinor, {
+          reference: makeWalletReference('sub'),
+          description: `Subscription payment · ${merged.name || 'school'}`,
+          metadata: {
+            kind: 'subscription_payment',
+            from_school_id: req.params.id,
+            plan_id: merged.payment_plan || null,
+          },
+        });
+      } catch (walletErr) {
+        console.warn('Failed to credit platform wallet from subscription payment:', walletErr.message || walletErr);
+      }
+    }
 
     res.json(await buildSchoolWithStats(existingSchool));
   } catch (error) {

@@ -25,12 +25,17 @@ import {
   listWalletTransactions,
   updateWalletTransaction,
   creditDeposit,
+  creditInternalFunds,
+  sumSuccessfulCreditsByKind,
   reserveWithdrawal,
   completeWithdrawal,
   failWithdrawal,
   makeWalletReference,
 } from './schoolWalletStore.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
+import { findPlatformSchoolId } from './smsBilling.js';
+import { supabase } from './supabaseClient.js';
+import { mergeSchoolWithExtras } from './schoolPlanStore.js';
 
 function formatMoney(wallet) {
   return {
@@ -47,6 +52,35 @@ function formatTransaction(tx) {
     amount_major: fromMinorUnits(tx.amount),
     fee_major: fromMinorUnits(tx.fee),
   };
+}
+
+async function getRecordedSubscriptionRevenueMinor() {
+  const { data: schools, error } = await supabase
+    .from('schools')
+    .select('id, role, total_paid, payment_plan, plan_status');
+  if (error) throw error;
+  let totalMajor = 0;
+  for (const school of schools || []) {
+    if (String(school.role || '') === 'super_admin') continue;
+    totalMajor += Number(mergeSchoolWithExtras(school).total_paid) || 0;
+  }
+  return Math.round(totalMajor * 100);
+}
+
+async function syncSubscriptionRevenueIntoPlatformWallet() {
+  const platformSchoolId = await findPlatformSchoolId(supabase);
+  if (!platformSchoolId) return;
+  const expectedMinor = await getRecordedSubscriptionRevenueMinor();
+  if (expectedMinor <= 0) return;
+  await ensureWallet(platformSchoolId);
+  const creditedMinor = await sumSuccessfulCreditsByKind(platformSchoolId, 'subscription_payment');
+  const gapMinor = expectedMinor - creditedMinor;
+  if (gapMinor <= 0) return;
+  await creditInternalFunds(platformSchoolId, gapMinor, {
+    reference: `subrev_gap_${expectedMinor}`,
+    description: 'Subscription revenue available to withdraw',
+    metadata: { kind: 'subscription_payment', sync: true },
+  });
 }
 
 function sendStoreError(res, err, fallback) {
@@ -79,6 +113,14 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       const schoolId = req.user.schoolId;
       const { currency } = getPaystackConfig();
       await ensureWallet(schoolId, currency);
+      const platformSchoolId = await findPlatformSchoolId(supabase);
+      if (platformSchoolId && schoolId === platformSchoolId) {
+        try {
+          await syncSubscriptionRevenueIntoPlatformWallet();
+        } catch (syncErr) {
+          console.warn('Platform revenue wallet sync failed:', syncErr.message || syncErr);
+        }
+      }
       const [wallet, accounts, transactions] = await Promise.all([
         getWallet(schoolId),
         listWalletAccounts(schoolId),
