@@ -1,4 +1,4 @@
-import { fromMinorUnits } from './paystack.js';
+import { fromMinorUnits, toMinorUnits } from './paystack.js';
 import {
   getWallet,
   ensureWallet,
@@ -7,7 +7,6 @@ import {
 import {
   getSmsSettings,
   setSmsUnitPrice,
-  addSmsUnits,
   buildSmsQuote,
   listSmsSales,
   makeSmsSaleReference,
@@ -16,8 +15,9 @@ import {
   creditSchoolSmsPurchase,
   consumeSchoolAndPlatformUnits,
   refundSchoolAndPlatformUnits,
+  recordProviderStockPurchase,
 } from './platformSmsStore.js';
-import { resolveSmsRecipients, getSmsProviderStatus } from './smsProvider.js';
+import { resolveSmsRecipients, getSmsProviderStatus, fetchTwilioAccountBalance } from './smsProvider.js';
 
 export async function findPlatformSchoolId(supabase) {
   if (process.env.PLATFORM_WALLET_SCHOOL_ID) {
@@ -79,6 +79,7 @@ export function registerSmsBillingRoutes(app, {
         await ensureWallet(platformSchoolId);
         wallet = await getWallet(platformSchoolId);
       }
+      const twilioBalance = await fetchTwilioAccountBalance();
 
       res.json({
         settings: formatSmsSettings(settings),
@@ -93,6 +94,7 @@ export function registerSmsBillingRoutes(app, {
             }
           : null,
         provider: getSmsProviderStatus(),
+        twilio_balance: twilioBalance,
       });
     } catch (err) {
       console.error('Get platform SMS error:', err);
@@ -115,16 +117,46 @@ export function registerSmsBillingRoutes(app, {
   });
 
   app.post('/api/super-admin/sms/units', authenticateToken, requireSuperAdmin, async (req, res) => {
+    return res.status(410).json({
+      error:
+        'Free SMS units are disabled. Record a Twilio purchase with the invoice reference and the amount paid to Twilio.',
+      code: 'PROVIDER_PURCHASE_REQUIRED',
+    });
+  });
+
+  app.post('/api/super-admin/sms/provider-stock', authenticateToken, requireSuperAdmin, async (req, res) => {
     try {
-      const units = Math.round(Number(req.body?.units) || 0);
-      if (units <= 0) {
-        return res.status(400).json({ error: 'units must be a positive number' });
+      const provider = getSmsProviderStatus();
+      if (provider.mode === 'dry_run') {
+        return res.status(400).json({
+          error: 'Turn off SMS_DRY_RUN before loading paid Twilio units.',
+        });
       }
-      const settings = await addSmsUnits(units);
+      if (!provider.ready || provider.mode !== 'live') {
+        return res.status(400).json({
+          error: 'Twilio must be configured with live keys before you can load purchased units.',
+        });
+      }
+
+      const units = Math.round(Number(req.body?.units) || 0);
+      const amountPaid = Number(req.body?.amount_paid);
+      if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+        return res.status(400).json({ error: 'Enter the amount paid to Twilio for this purchase' });
+      }
+      const providerReference = String(req.body?.provider_reference || '').trim();
+      const platformSchoolId = await findPlatformSchoolId(supabase);
+
+      const settings = await recordProviderStockPurchase({
+        platformSchoolId,
+        units,
+        amountMinor: toMinorUnits(amountPaid),
+        providerReference,
+      });
       res.json({ settings: formatSmsSettings(settings) });
     } catch (err) {
-      console.error('Add SMS units error:', err);
-      res.status(500).json({ error: 'Failed to add SMS units' });
+      console.error('Record Twilio SMS stock error:', err);
+      const status = err.status || 500;
+      res.status(status).json({ error: err.message || 'Failed to load purchased SMS units' });
     }
   });
 

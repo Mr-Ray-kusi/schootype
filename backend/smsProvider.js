@@ -71,6 +71,21 @@ export function getSmsProviderStatus() {
   };
 }
 
+export async function fetchTwilioAccountBalance() {
+  const cfg = getTwilioConfig();
+  if (cfg.dryRun || !cfg.configured) return null;
+  try {
+    const bal = await getClient().balance.fetch();
+    return {
+      amount: Number(bal.balance),
+      currency: String(bal.currency || 'USD').toUpperCase(),
+    };
+  } catch (err) {
+    console.warn('Twilio balance fetch failed:', err.message || err);
+    return null;
+  }
+}
+
 function getClient() {
   const cfg = getTwilioConfig();
   if (!cfg.configured) {

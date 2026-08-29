@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { MessageSquare, Coins, TrendingUp, Plus } from 'lucide-react';
+import { MessageSquare, Coins, TrendingUp } from 'lucide-react';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -11,9 +11,14 @@ const SuperAdminSms = () => {
   const [sales, setSales] = useState([]);
   const [wallet, setWallet] = useState(null);
   const [provider, setProvider] = useState(null);
+  const [twilioBalance, setTwilioBalance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unitPrice, setUnitPrice] = useState('0.05');
-  const [addUnits, setAddUnits] = useState('1000');
+  const [stockForm, setStockForm] = useState({
+    units: '',
+    amountPaid: '',
+    providerReference: '',
+  });
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -24,6 +29,7 @@ const SuperAdminSms = () => {
       setSales(data.sales || []);
       setWallet(data.platform_wallet);
       setProvider(data.provider || null);
+      setTwilioBalance(data.twilio_balance || null);
       setUnitPrice(String(data.settings?.unit_price_major ?? 0.05));
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load SMS inventory');
@@ -52,32 +58,37 @@ const SuperAdminSms = () => {
     }
   };
 
-  const handleAddUnits = async (e) => {
+  const handleLoadPurchasedUnits = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const { data } = await axios.post('/api/super-admin/sms/units', {
-        units: Number(addUnits),
+      const { data } = await axios.post('/api/super-admin/sms/provider-stock', {
+        units: Number(stockForm.units),
+        amount_paid: Number(stockForm.amountPaid),
+        provider_reference: stockForm.providerReference.trim(),
       });
       setSettings(data.settings);
-      toast.success(`Added ${addUnits} SMS units`);
-      setAddUnits('1000');
+      toast.success(`Loaded ${stockForm.units} purchased Twilio units`);
+      setStockForm({ units: '', amountPaid: '', providerReference: '' });
+      await load();
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to add units');
+      toast.error(err.response?.data?.error || 'Failed to load purchased units');
     } finally {
       setSaving(false);
     }
   };
 
+  const twilioLive = provider?.mode === 'live' && provider?.ready;
+
   return (
     <>
-<div className="space-y-8">
+      <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-white">SMS Units & Revenue</h1>
           {provider && (
             <div
               className={`mt-4 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
-                provider.ready
+                twilioLive
                   ? 'border-green-500/40 bg-green-500/10 text-green-200'
                   : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
               }`}
@@ -85,6 +96,18 @@ const SuperAdminSms = () => {
               <span className="font-medium">Twilio: {provider.mode}</span>
               <span className="text-slate-300">· {provider.message}</span>
             </div>
+          )}
+          {twilioBalance && (
+            <p className="mt-3 text-sm text-slate-400">
+              Twilio account balance:{' '}
+              <span className="font-medium text-white">
+                {twilioBalance.amount.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                })}{' '}
+                {twilioBalance.currency}
+              </span>
+            </p>
           )}
         </div>
 
@@ -96,6 +119,7 @@ const SuperAdminSms = () => {
             <p className="mt-4 text-3xl font-semibold text-white">
               {loading ? '…' : (settings?.units_available || 0).toLocaleString()}
             </p>
+            <p className="mt-2 text-xs text-slate-400">Only stock purchased from Twilio</p>
           </div>
           <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5 shadow-xl">
             <p className="flex items-center gap-2 text-sm uppercase tracking-wide text-slate-300">
@@ -122,33 +146,74 @@ const SuperAdminSms = () => {
 
         <div className="grid gap-6 lg:grid-cols-2">
           <form
-            onSubmit={handleAddUnits}
+            onSubmit={handleLoadPurchasedUnits}
             className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl space-y-4"
           >
-            <h2 className="text-lg font-semibold text-white">Load SMS units</h2>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={addUnits}
-              onChange={(e) => setAddUnits(e.target.value)}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-primary-500"
-            />
+            <h2 className="text-lg font-semibold text-white">Load purchased Twilio units</h2>
+            <p className="text-sm text-slate-400">
+              Buy SMS credit in Twilio, then enter the units, amount paid, and invoice or payment
+              reference. Units cannot be added without a paid Twilio purchase.
+            </p>
+            <label className="block text-xs uppercase tracking-wide text-slate-400">
+              Units bought
+              <input
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={stockForm.units}
+                onChange={(e) => setStockForm((prev) => ({ ...prev, units: e.target.value }))}
+                className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </label>
+            <label className="block text-xs uppercase tracking-wide text-slate-400">
+              Amount paid to Twilio (GHS)
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={stockForm.amountPaid}
+                onChange={(e) => setStockForm((prev) => ({ ...prev, amountPaid: e.target.value }))}
+                className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </label>
+            <label className="block text-xs uppercase tracking-wide text-slate-400">
+              Twilio invoice / payment reference
+              <input
+                type="text"
+                minLength={4}
+                required
+                value={stockForm.providerReference}
+                onChange={(e) =>
+                  setStockForm((prev) => ({ ...prev, providerReference: e.target.value }))
+                }
+                placeholder="INVxxxxxxxx or receipt number"
+                className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </label>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !twilioLive}
               className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
             >
-              <Plus className="h-4 w-4" />
-              Add units
+              Load purchased units
             </button>
+            {!twilioLive && (
+              <p className="text-xs text-amber-200">
+                Configure live Twilio keys (and turn off SMS_DRY_RUN) before loading units.
+              </p>
+            )}
           </form>
 
           <form
             onSubmit={handleSavePrice}
             className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl space-y-4"
           >
-            <h2 className="text-lg font-semibold text-white">Unit price (GHS)</h2>
+            <h2 className="text-lg font-semibold text-white">School price / unit (GHS)</h2>
+            <p className="text-sm text-slate-400">
+              This is what schools pay you per SMS unit. It is separate from what Twilio charged you.
+            </p>
             <input
               type="number"
               min="0.01"
@@ -185,18 +250,20 @@ const SuperAdminSms = () => {
                 {!sales.length ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-slate-400">
-                      No school SMS purchases or usage yet.
+                      No Twilio stock loads or school SMS purchases yet.
                     </td>
                   </tr>
                 ) : (
                   sales.map((sale, index) => (
                     <tr key={sale.id} className={index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'}>
                       <td className="px-6 py-4 capitalize">
-                        {sale.sale_type === 'purchase'
-                          ? 'Unit purchase'
-                          : sale.sale_type === 'usage'
-                            ? 'Broadcast use'
-                            : sale.sale_type || 'Sale'}
+                        {sale.sale_type === 'provider_stock'
+                          ? 'Twilio purchase'
+                          : sale.sale_type === 'purchase'
+                            ? 'School unit purchase'
+                            : sale.sale_type === 'usage'
+                              ? 'Broadcast use'
+                              : sale.sale_type || 'Sale'}
                       </td>
                       <td className="px-6 py-4">{new Date(sale.created_at).toLocaleString()}</td>
                       <td className="px-6 py-4">{sale.school_name || sale.school_id}</td>
@@ -213,7 +280,7 @@ const SuperAdminSms = () => {
           </div>
         </div>
       </div>
-</>
+    </>
   );
 };
 

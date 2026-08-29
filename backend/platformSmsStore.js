@@ -187,6 +187,200 @@ export async function addSmsUnits(units) {
   return getSmsSettings();
 }
 
+const DEMO_FLAG_ID = 'demo_money_cleared_v1';
+
+function isDuplicateKey(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return error?.code === '23505' || msg.includes('duplicate');
+}
+
+/**
+ * Claim a one-time demo wipe. Returns true only for the first successful claim.
+ * `baselineMinor` is the subscription revenue already on the books so wallet
+ * sync does not put that demo total back after balances are zeroed.
+ */
+export async function claimDemoMoneyReset(baselineMinor = 0) {
+  const baseline = Math.max(0, Math.round(Number(baselineMinor) || 0));
+  if (useCloudSms()) {
+    const { error } = await supabase.from('platform_sms_settings').insert([
+      {
+        id: DEMO_FLAG_ID,
+        units_available: 0,
+        unit_price_minor: 0,
+        total_revenue_minor: baseline,
+        updated_at: nowIso(),
+      },
+    ]);
+    if (error) {
+      if (isDuplicateKey(error)) return false;
+      throw error;
+    }
+    return true;
+  }
+  const db = await getDb();
+  const result = await db.run(
+    `INSERT OR IGNORE INTO platform_sms_settings
+      (id, units_available, unit_price_minor, total_revenue_minor, updated_at)
+     VALUES (?, 0, 0, ?, ?)`,
+    [DEMO_FLAG_ID, baseline, nowIso()]
+  );
+  return Number(result?.changes) > 0;
+}
+
+export async function getDemoMoneyClearBaselineMinor() {
+  if (useCloudSms()) {
+    const { data, error } = await supabase
+      .from('platform_sms_settings')
+      .select('total_revenue_minor')
+      .eq('id', DEMO_FLAG_ID)
+      .maybeSingle();
+    if (error) throw error;
+    return Math.max(0, Math.round(Number(data?.total_revenue_minor) || 0));
+  }
+  const db = await getDb();
+  const row = await db.get('SELECT total_revenue_minor FROM platform_sms_settings WHERE id = ?', [
+    DEMO_FLAG_ID,
+  ]);
+  return Math.max(0, Math.round(Number(row?.total_revenue_minor) || 0));
+}
+
+export async function resetSmsInventoryToZero() {
+  if (useCloudSms()) {
+    const { error: setErr } = await supabase
+      .from('platform_sms_settings')
+      .update({
+        units_available: 0,
+        total_revenue_minor: 0,
+        updated_at: nowIso(),
+      })
+      .eq('id', SETTINGS_ID);
+    if (setErr) throw setErr;
+    const { error: balErr } = await supabase
+      .from('school_sms_balances')
+      .update({ units_available: 0, updated_at: nowIso() })
+      .not('school_id', 'is', null);
+    if (balErr) throw balErr;
+    const { error: salesErr } = await supabase
+      .from('platform_sms_sales')
+      .delete()
+      .neq('reference', '');
+    if (salesErr) throw salesErr;
+    return;
+  }
+  const db = await getDb();
+  await db.run(
+    `UPDATE platform_sms_settings
+     SET units_available = 0, total_revenue_minor = 0, updated_at = ?
+     WHERE id = ?`,
+    [nowIso(), SETTINGS_ID]
+  );
+  await db.run(`UPDATE school_sms_balances SET units_available = 0, updated_at = ?`, [nowIso()]);
+  await db.run(`DELETE FROM platform_sms_sales`);
+}
+
+export async function recordProviderStockPurchase({
+  platformSchoolId,
+  units,
+  amountMinor,
+  providerReference,
+}) {
+  const add = Math.max(0, Math.round(Number(units) || 0));
+  const paid = Math.max(0, Math.round(Number(amountMinor) || 0));
+  const invoice = String(providerReference || '').trim();
+  if (add < 1) {
+    const err = new Error('Enter how many SMS units you bought from Twilio');
+    err.status = 400;
+    throw err;
+  }
+  if (paid < 1) {
+    const err = new Error('Enter the amount paid to Twilio for this purchase');
+    err.status = 400;
+    throw err;
+  }
+  if (invoice.length < 4) {
+    const err = new Error('Enter the Twilio invoice or payment reference');
+    err.status = 400;
+    throw err;
+  }
+  if (!platformSchoolId) {
+    const err = new Error('Platform school account is required to record a Twilio purchase');
+    err.status = 400;
+    throw err;
+  }
+
+  const reference = `twilio_${invoice.replace(/\s+/g, '_').slice(0, 80)}`;
+  const existing = await getSmsSaleByReference(reference);
+  if (existing) {
+    const err = new Error('This Twilio purchase reference was already loaded');
+    err.status = 409;
+    throw err;
+  }
+
+  const id = randomUUID();
+  const createdAt = nowIso();
+  const preview = `Twilio stock · ${invoice}`;
+
+  if (useCloudSms()) {
+    const { error } = await supabase.from('platform_sms_sales').insert([
+      {
+        id,
+        school_id: platformSchoolId,
+        school_name: 'Twilio',
+        units: add,
+        amount_minor: paid,
+        recipients_count: 0,
+        segments: 0,
+        reference,
+        message_preview: preview,
+        sale_type: 'provider_stock',
+        created_at: createdAt,
+      },
+    ]);
+    if (error) {
+      if (isDuplicateKey(error)) {
+        const err = new Error('This Twilio purchase reference was already loaded');
+        err.status = 409;
+        throw err;
+      }
+      throw error;
+    }
+    try {
+      return await addSmsUnits(add);
+    } catch (addErr) {
+      await supabase.from('platform_sms_sales').delete().eq('reference', reference);
+      throw addErr;
+    }
+  }
+
+  const db = await getDb();
+  await db.run('BEGIN');
+  try {
+    await db.run(
+      `INSERT INTO platform_sms_sales (
+        id, school_id, school_name, units, amount_minor, recipients_count,
+        segments, reference, message_preview, sale_type, created_at
+      ) VALUES (?, ?, 'Twilio', ?, ?, 0, 0, ?, ?, 'provider_stock', ?)`,
+      [id, platformSchoolId, add, paid, reference, preview, createdAt]
+    );
+    await db.run(
+      `UPDATE platform_sms_settings
+       SET units_available = units_available + ?, updated_at = ?
+       WHERE id = ?`,
+      [add, createdAt, SETTINGS_ID]
+    );
+    await db.run('COMMIT');
+  } catch (err) {
+    await db.run('ROLLBACK');
+    if (isDuplicateKey(err) || String(err?.message || '').toLowerCase().includes('unique')) {
+      const dup = new Error('This Twilio purchase reference was already loaded');
+      dup.status = 409;
+      throw dup;
+    }
+    throw err;
+  }
+  return getSmsSettings();
+}
+
 /**
  * GSM-ish segment estimate: 160 chars per unit for basic Latin.
  * Longer Unicode messages cost more in reality; keep simple for billing.
@@ -600,6 +794,22 @@ export async function refundSchoolAndPlatformUnits({
     settings: await getSmsSettings(),
     refunded_units: refundUnits,
   };
+}
+
+export async function getSmsSaleByReference(reference) {
+  const ref = String(reference || '').trim();
+  if (!ref) return null;
+  if (useCloudSms()) {
+    const { data, error } = await supabase
+      .from('platform_sms_sales')
+      .select('*')
+      .eq('reference', ref)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  }
+  const db = await getDb();
+  return db.get('SELECT * FROM platform_sms_sales WHERE reference = ?', [ref]);
 }
 
 export async function listSmsSales({ limit = 50 } = {}) {

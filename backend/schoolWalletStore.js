@@ -223,6 +223,26 @@ export async function initSchoolWalletStore() {
   await getDb();
 }
 
+export async function resetAllWalletBalances() {
+  if (useCloudWallet()) {
+    assertCloud();
+    const { error: txErr } = await supabase.from('wallet_transactions').delete().neq('reference', '');
+    if (txErr) throwWalletError(txErr);
+    const { error: walletErr } = await supabase
+      .from('school_wallets')
+      .update({ available_balance: 0, pending_balance: 0, updated_at: nowIso() })
+      .not('school_id', 'is', null);
+    if (walletErr) throwWalletError(walletErr);
+    return;
+  }
+  const db = await getDb();
+  await db.run('DELETE FROM wallet_transactions');
+  await db.run(
+    `UPDATE school_wallets SET available_balance = 0, pending_balance = 0, updated_at = ?`,
+    [nowIso()]
+  );
+}
+
 export async function ensureWallet(schoolId, currency = 'GHS') {
   if (useCloudWallet()) return ensureWalletCloud(schoolId, currency);
 

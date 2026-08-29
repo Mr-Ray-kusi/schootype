@@ -34,6 +34,7 @@ import {
 } from './schoolWalletStore.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
 import { findPlatformSchoolId } from './smsBilling.js';
+import { getDemoMoneyClearBaselineMinor } from './platformSmsStore.js';
 import { supabase } from './supabaseClient.js';
 import { mergeSchoolWithExtras } from './schoolPlanStore.js';
 
@@ -54,7 +55,7 @@ function formatTransaction(tx) {
   };
 }
 
-async function getRecordedSubscriptionRevenueMinor() {
+export async function getRecordedSubscriptionRevenueMinor() {
   const { data: schools, error } = await supabase
     .from('schools')
     .select('id, role, total_paid, payment_plan, plan_status');
@@ -70,7 +71,14 @@ async function getRecordedSubscriptionRevenueMinor() {
 async function syncSubscriptionRevenueIntoPlatformWallet() {
   const platformSchoolId = await findPlatformSchoolId(supabase);
   if (!platformSchoolId) return;
-  const expectedMinor = await getRecordedSubscriptionRevenueMinor();
+  const lifetimeMinor = await getRecordedSubscriptionRevenueMinor();
+  let baselineMinor = 0;
+  try {
+    baselineMinor = await getDemoMoneyClearBaselineMinor();
+  } catch {
+    baselineMinor = 0;
+  }
+  const expectedMinor = Math.max(0, lifetimeMinor - baselineMinor);
   if (expectedMinor <= 0) return;
   await ensureWallet(platformSchoolId);
   const creditedMinor = await sumSuccessfulCreditsByKind(platformSchoolId, 'subscription_payment');

@@ -56,9 +56,9 @@ import {
   recordResendAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
-import { initSchoolWalletStore, creditInternalFunds, makeWalletReference } from './schoolWalletStore.js';
-import { registerWalletRoutes } from './walletRoutes.js';
-import { initPlatformSmsStore } from './platformSmsStore.js';
+import { initSchoolWalletStore, creditInternalFunds, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
+import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
+import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
 import {
@@ -5196,6 +5196,22 @@ async function initializeDatabase() {
         } catch (smsErr) {
           console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
           console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
+        }
+        try {
+          let baselineMinor = 0;
+          try {
+            baselineMinor = await getRecordedSubscriptionRevenueMinor();
+          } catch (baselineErr) {
+            console.warn('Demo reset baseline skipped:', baselineErr.message || baselineErr);
+          }
+          const claimed = await claimDemoMoneyReset(baselineMinor);
+          if (claimed) {
+            await resetSmsInventoryToZero();
+            await resetAllWalletBalances();
+            console.log('Cleared demo SMS units and wallet balances');
+          }
+        } catch (demoErr) {
+          console.warn('Demo money reset skipped:', demoErr.message || demoErr);
         }
         await seedSuperAdmin();
       } catch (err) {
