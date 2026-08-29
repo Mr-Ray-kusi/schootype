@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import QRCode from 'react-qr-code';
 
 export function qrValueToSvgMarkup(value) {
-  return renderToStaticMarkup(
+  let markup = renderToStaticMarkup(
     React.createElement(QRCode, {
       value,
       size: 256,
@@ -12,6 +12,10 @@ export function qrValueToSvgMarkup(value) {
       fgColor: '#000000',
     })
   );
+  if (!/xmlns=/.test(markup)) {
+    markup = markup.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  return markup;
 }
 
 export function svgMarkupToPngBlob(svgMarkup, outputSize = 512, padding = 32) {
@@ -24,7 +28,14 @@ export function svgMarkupToPngBlob(svgMarkup, outputSize = 512, padding = 32) {
     ctx.fillRect(0, 0, outputSize, outputSize);
 
     const img = new Image();
+    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to render QR SVG'));
+    };
     img.onload = () => {
+      URL.revokeObjectURL(url);
       const dim = outputSize - padding * 2;
       ctx.drawImage(img, padding, padding, dim, dim);
       canvas.toBlob((blob) => {
@@ -32,8 +43,7 @@ export function svgMarkupToPngBlob(svgMarkup, outputSize = 512, padding = 32) {
         else reject(new Error('Failed to create QR PNG'));
       }, 'image/png');
     };
-    img.onerror = reject;
-    img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgMarkup)))}`;
+    img.src = url;
   });
 }
 

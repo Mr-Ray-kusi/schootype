@@ -53,20 +53,41 @@ const toBytes = async (data) => {
 
 /**
  * Uncompressed ZIP (store method). Avoids a heavy JSZip dependency.
+ * Parent folders are written as real directory entries so extractors keep
+ * one folder per person.
  */
-export async function createZipBlob(files) {
+export async function createZipBlob(files, { includeDirectories = true } = {}) {
+  const dirs = new Set();
+  if (includeDirectories) {
+    for (const file of files) {
+      const parts = String(file.name || '').replace(/\\/g, '/').split('/');
+      let acc = '';
+      for (let i = 0; i < parts.length - 1; i += 1) {
+        if (!parts[i]) continue;
+        acc += `${parts[i]}/`;
+        dirs.add(acc);
+      }
+    }
+  }
+
+  const entries = [
+    ...[...dirs].sort().map((name) => ({ name, data: new Uint8Array(0), directory: true })),
+    ...files,
+  ];
+
   const locals = [];
   const centrals = [];
   let offset = 0;
 
-  for (const file of files) {
+  for (const file of entries) {
     const nameBytes = encodeName(file.name);
-    const data = await toBytes(file.data);
+    const data = await toBytes(file.data ?? new Uint8Array(0));
     const crc = crc32(data);
+    const utf8Flag = 0x0800;
     const local = concat([
       u32(0x04034b50),
       u16(20),
-      u16(0),
+      u16(utf8Flag),
       u16(0),
       u16(0),
       u16(0),
@@ -82,7 +103,7 @@ export async function createZipBlob(files) {
       u32(0x02014b50),
       u16(20),
       u16(20),
-      u16(0),
+      u16(utf8Flag),
       u16(0),
       u16(0),
       u16(0),
@@ -94,7 +115,7 @@ export async function createZipBlob(files) {
       u16(0),
       u16(0),
       u16(0),
-      u32(0),
+      u32(file.directory ? 0x10 : 0),
       u32(offset),
       nameBytes,
     ]);
@@ -108,8 +129,8 @@ export async function createZipBlob(files) {
     u32(0x06054b50),
     u16(0),
     u16(0),
-    u16(files.length),
-    u16(files.length),
+    u16(entries.length),
+    u16(entries.length),
     u32(centralDir.length),
     u32(offset),
     u16(0),

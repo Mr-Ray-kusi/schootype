@@ -1,5 +1,6 @@
 import { qrValueToPngBlob } from './qrCodeExport';
 import { createZipBlob } from './zipStore';
+import { buildPersonIdUrl } from './studentIdQr';
 
 const safeFolder = (name) =>
   String(name || 'person')
@@ -59,7 +60,7 @@ const buildXlsxBlob = async (rows) =>
     { name: 'xl/workbook.xml', data: WORKBOOK },
     { name: 'xl/_rels/workbook.xml.rels', data: WORKBOOK_RELS },
     { name: 'xl/worksheets/sheet1.xml', data: sheetXml(rows) },
-  ]);
+  ], { includeDirectories: false });
 
 const dataUrlToBlob = async (value) => {
   if (!value) return null;
@@ -95,34 +96,80 @@ const detailsToRows = (details = {}) =>
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => [key, String(value)]);
 
+const personBarcode = (person) =>
+  String(person?.barcode || person?.qr_code || person?.details?.Barcode || '').trim();
+
+const personQrValue = (person) => {
+  const explicit = String(person?.qrValue || '').trim();
+  if (explicit) return explicit;
+  const barcode = personBarcode(person);
+  return buildPersonIdUrl(barcode) || barcode;
+};
+
+async function qrPngBlob(person) {
+  const primary = personQrValue(person);
+  const barcode = personBarcode(person);
+  if (!primary && !barcode) return null;
+  if (primary) {
+    try {
+      return await qrValueToPngBlob(primary, 512);
+    } catch {
+      // fall through to barcode
+    }
+  }
+  if (barcode && barcode !== primary) {
+    try {
+      return await qrValueToPngBlob(barcode, 512);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+const uniqueFolderNames = (people) => {
+  const used = new Map();
+  return people.map((person) => {
+    const base = safeFolder(person.name);
+    let folder = base;
+    const key = folder.toLowerCase();
+    const n = (used.get(key) || 0) + 1;
+    used.set(key, n);
+    if (n > 1) folder = `${folder} (${n})`;
+    return { ...person, folderName: folder };
+  });
+};
+
 async function personFiles(person) {
-  const folderName = safeFolder(person.name);
+  const folderName = person.folderName || safeFolder(person.name);
   const files = [];
   const rows = detailsToRows(person.details || { Name: person.name });
   const xlsx = await buildXlsxBlob(rows);
-  files.push({ name: `${folderName}/${folderName}-details.xlsx`, data: xlsx });
+  files.push({ name: `${folderName}/details.xlsx`, data: xlsx });
 
-  if (person.qrValue) {
-    const qrBlob = await qrValueToPngBlob(person.qrValue, 512);
-    files.push({ name: `${folderName}/${folderName}-qr-code.png`, data: qrBlob });
+  const qrBlob = await qrPngBlob(person);
+  if (qrBlob) {
+    files.push({ name: `${folderName}/qr-code.png`, data: qrBlob });
   }
 
   const photoBlob = await dataUrlToBlob(person.photoUrl);
   if (photoBlob) {
     const ext = photoBlob.type?.includes('png') ? 'png' : 'jpg';
-    files.push({ name: `${folderName}/${folderName}-photo.${ext}`, data: photoBlob });
+    files.push({ name: `${folderName}/photo.${ext}`, data: photoBlob });
   }
   return files;
 }
 
 export async function downloadPersonPack(person) {
-  const blob = await createZipBlob(await personFiles(person));
-  triggerDownload(blob, `${safeFolder(person.name)}-pack.zip`);
+  const [named] = uniqueFolderNames([person]);
+  const blob = await createZipBlob(await personFiles(named));
+  triggerDownload(blob, `${named.folderName}.zip`);
 }
 
 export async function downloadPeoplePacks(people, archiveName = 'people-packs.zip') {
+  const named = uniqueFolderNames(people);
   const files = [];
-  for (const person of people) {
+  for (const person of named) {
     files.push(...(await personFiles(person)));
   }
   const blob = await createZipBlob(files);
@@ -130,10 +177,12 @@ export async function downloadPeoplePacks(people, archiveName = 'people-packs.zi
 }
 
 export function studentPack(student, qrValue) {
+  const barcode = student.barcode || student.qr_code || '';
   return {
     name: student.name,
     photoUrl: student.photo_url,
-    qrValue,
+    barcode,
+    qrValue: qrValue || buildPersonIdUrl(barcode) || barcode,
     details: {
       Name: student.name,
       Class: student.class || '',
@@ -145,36 +194,40 @@ export function studentPack(student, qrValue) {
       'Parent phone': student.parent_phone || '',
       'Parent email': student.parent_email || '',
       Address: student.house_address || '',
-      Barcode: student.barcode || '',
+      Barcode: barcode,
     },
   };
 }
 
 export function staffPack(member, qrValue) {
+  const barcode = member.barcode || member.qr_code || '';
   return {
     name: member.name,
     photoUrl: member.photo_url,
-    qrValue,
+    barcode,
+    qrValue: qrValue || buildPersonIdUrl(barcode) || barcode,
     details: {
       Name: member.name,
       Role: member.role || '',
       'Access code': member.secretCode || member.secret_code || '',
       Subjects: member.subjects || '',
       Classes: member.classNames || member.class_names || '',
-      Barcode: member.barcode || '',
+      Barcode: barcode,
     },
   };
 }
 
 export function nonStaffPack(person, qrValue) {
+  const barcode = person.barcode || person.qr_code || '';
   return {
     name: person.name,
     photoUrl: person.photo_url,
-    qrValue,
+    barcode,
+    qrValue: qrValue || buildPersonIdUrl(barcode) || barcode,
     details: {
       Name: person.name,
       Role: person.role || '',
-      Barcode: person.barcode || '',
+      Barcode: barcode,
     },
   };
 }
