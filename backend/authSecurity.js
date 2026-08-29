@@ -2,43 +2,51 @@ import path from 'path';
 import fs from 'fs';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
+import { supabase } from './supabaseClient.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
-const useMemory = Boolean(process.env.VERCEL);
 
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILED_PER_EMAIL = 5;
-const MAX_FAILED_PER_IP = 30;
+const MAX_FAILED_PER_IP = 15;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
 const MAX_SIGNUPS_PER_IP = 5;
 const MIN_PASSWORD_LENGTH = 8;
 
+const HIT_LIMITS = {
+  login: { max: 25, windowMs: LOCKOUT_WINDOW_MS },
+  google: { max: 20, windowMs: LOCKOUT_WINDOW_MS },
+  staff_login: { max: 15, windowMs: LOCKOUT_WINDOW_MS },
+  resend: { max: 5, windowMs: SIGNUP_WINDOW_MS },
+};
+
+const MAX_RESEND_PER_EMAIL = 3;
+
 let dbPromise = null;
-const memoryLoginFailures = [];
-const memorySignupAttempts = [];
+const memoryEvents = [];
+let cloudReady = false;
+
+function useCloudAuth() {
+  return Boolean(process.env.VERCEL) || String(process.env.AUTH_STORE || '').toLowerCase() === 'supabase';
+}
 
 async function getDb() {
-  if (useMemory) return null;
+  if (useCloudAuth()) return null;
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     dbPromise = Promise.resolve(openLocalDb(DB_PATH)).then(async (db) => {
       await db.exec(`
-        CREATE TABLE IF NOT EXISTS login_failures (
+        CREATE TABLE IF NOT EXISTS auth_rate_events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          email TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          email TEXT,
           ip TEXT,
-          failed_at TEXT NOT NULL
+          created_at TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS signup_attempts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ip TEXT NOT NULL,
-          attempted_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_login_failures_email ON login_failures(email, failed_at);
-        CREATE INDEX IF NOT EXISTS idx_login_failures_ip ON login_failures(ip, failed_at);
-        CREATE INDEX IF NOT EXISTS idx_signup_attempts_ip ON signup_attempts(ip, attempted_at);
+        CREATE INDEX IF NOT EXISTS idx_auth_rate_kind_email ON auth_rate_events(kind, email, created_at);
+        CREATE INDEX IF NOT EXISTS idx_auth_rate_kind_ip ON auth_rate_events(kind, ip, created_at);
       `);
       return db;
     });
@@ -47,18 +55,160 @@ async function getDb() {
 }
 
 export async function initAuthSecurityStore() {
-  if (useMemory) return;
+  if (useCloudAuth()) {
+    if (!supabase) {
+      console.warn('Supabase is not configured; login rate limits will be in-memory only.');
+      cloudReady = false;
+      return;
+    }
+    const { error } = await supabase.from('auth_rate_events').select('id').limit(1);
+    if (error) {
+      console.warn(
+        'auth_rate_events table missing; login rate limits will be in-memory only. Run database/supabase_core_billing.sql then database/supabase_backend_access.sql.'
+      );
+      cloudReady = false;
+      return;
+    }
+    cloudReady = true;
+    return;
+  }
   await getDb();
 }
 
 const windowStartIso = (windowMs) => new Date(Date.now() - windowMs).toISOString();
 
-async function pruneOldLoginFailures(db) {
-  await db.run('DELETE FROM login_failures WHERE failed_at < ?', [windowStartIso(LOCKOUT_WINDOW_MS * 2)]);
+function pruneMemory() {
+  const cutoff = Date.now() - SIGNUP_WINDOW_MS * 2;
+  for (let i = memoryEvents.length - 1; i >= 0; i -= 1) {
+    if (new Date(memoryEvents[i].created_at).getTime() < cutoff) memoryEvents.splice(i, 1);
+  }
 }
 
-async function pruneOldSignupAttempts(db) {
-  await db.run('DELETE FROM signup_attempts WHERE attempted_at < ?', [windowStartIso(SIGNUP_WINDOW_MS * 2)]);
+async function insertEvent({ kind, email = null, ip = null }) {
+  const entry = {
+    kind,
+    email: email ? String(email).trim().toLowerCase() : null,
+    ip: ip && ip !== 'unknown' ? ip : null,
+    created_at: new Date().toISOString(),
+  };
+
+  if (cloudReady) {
+    const { error } = await supabase.from('auth_rate_events').insert([entry]);
+    if (error) {
+      console.warn('Failed to persist auth rate event:', error.message);
+      memoryEvents.push(entry);
+    }
+    return;
+  }
+
+  const db = await getDb();
+  if (!db) {
+    pruneMemory();
+    memoryEvents.push(entry);
+    return;
+  }
+  await db.run(
+    `INSERT INTO auth_rate_events (kind, email, ip, created_at) VALUES (?, ?, ?, ?)`,
+    [entry.kind, entry.email, entry.ip, entry.created_at]
+  );
+}
+
+async function countEvents({ kind, email, ip, windowMs }) {
+  const since = windowStartIso(windowMs);
+
+  if (cloudReady) {
+    let query = supabase
+      .from('auth_rate_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('kind', kind)
+      .gte('created_at', since);
+    if (email) query = query.eq('email', String(email).trim().toLowerCase());
+    if (ip) query = query.eq('ip', ip);
+    const { count, error } = await query;
+    if (error) {
+      console.warn('Failed to count auth rate events:', error.message);
+    } else {
+      return count || 0;
+    }
+  }
+
+  const db = await getDb();
+  if (!db) {
+    pruneMemory();
+    const cutoff = Date.now() - windowMs;
+    return memoryEvents.filter((event) => {
+      if (event.kind !== kind) return false;
+      if (new Date(event.created_at).getTime() < cutoff) return false;
+      if (email && event.email !== String(email).trim().toLowerCase()) return false;
+      if (ip && event.ip !== ip) return false;
+      return true;
+    }).length;
+  }
+
+  const clauses = ['kind = ?', 'created_at >= ?'];
+  const params = [kind, since];
+  if (email) {
+    clauses.push('email = ?');
+    params.push(String(email).trim().toLowerCase());
+  }
+  if (ip) {
+    clauses.push('ip = ?');
+    params.push(ip);
+  }
+  const row = await db.get(
+    `SELECT COUNT(*) AS count FROM auth_rate_events WHERE ${clauses.join(' AND ')}`,
+    params
+  );
+  return row?.count || 0;
+}
+
+async function lastEventAt({ kind, email, ip, windowMs }) {
+  const since = windowStartIso(windowMs);
+
+  if (cloudReady) {
+    let query = supabase
+      .from('auth_rate_events')
+      .select('created_at')
+      .eq('kind', kind)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (email) query = query.eq('email', String(email).trim().toLowerCase());
+    if (ip) query = query.eq('ip', ip);
+    const { data, error } = await query.maybeSingle();
+    if (!error && data?.created_at) return new Date(data.created_at).getTime();
+  }
+
+  const db = await getDb();
+  if (!db) {
+    pruneMemory();
+    const cutoff = Date.now() - windowMs;
+    const matches = memoryEvents.filter((event) => {
+      if (event.kind !== kind) return false;
+      if (new Date(event.created_at).getTime() < cutoff) return false;
+      if (email && event.email !== String(email).trim().toLowerCase()) return false;
+      if (ip && event.ip !== ip) return false;
+      return true;
+    });
+    if (!matches.length) return Date.now();
+    return Math.max(...matches.map((event) => new Date(event.created_at).getTime()));
+  }
+
+  const clauses = ['kind = ?', 'created_at >= ?'];
+  const params = [kind, since];
+  if (email) {
+    clauses.push('email = ?');
+    params.push(String(email).trim().toLowerCase());
+  }
+  if (ip) {
+    clauses.push('ip = ?');
+    params.push(ip);
+  }
+  const row = await db.get(
+    `SELECT MAX(created_at) AS last_at FROM auth_rate_events WHERE ${clauses.join(' AND ')}`,
+    params
+  );
+  return row?.last_at ? new Date(row.last_at).getTime() : Date.now();
 }
 
 export function getClientIp(req) {
@@ -85,71 +235,59 @@ export function validatePasswordStrength(password) {
   return null;
 }
 
-export async function checkLoginAllowed(email, ip) {
-  const db = await getDb();
-  const since = windowStartIso(LOCKOUT_WINDOW_MS);
-  const normalizedEmail = email?.trim().toLowerCase();
+function deny(message, retryAfterSec) {
+  return { allowed: false, retryAfterSec, message };
+}
 
-  if (!db) {
-    const cutoff = Date.now() - LOCKOUT_WINDOW_MS;
-    const emailFails = memoryLoginFailures.filter(
-      (f) => f.email === normalizedEmail && new Date(f.failed_at).getTime() >= cutoff
+export async function checkAuthHitAllowed(kind, ip) {
+  const limits = HIT_LIMITS[kind] || HIT_LIMITS.login;
+  if (!ip || ip === 'unknown') return { allowed: true };
+  const count = await countEvents({ kind, ip, windowMs: limits.windowMs });
+  if (count >= limits.max) {
+    return deny(
+      'Too many attempts from this network. Please wait before trying again.',
+      Math.ceil(limits.windowMs / 1000)
     );
-    if (emailFails.length >= MAX_FAILED_PER_EMAIL) {
-      const lastFailed = Math.max(...emailFails.map((f) => new Date(f.failed_at).getTime()));
-      const retryAfterSec = Math.max(1, Math.ceil((lastFailed + LOCKOUT_DURATION_MS - Date.now()) / 1000));
-      return {
-        allowed: false,
-        retryAfterSec,
-        message: `Too many failed login attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minute(s).`,
-      };
-    }
-    if (ip && ip !== 'unknown') {
-      const ipFails = memoryLoginFailures.filter(
-        (f) => f.ip === ip && new Date(f.failed_at).getTime() >= cutoff
-      );
-      if (ipFails.length >= MAX_FAILED_PER_IP) {
-        return {
-          allowed: false,
-          retryAfterSec: Math.ceil(LOCKOUT_DURATION_MS / 1000),
-          message: 'Too many login attempts from this network. Please wait before trying again.',
-        };
-      }
-    }
-    return { allowed: true };
   }
+  return { allowed: true };
+}
 
-  await pruneOldLoginFailures(db);
+export async function recordAuthHit(kind, ip, email = null) {
+  await insertEvent({ kind, ip, email });
+}
 
-  const emailRow = await db.get(
-    `SELECT COUNT(*) AS count, MAX(failed_at) AS last_failed
-     FROM login_failures
-     WHERE email = ? AND failed_at >= ?`,
-    [normalizedEmail, since]
-  );
+export async function checkLoginAllowed(email, ip) {
+  const normalizedEmail = email?.trim().toLowerCase();
+  const emailFails = await countEvents({
+    kind: 'login_fail',
+    email: normalizedEmail,
+    windowMs: LOCKOUT_WINDOW_MS,
+  });
 
-  if ((emailRow?.count || 0) >= MAX_FAILED_PER_EMAIL) {
-    const lastFailed = emailRow.last_failed ? new Date(emailRow.last_failed).getTime() : Date.now();
-    const unlockAt = lastFailed + LOCKOUT_DURATION_MS;
-    const retryAfterSec = Math.max(1, Math.ceil((unlockAt - Date.now()) / 1000));
-    return {
-      allowed: false,
-      retryAfterSec,
-      message: `Too many failed login attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minute(s).`,
-    };
+  if (emailFails >= MAX_FAILED_PER_EMAIL) {
+    const lastFailed = await lastEventAt({
+      kind: 'login_fail',
+      email: normalizedEmail,
+      windowMs: LOCKOUT_WINDOW_MS,
+    });
+    const retryAfterSec = Math.max(1, Math.ceil((lastFailed + LOCKOUT_DURATION_MS - Date.now()) / 1000));
+    return deny(
+      `Too many failed login attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minute(s).`,
+      retryAfterSec
+    );
   }
 
   if (ip && ip !== 'unknown') {
-    const ipRow = await db.get(
-      `SELECT COUNT(*) AS count FROM login_failures WHERE ip = ? AND failed_at >= ?`,
-      [ip, since]
-    );
-    if ((ipRow?.count || 0) >= MAX_FAILED_PER_IP) {
-      return {
-        allowed: false,
-        retryAfterSec: Math.ceil(LOCKOUT_DURATION_MS / 1000),
-        message: 'Too many login attempts from this network. Please wait before trying again.',
-      };
+    const ipFails = await countEvents({
+      kind: 'login_fail',
+      ip,
+      windowMs: LOCKOUT_WINDOW_MS,
+    });
+    if (ipFails >= MAX_FAILED_PER_IP) {
+      return deny(
+        'Too many login attempts from this network. Please wait before trying again.',
+        Math.ceil(LOCKOUT_DURATION_MS / 1000)
+      );
     }
   }
 
@@ -157,83 +295,62 @@ export async function checkLoginAllowed(email, ip) {
 }
 
 export async function recordLoginFailure(email, ip) {
-  const entry = {
-    email: email?.trim().toLowerCase(),
-    ip: ip || null,
-    failed_at: new Date().toISOString(),
-  };
-  const db = await getDb();
-  if (!db) {
-    memoryLoginFailures.push(entry);
-    return;
-  }
-  await db.run('INSERT INTO login_failures (email, ip, failed_at) VALUES (?, ?, ?)', [
-    entry.email,
-    entry.ip,
-    entry.failed_at,
-  ]);
+  await insertEvent({ kind: 'login_fail', email, ip });
 }
 
 export async function clearLoginFailures(email) {
   const normalized = email?.trim().toLowerCase();
+  if (!normalized) return;
+
+  if (cloudReady) {
+    await supabase.from('auth_rate_events').delete().eq('kind', 'login_fail').eq('email', normalized);
+    return;
+  }
+
   const db = await getDb();
   if (!db) {
-    for (let i = memoryLoginFailures.length - 1; i >= 0; i -= 1) {
-      if (memoryLoginFailures[i].email === normalized) memoryLoginFailures.splice(i, 1);
+    for (let i = memoryEvents.length - 1; i >= 0; i -= 1) {
+      if (memoryEvents[i].kind === 'login_fail' && memoryEvents[i].email === normalized) {
+        memoryEvents.splice(i, 1);
+      }
     }
     return;
   }
-  await db.run('DELETE FROM login_failures WHERE email = ?', [normalized]);
+  await db.run(`DELETE FROM auth_rate_events WHERE kind = 'login_fail' AND email = ?`, [normalized]);
 }
 
 export async function checkSignupAllowed(ip) {
-  const db = await getDb();
-  if (!ip || ip === 'unknown') {
-    return { allowed: true };
+  if (!ip || ip === 'unknown') return { allowed: true };
+  const count = await countEvents({ kind: 'signup', ip, windowMs: SIGNUP_WINDOW_MS });
+  if (count >= MAX_SIGNUPS_PER_IP) {
+    return deny('Too many sign-up attempts from this network. Please try again later.', 3600);
   }
-
-  if (!db) {
-    const cutoff = Date.now() - SIGNUP_WINDOW_MS;
-    const count = memorySignupAttempts.filter(
-      (a) => a.ip === ip && new Date(a.attempted_at).getTime() >= cutoff
-    ).length;
-    if (count >= MAX_SIGNUPS_PER_IP) {
-      return {
-        allowed: false,
-        message: 'Too many sign-up attempts from this network. Please try again later.',
-      };
-    }
-    return { allowed: true };
-  }
-
-  await pruneOldSignupAttempts(db);
-
-  const since = windowStartIso(SIGNUP_WINDOW_MS);
-  const row = await db.get(
-    `SELECT COUNT(*) AS count FROM signup_attempts WHERE ip = ? AND attempted_at >= ?`,
-    [ip, since]
-  );
-
-  if ((row?.count || 0) >= MAX_SIGNUPS_PER_IP) {
-    return {
-      allowed: false,
-      message: 'Too many sign-up attempts from this network. Please try again later.',
-    };
-  }
-
   return { allowed: true };
 }
 
 export async function recordSignupAttempt(ip) {
-  const db = await getDb();
-  if (!db) {
-    memorySignupAttempts.push({ ip: ip || 'unknown', attempted_at: new Date().toISOString() });
-    return;
+  await insertEvent({ kind: 'signup', ip });
+}
+
+export async function checkResendAllowed(email, ip) {
+  const hit = await checkAuthHitAllowed('resend', ip);
+  if (!hit.allowed) return hit;
+
+  if (email) {
+    const emailCount = await countEvents({
+      kind: 'resend',
+      email,
+      windowMs: SIGNUP_WINDOW_MS,
+    });
+    if (emailCount >= MAX_RESEND_PER_EMAIL) {
+      return deny('Too many verification emails requested. Please try again later.', 3600);
+    }
   }
-  await db.run('INSERT INTO signup_attempts (ip, attempted_at) VALUES (?, ?)', [
-    ip || 'unknown',
-    new Date().toISOString(),
-  ]);
+  return { allowed: true };
+}
+
+export async function recordResendAttempt(email, ip) {
+  await insertEvent({ kind: 'resend', email, ip });
 }
 
 export function parseJwtExpiresInSeconds(value) {

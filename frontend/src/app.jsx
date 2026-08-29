@@ -4,6 +4,7 @@ import Home from './pages/home';
 import Login from './pages/login';
 import Signup from './pages/sigup';
 import VerifyEmail from './pages/verify-email';
+import Privacy from './pages/privacy';
 import Plans from './pages/plans';
 import SelectPlan from './pages/select-plan';
 import MobileScanner from './pages/mobile-scanner';
@@ -106,6 +107,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="/plans" element={<Plans />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/verify-email" element={<VerifyEmail />} />

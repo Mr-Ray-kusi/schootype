@@ -65,7 +65,6 @@ const StaffPortal = () => {
           `/api/public/staff-portal/${encodeURIComponent(schoolSlug)}`
         );
         if (!cancelled) {
-          setToken(data.token);
           setSchoolName(data.schoolName || 'School');
         }
       } catch (err) {
@@ -84,7 +83,11 @@ const StaffPortal = () => {
 
   useEffect(() => {
     if (!token) {
-      if (!resolvingSlug && !schoolSlug) {
+      if (schoolSlug) {
+        if (!resolvingSlug) setLoadingPortal(false);
+        return undefined;
+      }
+      if (!resolvingSlug) {
         setLoadingPortal(false);
         setLinkError('Invalid or inactive staff portal link');
       }
@@ -194,10 +197,13 @@ const StaffPortal = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!token) return;
+    if (!token && !schoolSlug) return;
     setLoggingIn(true);
     try {
-      const { data } = await axios.post(`/api/staff-portal/${token}/login`, { accessCode, role });
+      const loginUrl = token
+        ? `/api/staff-portal/${token}/login`
+        : `/api/public/staff-portal/${encodeURIComponent(schoolSlug)}/login`;
+      const { data } = await axios.post(loginUrl, { accessCode, role });
       setSessionToken(data.sessionToken);
       setStaff(data.staff);
       setSchoolName(data.schoolName || schoolName);

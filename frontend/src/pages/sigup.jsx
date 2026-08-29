@@ -21,6 +21,7 @@ const Signup = () => {
   });
   const [logo, setLogo] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   useEffect(() => {
     if (planParam && !selectedPlan) {
@@ -68,6 +69,10 @@ const Signup = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!privacyAccepted) {
+      toast.error('Please accept the privacy notice to create an account.');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -135,12 +140,33 @@ const Signup = () => {
           )}
         </div>
 
+        <label className="flex items-start gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-300">
+          <input
+            type="checkbox"
+            checked={privacyAccepted}
+            onChange={(e) => setPrivacyAccepted(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[#ff5722]"
+            required
+          />
+          <span>
+            I have read the{' '}
+            <Link to="/privacy" className="font-medium hover:underline" style={{ color: AUTH_ORANGE }}>
+              privacy notice
+            </Link>
+            . Schooltype will use this email to create and operate my school account.
+          </span>
+        </label>
+
         <GoogleSignInButton
           label="Sign up with Google"
-          disabled={loading}
+          disabled={loading || !privacyAccepted}
           onCredential={async ({ accessToken }) => {
             if (!formData.schoolName.trim()) {
               toast.error('Enter your school name first, then continue with Google.');
+              return;
+            }
+            if (!privacyAccepted) {
+              toast.error('Please accept the privacy notice to create an account.');
               return;
             }
             const data = await loginWithGoogle({
@@ -148,6 +174,7 @@ const Signup = () => {
               schoolName: formData.schoolName.trim(),
               logo,
               paymentPlan: planParam,
+              privacyAccepted: true,
             });
             toast.success('Account ready. Welcome to Schooltype.');
             navigate(getPostAuthPath(data.school), { replace: true });
@@ -180,7 +207,7 @@ const Signup = () => {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !privacyAccepted}
           className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
         >
           {loading ? 'Sending link…' : 'Create account'}
@@ -191,6 +218,11 @@ const Signup = () => {
         Already registered?{' '}
         <Link to="/login" className="font-semibold hover:underline" style={{ color: AUTH_ORANGE }}>
           Sign in
+        </Link>
+      </p>
+      <p className="mt-3 text-center text-xs text-neutral-500">
+        <Link to="/privacy" className="hover:underline">
+          Privacy notice
         </Link>
       </p>
     </AuthSplitLayout>

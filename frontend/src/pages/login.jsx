@@ -212,22 +212,11 @@ const Login = () => {
           Create an account
         </Link>
       </p>
-      {import.meta.env.DEV && (
-        <p className="mt-3 text-center text-[11px] text-neutral-500">
-          Demo —{' '}
-          <button
-            type="button"
-            className="underline-offset-2 hover:underline"
-            style={{ color: AUTH_ORANGE }}
-            onClick={() => {
-              setEmail('superadmin@school.com');
-              setPassword('SuperAdmin123!');
-            }}
-          >
-            fill super admin
-          </button>
-        </p>
-      )}
+      <p className="mt-3 text-center text-xs text-neutral-500">
+        <Link to="/privacy" className="hover:underline">
+          Privacy notice
+        </Link>
+      </p>
     </AuthSplitLayout>
   );
 };

@@ -569,6 +569,9 @@ const Home = () => {
             <p className="text-sm text-slate-500">Connect. Track. Manage.</p>
           </div>
           <div className="flex flex-wrap gap-4 text-sm text-slate-400">
+            <Link to="/privacy" className="hover:text-white">
+              Privacy
+            </Link>
             <Link to="/login" className="hover:text-white">
               Sign in
             </Link>

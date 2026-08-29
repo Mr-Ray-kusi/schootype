@@ -135,3 +135,17 @@ CREATE TABLE IF NOT EXISTS school_sms_balances (
   units_available BIGINT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ========== Auth rate limits (login / signup / resend) ==========
+CREATE TABLE IF NOT EXISTS auth_rate_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind TEXT NOT NULL,
+  email TEXT,
+  ip TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_rate_kind_email
+  ON auth_rate_events (kind, email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_rate_kind_ip
+  ON auth_rate_events (kind, ip, created_at DESC);

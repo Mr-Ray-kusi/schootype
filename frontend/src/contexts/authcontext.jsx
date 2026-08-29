@@ -226,6 +226,7 @@ export const AuthProvider = ({ children }) => {
       email,
       logo,
       paymentPlan,
+      privacyAccepted: true,
     });
     const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
     // Email-first signup never returns a session until password is set after verify.
@@ -252,13 +253,21 @@ export const AuthProvider = ({ children }) => {
     return response.data;
   };
 
-  const loginWithGoogle = async ({ accessToken, idToken, schoolName, logo, paymentPlan } = {}) => {
+  const loginWithGoogle = async ({
+    accessToken,
+    idToken,
+    schoolName,
+    logo,
+    paymentPlan,
+    privacyAccepted,
+  } = {}) => {
     const response = await axios.post('/api/auth/google', {
       accessToken,
       idToken,
       schoolName,
       logo,
       paymentPlan,
+      privacyAccepted: Boolean(privacyAccepted),
     });
     const { token: newToken, school: schoolData, expiresIn } = response.data || {};
     if (!newToken || !schoolData) {
