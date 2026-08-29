@@ -30,6 +30,7 @@ const FeesPay = () => {
   const [lookingUp, setLookingUp] = useState(Boolean(barcode));
   const [paying, setPaying] = useState(false);
   const [momoPrompt, setMomoPrompt] = useState(null);
+  const [otpCode, setOtpCode] = useState('');
 
   useEffect(() => {
     if (barcode) return undefined;
@@ -77,7 +78,7 @@ const FeesPay = () => {
   }, [barcode]);
 
   useEffect(() => {
-    if (!momoPrompt?.reference) return undefined;
+    if (!momoPrompt?.reference || momoPrompt.needs_code) return undefined;
     let cancelled = false;
     let attempts = 0;
     const poll = async () => {
@@ -152,11 +153,17 @@ const FeesPay = () => {
         ? `/api/public/fees/${encodeURIComponent(barcode)}/checkout`
         : '/api/public/fees/pay';
       const { data } = await axios.post(path, payload);
-      if (data.mode === 'momo') {
+      if (method === 'momo' || data.mode === 'momo') {
         setMomoPrompt({
           reference: data.reference,
           display_text: data.display_text,
+          needs_code: Boolean(data.needs_code),
+          code_type: data.code_type || 'otp',
+          live_mode: data.live_mode !== false,
         });
+        if (!data.live_mode) {
+          setError('Paystack is in test mode, so it SMS-es a test PIN instead of a MoMo prompt. Use live keys (sk_live_) on the server.');
+        }
         return;
       }
       if (data.authorization_url) {
@@ -167,6 +174,37 @@ const FeesPay = () => {
       setPaying(false);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not start payment.');
+      setPaying(false);
+    }
+  };
+
+  const submitMomoCode = async (event) => {
+    event?.preventDefault();
+    if (!momoPrompt?.reference || !otpCode.trim()) {
+      setError('Enter the voucher or code from the prompt.');
+      return;
+    }
+    setPaying(true);
+    setError('');
+    try {
+      const { data } = await axios.post('/api/public/fees/authorize', {
+        reference: momoPrompt.reference,
+        otp: otpCode.trim(),
+        code_type: momoPrompt.code_type || 'otp',
+      });
+      if (data.status === 'success') {
+        window.location.href = `/pay/receipt?reference=${encodeURIComponent(data.reference)}`;
+        return;
+      }
+      setMomoPrompt((prev) => ({
+        ...prev,
+        needs_code: Boolean(data.needs_code),
+        display_text: data.display_text || prev?.display_text,
+      }));
+      if (!data.needs_code) setOtpCode('');
+    } catch (err) {
+      setError(err.response?.data?.error || 'That code was not accepted.');
+    } finally {
       setPaying(false);
     }
   };
@@ -184,7 +222,10 @@ const FeesPay = () => {
           </p>
         </header>
 
-        <form onSubmit={info ? startPay : lookupStudent} className="space-y-4 rounded-3xl border border-slate-700 bg-slate-900/70 p-6">
+        <form
+          onSubmit={momoPrompt?.needs_code ? submitMomoCode : info ? startPay : lookupStudent}
+          className="space-y-4 rounded-3xl border border-slate-700 bg-slate-900/70 p-6"
+        >
           {!barcode ? (
             <>
               <label className="block text-sm font-medium text-slate-300">
@@ -258,8 +299,8 @@ const FeesPay = () => {
                 <p className="text-sm font-medium text-slate-300">Payment method</p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {[
-                    { id: 'momo', label: 'MoMo', Icon: Smartphone, hint: 'Confirm PIN on phone' },
-                    { id: 'bank', label: 'Bank', Icon: Landmark, hint: 'Bank or bank transfer' },
+                    { id: 'momo', label: 'MoMo', Icon: Smartphone, hint: 'PIN on your phone' },
+                    { id: 'bank', label: 'Bank', Icon: Landmark, hint: 'Paystack bank page' },
                   ].map((option) => (
                     <button
                       key={option.id}
@@ -280,40 +321,64 @@ const FeesPay = () => {
               </div>
 
               {method === 'momo' ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-slate-300">
-                    Network
-                    <select className={`${fieldClass} mt-2`} value={provider} onChange={(e) => setProvider(e.target.value)}>
-                      {MOMO_PROVIDERS.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block text-sm font-medium text-slate-300">
-                    MoMo number
-                    <input
-                      className={`${fieldClass} mt-2`}
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="0551234567"
-                      required={method === 'momo'}
-                    />
-                  </label>
-                </div>
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm font-medium text-slate-300">
+                      Network
+                      <select className={`${fieldClass} mt-2`} value={provider} onChange={(e) => setProvider(e.target.value)}>
+                        {MOMO_PROVIDERS.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm font-medium text-slate-300">
+                      MoMo number
+                      <input
+                        className={`${fieldClass} mt-2`}
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="0551234567"
+                        required={method === 'momo'}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    {provider === 'vod'
+                      ? 'Telecel asks you to generate a voucher (*110#). Enter that voucher here — it is not your MoMo PIN.'
+                      : 'After you tap Pay, a prompt should open on this number. Enter your MoMo PIN there. A Paystack SMS PIN means Bank checkout or test keys were used.'}
+                  </p>
+                </>
               ) : (
                 <p className="rounded-2xl border border-slate-700 bg-slate-950/40 px-4 py-3 text-sm text-slate-400">
-                  You will complete bank payment on Paystack, then confirm with your bank PIN or USSD.
+                  Bank uses the Paystack page. They may SMS a code. For your MoMo PIN, choose MoMo instead.
                 </p>
               )}
             </>
           ) : null}
 
           {momoPrompt ? (
-            <div className="flex items-start gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-              <p>{momoPrompt.display_text || 'Approve the MoMo prompt on your phone and enter your PIN.'}</p>
+            <div className="space-y-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              <div className="flex items-start gap-3">
+                {!momoPrompt.needs_code ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" /> : null}
+                <p>
+                  {momoPrompt.display_text ||
+                    'Approve the MoMo prompt on your phone and enter your MoMo PIN. Do not wait for a Paystack SMS.'}
+                </p>
+              </div>
+              {momoPrompt.needs_code ? (
+                <label className="block text-sm font-medium text-emerald-50">
+                  Voucher / code
+                  <input
+                    className={`${fieldClass} mt-2`}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="Enter the voucher or code"
+                    autoComplete="one-time-code"
+                  />
+                </label>
+              ) : null}
             </div>
           ) : null}
 
@@ -331,7 +396,7 @@ const FeesPay = () => {
             ) : (
               <Building2 className="h-4 w-4" />
             )}
-            {paying ? 'Processing…' : info ? 'Pay' : 'Find student'}
+            {paying ? 'Processing…' : momoPrompt?.needs_code ? 'Submit code' : info ? 'Pay' : 'Find student'}
           </button>
         </form>
       </div>

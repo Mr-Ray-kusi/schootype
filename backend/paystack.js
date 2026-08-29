@@ -171,38 +171,6 @@ export async function initializeTransaction({
   });
 }
 
-export async function chargeMobileMoney({
-  email,
-  amountMinor,
-  currency,
-  phone,
-  provider,
-  reference,
-  metadata,
-  subaccount,
-  bearer,
-}) {
-  const body = {
-    email,
-    amount: amountMinor,
-    currency,
-    reference,
-    metadata,
-    mobile_money: {
-      phone: normalizeGhanaPhone(phone),
-      provider: String(provider).toLowerCase(),
-    },
-  };
-  if (subaccount) {
-    body.subaccount = subaccount;
-    body.bearer = bearer || 'subaccount';
-  }
-  return paystackRequest('/charge', {
-    method: 'POST',
-    body,
-  });
-}
-
 /** Ghana local format Paystack expects, e.g. 0551234567 */
 export function normalizeGhanaPhone(phone) {
   let digits = String(phone || '').replace(/\D/g, '');
@@ -213,6 +181,78 @@ export function normalizeGhanaPhone(phone) {
     digits = `0${digits}`;
   }
   return digits;
+}
+
+/** Map UI/network labels to Paystack Ghana MoMo provider codes. */
+export function ghanaMomoProvider(provider) {
+  const value = String(provider || '').toLowerCase();
+  if (value === 'mtn' || value.includes('mtn')) return 'mtn';
+  if (value === 'vod' || value.includes('vod') || value.includes('telecel')) return 'vod';
+  if (
+    value === 'tgo' ||
+    value === 'atl' ||
+    value.includes('airtel') ||
+    value.includes('tigo') ||
+    value === 'at'
+  ) {
+    return 'atl';
+  }
+  return value;
+}
+
+export async function chargeMobileMoney({
+  email,
+  amountMinor,
+  currency,
+  phone,
+  provider,
+  reference,
+  metadata,
+}) {
+  const phoneLocal = normalizeGhanaPhone(phone);
+  if (!/^0\d{9}$/.test(phoneLocal)) {
+    const err = new Error('Enter a Ghana MoMo number like 0551234567.');
+    err.status = 400;
+    err.code = 'INVALID_MOMO_NUMBER';
+    throw err;
+  }
+
+  // Do not send subaccount/bearer here. Extra split fields make Paystack treat
+  // the charge like card checkout and SMS a PIN instead of the MoMo prompt.
+  return paystackRequest('/charge', {
+    method: 'POST',
+    body: {
+      email,
+      amount: amountMinor,
+      currency: 'GHS',
+      reference,
+      metadata,
+      mobile_money: {
+        phone: phoneLocal,
+        provider: ghanaMomoProvider(provider),
+      },
+    },
+  });
+}
+
+export async function submitChargeOtp({ reference, otp }) {
+  return paystackRequest('/charge/submit_otp', {
+    method: 'POST',
+    body: {
+      reference,
+      otp: String(otp || '').trim(),
+    },
+  });
+}
+
+export async function submitChargePin({ reference, pin }) {
+  return paystackRequest('/charge/submit_pin', {
+    method: 'POST',
+    body: {
+      reference,
+      pin: String(pin || '').trim(),
+    },
+  });
 }
 
 export async function verifyTransaction(reference) {

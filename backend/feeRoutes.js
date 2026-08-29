@@ -3,9 +3,12 @@ import {
   initializeTransaction,
   verifyTransaction,
   chargeMobileMoney,
+  submitChargeOtp,
+  submitChargePin,
   GHANA_CHECKOUT_CHANNELS,
   toMinorUnits,
   fromMinorUnits,
+  normalizeGhanaPhone,
 } from './paystack.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
 import { makeWalletReference } from './schoolWalletStore.js';
@@ -130,7 +133,7 @@ async function startFeePayment({
   phone,
   provider,
 }) {
-  const { currency, configured, publicKey } = getPaystackConfig();
+  const { configured, publicKey } = getPaystackConfig();
   if (!configured) {
     const err = new Error('Paystack is not configured. Add live PAYSTACK_SECRET_KEY on the server.');
     err.status = 503;
@@ -167,11 +170,9 @@ async function startFeePayment({
   const chargeArgs = {
     email: email || school?.email || `fees+${student.id}@schootype.app`,
     amountMinor: toMinorUnits(payAmount),
-    currency,
+    currency: 'GHS',
     reference,
     metadata,
-    subaccount: payout.subaccountCode || undefined,
-    bearer: payout.subaccountCode ? 'subaccount' : undefined,
   };
 
   if (payMethod === 'momo') {
@@ -180,41 +181,50 @@ async function startFeePayment({
       err.status = 400;
       throw err;
     }
-    let charge;
-    try {
-      charge = await chargeMobileMoney({
-        ...chargeArgs,
-        phone,
-        provider,
-      });
-    } catch (err) {
-      if (chargeArgs.subaccount) {
-        console.warn('MoMo fee charge without subaccount:', err.message);
-        metadata.settle_mode = payout.recipientCode ? 'transfer' : 'wallet';
-        metadata.subaccount_code = null;
-        charge = await chargeMobileMoney({
-          ...chargeArgs,
-          subaccount: undefined,
-          bearer: undefined,
-          phone,
-          provider,
-        });
+    const phoneLocal = normalizeGhanaPhone(phone);
+    if (!/^0\d{9}$/.test(phoneLocal)) {
+      const err = new Error('Enter a Ghana MoMo number like 0551234567.');
+      err.status = 400;
+      throw err;
+    }
+    // Split/subaccount on /charge makes Paystack SMS its own PIN instead of
+    // the telco MoMo prompt. Settle to the school after the charge succeeds.
+    metadata.settle_mode = payout.recipientCode ? 'transfer' : metadata.settle_mode;
+    metadata.subaccount_code = null;
+
+    const charge = await chargeMobileMoney({
+      ...chargeArgs,
+      phone: phoneLocal,
+      provider,
+    });
+    const status = String(charge?.status || 'pay_offline').toLowerCase();
+    const needsCode = status === 'send_otp' || status === 'send_pin';
+    const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
+    const isTelecel = /vod|telecel/i.test(String(provider || ''));
+    let displayText = charge?.display_text || '';
+    if (!displayText) {
+      if (needsCode && isTelecel) {
+        displayText =
+          'Dial the Telecel USSD in the prompt to get a voucher, then enter that voucher here. That is not your MoMo PIN.';
+      } else if (needsCode) {
+        displayText = 'Enter the code from the prompt. For MTN, that should be a phone prompt for your MoMo PIN, not an SMS from Paystack.';
       } else {
-        throw err;
+        displayText = `Check ${phoneLocal} for the MoMo prompt and enter your MoMo PIN there. Do not wait for a Paystack SMS PIN.`;
       }
     }
     return {
       mode: 'momo',
-      reference,
-      status: charge?.status || 'pay_offline',
-      display_text:
-        charge?.display_text ||
-        `A payment prompt was sent. Open MoMo on your phone and enter your PIN to pay ${school?.name || 'the school'}.`,
+      reference: charge?.reference || reference,
+      status,
+      needs_code: needsCode,
+      code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : null,
+      display_text: displayText,
       public_key: publicKey || null,
       amount: payAmount,
-      currency,
+      currency: 'GHS',
       month,
       payout_ready: payout.hasPayout,
+      live_mode: liveMode,
     };
   }
 
@@ -222,6 +232,8 @@ async function startFeePayment({
     ...chargeArgs,
     callbackUrl: `${frontend}/pay/receipt?reference=${encodeURIComponent(reference)}`,
     channels: payMethod === 'bank' ? ['bank', 'bank_transfer'] : GHANA_CHECKOUT_CHANNELS,
+    subaccount: payout.subaccountCode || undefined,
+    bearer: payout.subaccountCode ? 'subaccount' : undefined,
   };
   let initialized;
   try {
@@ -339,6 +351,36 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
       console.error('Public fee pay error:', err);
       res.status(500).json({ error: 'Failed to start fee payment' });
+    }
+  });
+
+  app.post('/api/public/fees/authorize', async (req, res) => {
+    try {
+      const reference = String(req.body?.reference || '').trim();
+      const code = String(req.body?.otp || req.body?.pin || req.body?.code || '').trim();
+      const codeType = String(req.body?.code_type || req.body?.type || 'otp').toLowerCase();
+      if (!reference || !code) {
+        return res.status(400).json({ error: 'Enter the code from the prompt to continue.' });
+      }
+      const submitted =
+        codeType === 'pin'
+          ? await submitChargePin({ reference, pin: code })
+          : await submitChargeOtp({ reference, otp: code });
+      const status = String(submitted?.status || '').toLowerCase();
+      if (status === 'success') {
+        await settleSchoolFeeFromPaystack(submitted);
+      }
+      res.json({
+        mode: 'momo',
+        reference: submitted?.reference || reference,
+        status: status || 'pending',
+        needs_code: status === 'send_otp' || status === 'send_pin',
+        display_text: submitted?.display_text || null,
+      });
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Fee authorize error:', err);
+      res.status(500).json({ error: 'Could not submit that code' });
     }
   });
 
