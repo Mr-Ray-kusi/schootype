@@ -6,8 +6,8 @@ import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { Search, Plus, User, Wrench, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { cachedGet, invalidateCache } from '../utils/requestCache';
-import { parseListResponse, fetchAllPages } from '../utils/listApi.js';
+import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, nonStaffPack } from '../utils/personPackExport';
 
 const NonStaff = () => {
@@ -41,16 +41,30 @@ const NonStaff = () => {
   }, [page, debouncedSearch]);
 
   const fetchNonStaff = async () => {
-    try {
-      const data = await cachedGet(`non-staff:${page}:${debouncedSearch}`, async () => {
-        const response = await axios.get('/api/non-staff', {
-          params: { page, limit: 50, q: debouncedSearch || undefined },
-        });
-        return response.data;
-      });
+    const cacheKey = `non-staff:${page}:${debouncedSearch}`;
+    const apply = (data) => {
       const parsed = parseListResponse(data);
       setNonStaff(parsed.items);
       setTotal(parsed.total);
+    };
+    const cached = peekCache(cacheKey);
+    if (cached) {
+      apply(cached);
+      setLoading(false);
+    }
+    try {
+      const data = await staleGet(
+        cacheKey,
+        async () => {
+          const response = await axios.get('/api/non-staff', {
+            params: { page, limit: 50, q: debouncedSearch || undefined },
+          });
+          return response.data;
+        },
+        45000,
+        apply
+      );
+      apply(data);
     } catch (error) {
       console.error('Error fetching non-staff:', error);
     } finally {
@@ -80,6 +94,7 @@ const NonStaff = () => {
       setShowModal(false);
       resetForm();
       invalidateCache('non-staff');
+      invalidateCache('dashboard');
       fetchNonStaff();
     } catch (error) {
       if (error.offlineQueued) {
@@ -97,6 +112,7 @@ const NonStaff = () => {
       try {
         await axios.delete(`/api/non-staff/${id}`);
         invalidateCache('non-staff');
+        invalidateCache('dashboard');
         fetchNonStaff();
       } catch (error) {
         console.error('Error deleting non-staff:', error);
@@ -117,11 +133,11 @@ const NonStaff = () => {
 
   const roles = ['Cleaner', 'Security Guard', 'Bus Driver', 'Cook', 'Maintenance', 'Gardener', 'Assistant'];
 
-  if (loading) {
+  if (loading && nonStaff.length === 0) {
     return (
       <>
-<div className="text-center py-12 text-slate-300">Loading...</div>
-</>
+        <div className="text-center py-12 text-slate-300">Loading...</div>
+      </>
     );
   }
 
@@ -139,7 +155,10 @@ const NonStaff = () => {
               onClick={async () => {
                 setDownloadingAll(true);
                 try {
-                  const all = await fetchAllPages(axios, '/api/non-staff', { q: debouncedSearch || undefined });
+                  const all = await fetchAllPages(axios, '/api/non-staff', {
+                    q: debouncedSearch || undefined,
+                    includePhotos: 1,
+                  });
                   await downloadPeoplePacks(
                     all.map((person) => nonStaffPack(person, buildPersonIdUrl(person.barcode))),
                     'all-non-staff.zip'
@@ -193,9 +212,10 @@ const NonStaff = () => {
                 downloadLabel="Download pack"
                 onEdit={() => handleEdit(person)}
                 onDelete={() => handleDelete(person.id)}
-                onDownloadPack={() =>
-                  downloadPersonPack(nonStaffPack(person, buildPersonIdUrl(person.barcode)))
-                }
+                onDownloadPack={async () => {
+                  const full = await fetchRecord(axios, `/api/non-staff/${person.id}`, person);
+                  downloadPersonPack(nonStaffPack(full, buildPersonIdUrl(full.barcode)));
+                }}
                 details={[
                   {
                     key: 'role',

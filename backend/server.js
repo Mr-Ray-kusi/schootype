@@ -50,6 +50,10 @@ import {
   clearLoginFailures,
   checkSignupAllowed,
   recordSignupAttempt,
+  checkAuthHitAllowed,
+  recordAuthHit,
+  checkResendAllowed,
+  recordResendAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
 import { initSchoolWalletStore } from './schoolWalletStore.js';
@@ -98,7 +102,13 @@ dotenv.config({
   override: !process.env.VERCEL,
 });
 
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync('__login_timing_dummy__', 10);
+let dummyPasswordHash = null;
+const getDummyPasswordHash = () => {
+  if (!dummyPasswordHash) {
+    dummyPasswordHash = bcrypt.hashSync('__login_timing_dummy__', 10);
+  }
+  return dummyPasswordHash;
+};
 const IS_PRODUCTION = Boolean(process.env.VERCEL) || process.env.NODE_ENV === 'production';
 
 const app = express();
@@ -122,6 +132,27 @@ app.use(
     },
   })
 );
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  if (IS_PRODUCTION) {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+  next();
+});
+
+function sendAuthRateLimited(res, check) {
+  const retryAfterSec = Number(check.retryAfterSec) || 60;
+  res.setHeader('Retry-After', String(retryAfterSec));
+  return res.status(429).json({
+    error: check.message,
+    retryAfter: retryAfterSec,
+  });
+}
 
 app.use(
   express.json({
@@ -165,10 +196,137 @@ const generateStrongPassword = (length = 16) => {
 const bumpSchoolCaches = (schoolId) => {
   if (!schoolId) return;
   cacheInvalidate(`dash:${schoolId}`);
+  cacheInvalidate(`att-sum:${schoolId}`);
   cacheInvalidate(`reports:${schoolId}`);
 };
 
-const formatSchool = (school, { includeCredentials = false } = {}) => {
+const SCHOOL_PLAN_COLUMNS = [
+  'id',
+  'email',
+  'role',
+  'payment_plan',
+  'plan_status',
+  'next_payment_due',
+  'last_payment_at',
+  'subscription_frozen',
+  'subscription_started_at',
+  'email_verified',
+];
+
+const SCHOOL_AUTH_COLUMNS = [
+  'id',
+  'name',
+  'email',
+  'role',
+  'payment_plan',
+  'plan_status',
+  'plan_selected_at',
+  'next_payment_due',
+  'last_payment_at',
+  'subscription_frozen',
+  'subscription_started_at',
+  'total_paid',
+  'email_verified',
+];
+
+const STUDENT_LIST_COLUMNS =
+  'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, skills, barcode, qr_code, created_at';
+const STAFF_LIST_COLUMNS =
+  'id, school_id, name, role, barcode, qr_code, secret_code, subjects, class_names, created_at';
+const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
+
+const wantsPhotos = (req) =>
+  ['1', 'true', 'yes'].includes(String(req.query.includePhotos || '').toLowerCase());
+
+const withoutPhotoUrl = (row) => {
+  if (!row || typeof row !== 'object' || !('photo_url' in row)) return row;
+  const { photo_url: _photoUrl, ...rest } = row;
+  return rest;
+};
+
+const selectSchoolById = async (id, columns) => {
+  const optional = [
+    'role',
+    'payment_plan',
+    'plan_status',
+    'plan_selected_at',
+    'next_payment_due',
+    'last_payment_at',
+    'subscription_frozen',
+    'subscription_started_at',
+    'total_paid',
+    'email_verified',
+    'late_after_time',
+  ];
+  let cols = [...columns];
+  for (let attempt = 0; attempt <= optional.length; attempt++) {
+    const { data, error } = await supabase
+      .from('schools')
+      .select(cols.join(', '))
+      .eq('id', id)
+      .maybeSingle();
+    if (!error) return { data, error: null };
+    const missing = optional.find((column) => cols.includes(column) && isMissingColumnError(error, column));
+    if (missing) {
+      cols = cols.filter((column) => column !== missing);
+      continue;
+    }
+    return { data: null, error };
+  }
+  return { data: null, error: { message: 'Failed to load school' } };
+};
+
+const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns, includePhotos, eqFilters }) => {
+  const selectColumns = includePhotos ? `${columns}, photo_url` : columns;
+  const applyFilters = (query) => {
+    let next = query.eq('school_id', schoolId).order('created_at', { ascending: false }).range(from, to);
+    if (eqFilters) {
+      for (const [key, value] of Object.entries(eqFilters)) {
+        if (value) next = next.eq(key, value);
+      }
+    }
+    if (q && orFilter) next = next.or(orFilter);
+    return next;
+  };
+
+  let result = await applyFilters(supabase.from(table).select(selectColumns, { count: 'exact' }));
+  if (result.error) {
+    result = await applyFilters(supabase.from(table).select('*', { count: 'exact' }));
+  }
+  if (result.error) return result;
+
+  let rows = result.data || [];
+  if (!includePhotos) rows = rows.map(withoutPhotoUrl);
+  return { ...result, data: rows };
+};
+
+const percentPresent = (present, total) => (total ? Number(((present / total) * 100).toFixed(2)) : 0);
+
+const buildAttendanceSummaryPayload = (date, totals, attendanceRows) => {
+  const presentStudents = attendanceRows?.filter((row) => row.user_type === 'student').length || 0;
+  const presentStaff = attendanceRows?.filter((row) => row.user_type === 'staff').length || 0;
+  const presentNonStaff = attendanceRows?.filter((row) => row.user_type === 'non-staff').length || 0;
+  return {
+    date,
+    students: {
+      total: totals.students || 0,
+      present: presentStudents,
+      percentage: percentPresent(presentStudents, totals.students),
+    },
+    staff: {
+      total: totals.staff || 0,
+      present: presentStaff,
+      percentage: percentPresent(presentStaff, totals.staff),
+    },
+    nonStaff: {
+      total: totals.nonStaff || 0,
+      present: presentNonStaff,
+      percentage: percentPresent(presentNonStaff, totals.nonStaff),
+    },
+  };
+};
+
+const formatSchool = (school, { includeCredentials = false, light = false } = {}) => {
   if (school?.id) hydrateExtrasFromSchool(school);
   const merged = mergeSchoolWithExtras(school);
   const paymentPlan = merged.payment_plan || null;
@@ -198,8 +356,11 @@ const formatSchool = (school, { includeCredentials = false } = {}) => {
     name: merged.name,
     email: merged.email,
     // Cap logo size in auth payloads — huge base64 logos slow every navigation verify.
-    logo_url:
-      merged.logo_url && String(merged.logo_url).length < 400000 ? merged.logo_url : null,
+    logo_url: light
+      ? null
+      : merged.logo_url && String(merged.logo_url).length < 400000
+        ? merged.logo_url
+        : null,
     role: getSchoolRole(merged),
     payment_plan: paymentPlan,
     plan_status: planStatus,
@@ -220,9 +381,11 @@ const formatSchool = (school, { includeCredentials = false } = {}) => {
     plan_price: plan?.price ?? null,
     total_paid: merged.total_paid || 0,
     // Cap payment history in auth payloads — full ledgers slow every verify/login.
-    payment_records: Array.isArray(merged.payment_records)
-      ? merged.payment_records.slice(0, 20)
-      : [],
+    payment_records: light
+      ? []
+      : Array.isArray(merged.payment_records)
+        ? merged.payment_records.slice(0, 20)
+        : [],
     email_verified: isSchoolEmailVerified(merged),
   };
 
@@ -522,11 +685,7 @@ const enforcePlanApproval = async (req, res, next) => {
   }
 
   try {
-    const { data: school, error } = await supabase
-      .from('schools')
-      .select('*')
-      .eq('id', req.user.schoolId)
-      .maybeSingle();
+    const { data: school, error } = await selectSchoolById(req.user.schoolId, SCHOOL_PLAN_COLUMNS);
 
     if (error || !school) {
       return res.status(403).json({ error: 'School account not found' });
@@ -837,7 +996,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -863,6 +1022,12 @@ app.post('/api/auth/signup', async (req, res) => {
 
     if (!schoolName?.trim() || !email) {
       return res.status(400).json({ error: 'School name and email are required' });
+    }
+
+    if (req.body.privacyAccepted !== true) {
+      return res.status(400).json({
+        error: 'Please review and accept the privacy notice to create an account.',
+      });
     }
 
     const signupCheck = await checkSignupAllowed(clientIp);
@@ -1079,13 +1244,12 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
+    const hitCheck = await checkAuthHitAllowed('login', clientIp);
+    if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
+    await recordAuthHit('login', clientIp, email);
+
     const loginCheck = await checkLoginAllowed(email, clientIp);
-    if (!loginCheck.allowed) {
-      return res.status(429).json({
-        error: loginCheck.message,
-        retryAfter: loginCheck.retryAfterSec,
-      });
-    }
+    if (!loginCheck.allowed) return sendAuthRateLimited(res, loginCheck);
 
     // Prefer exact match; fall back to case-insensitive if needed
     let { data: school, error: schoolError } = await supabase
@@ -1112,7 +1276,7 @@ app.post('/api/auth/login', async (req, res) => {
     let isValidPassword = false;
     try {
       // Always compare to keep response timing similar for unknown emails.
-      isValidPassword = await bcrypt.compare(password, school?.password_hash || DUMMY_PASSWORD_HASH);
+      isValidPassword = await bcrypt.compare(password, school?.password_hash || getDummyPasswordHash());
     } catch (compareErr) {
       console.warn('bcrypt compare failed, will try initial_password fallback:', compareErr.message);
       isValidPassword = false;
@@ -1194,7 +1358,12 @@ app.get('/api/auth/google-config', (req, res) => {
 
 app.post('/api/auth/google', async (req, res) => {
   try {
-    const { idToken, accessToken, schoolName, logo, paymentPlan } = req.body || {};
+    const { idToken, accessToken, schoolName, logo, paymentPlan, privacyAccepted } = req.body || {};
+    const clientIp = getClientIp(req);
+    const hitCheck = await checkAuthHitAllowed('google', clientIp);
+    if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
+    await recordAuthHit('google', clientIp);
+
     const profile = await verifyGoogleIdentity({ idToken, accessToken });
     const email = profile.email;
 
@@ -1219,7 +1388,12 @@ app.post('/api/auth/google', async (req, res) => {
         });
       }
 
-      const clientIp = getClientIp(req);
+      if (privacyAccepted !== true) {
+        return res.status(400).json({
+          error: 'Please review and accept the privacy notice to create an account.',
+        });
+      }
+
       const signupCheck = await checkSignupAllowed(clientIp);
       if (!signupCheck.allowed) {
         return res.status(429).json({ error: signupCheck.message });
@@ -1413,7 +1587,7 @@ app.post('/api/auth/set-password', async (req, res) => {
 
     let payload;
     try {
-      payload = jwt.verify(setupToken, JWT_SECRET);
+      payload = jwt.verify(setupToken, JWT_SECRET, { algorithms: ['HS256'] });
     } catch {
       return res.status(400).json({
         error: 'This setup link has expired. Resend the email and try again.',
@@ -1493,6 +1667,11 @@ app.post('/api/auth/resend-verification', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
+    const clientIp = getClientIp(req);
+    const resendCheck = await checkResendAllowed(email, clientIp);
+    if (!resendCheck.allowed) return sendAuthRateLimited(res, resendCheck);
+    await recordResendAttempt(email, clientIp);
+
     if (!emailReady || !emailTransporter) {
       return res.status(503).json({
         error: 'Email is not configured on the server.',
@@ -1563,11 +1742,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
 app.get('/api/auth/verify', authenticateToken, async (req, res) => {
   try {
     // Token is valid if we reach here (authenticateToken middleware verified it)
-    const { data: school, error } = await supabase
-      .from('schools')
-      .select('*')
-      .eq('id', req.user.schoolId)
-      .single();
+    const { data: school, error } = await selectSchoolById(req.user.schoolId, SCHOOL_AUTH_COLUMNS);
 
     if (error || !school) {
       return res.status(401).json({ error: 'School not found' });
@@ -1583,7 +1758,7 @@ app.get('/api/auth/verify', authenticateToken, async (req, res) => {
 
     res.json({
       valid: true,
-      school: formatSchool(school),
+      school: formatSchool(school, { light: true }),
       role: getSchoolRole(school),
     });
   } catch (error) {
@@ -2036,7 +2211,7 @@ const getAttendancePunctuality = (timestamp, lateAfterTime = '08:00') => {
 };
 
 const getSchoolLateAfterTime = async (schoolId) => {
-  const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+  const { data: school } = await selectSchoolById(schoolId, ['id', 'late_after_time']);
   if (!school) return '08:00';
   const merged = mergeSchoolWithExtras(school);
   return normalizeLateAfterTime(merged.late_after_time);
@@ -2540,6 +2715,10 @@ registerSmsBillingRoutes(app, {
 });
 
 app.get('/api/health', async (req, res) => {
+  if (String(req.query.db || '') !== '1') {
+    return res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  }
+
   try {
     const dbHealth = await supabase
       .from('schools')
@@ -2548,35 +2727,13 @@ app.get('/api/health', async (req, res) => {
 
     const databaseHealthy = !dbHealth.error;
     res.json({
-      status: 'ok',
+      status: databaseHealthy ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
-      database: databaseHealthy ? 'connected' : 'error',
-      path: req.url,
-      email: {
-        configured: Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
-        ready: emailReady,
-      },
-      paystack: {
-        configured: Boolean(process.env.PAYSTACK_SECRET_KEY),
-        currency: (process.env.PAYSTACK_CURRENCY || 'GHS').toUpperCase(),
-        public_key_set: Boolean(process.env.PAYSTACK_PUBLIC_KEY),
-      },
     });
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      database: 'failed',
-      path: req.url,
-      email: {
-        configured: Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
-        ready: emailReady,
-      },
-      paystack: {
-        configured: Boolean(process.env.PAYSTACK_SECRET_KEY),
-        currency: (process.env.PAYSTACK_CURRENCY || 'GHS').toUpperCase(),
-        public_key_set: Boolean(process.env.PAYSTACK_PUBLIC_KEY),
-      },
-      error: error.message,
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -2617,13 +2774,7 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         role: null,
         photo_url: withPhoto.photo_url || null,
         roll_number: withPhoto.roll_number || null,
-        parent_name: withPhoto.parent_name || null,
-        parent_relationship: withPhoto.parent_relationship || null,
-        parent_phone: withPhoto.parent_phone || null,
-        parent_email: withPhoto.parent_email || null,
-        house_address: withPhoto.house_address || null,
         skills: withPhoto.skills || null,
-        date_of_birth: withPhoto.date_of_birth || null,
         school_name: school?.name || 'School',
         school_logo_url: school?.logo_url || null,
       });
@@ -2648,10 +2799,6 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         class: null,
         role: withPhoto.role || 'Staff',
         photo_url: withPhoto.photo_url || null,
-        parent_name: null,
-        parent_phone: null,
-        parent_email: null,
-        house_address: null,
         school_name: school?.name || 'School',
         school_logo_url: school?.logo_url || null,
       });
@@ -2676,10 +2823,6 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         class: null,
         role: withPhoto.role || 'Non-staff',
         photo_url: withPhoto.photo_url || null,
-        parent_name: null,
-        parent_phone: null,
-        parent_email: null,
-        house_address: null,
         school_name: school?.name || 'School',
         school_logo_url: school?.logo_url || null,
       });
@@ -2700,25 +2843,21 @@ app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res
     const { page, limit, from, to } = parsePagination(req);
     const q = String(req.query.q || '').trim();
     const classFilter = String(req.query.class || '').trim();
+    const includePhotos = wantsPhotos(req);
+    const safe = q.replace(/[%*,]/g, '');
 
-    let query = supabase
-      .from('students')
-      .select('*', { count: 'exact' })
-      .eq('school_id', req.user.schoolId)
-      .order('created_at', { ascending: false })
-      .range(from, to);
-
-    if (classFilter && classFilter !== 'all') {
-      query = query.eq('class', classFilter);
-    }
-    if (q) {
-      const safe = q.replace(/[%*,]/g, '');
-      query = query.or(`name.ilike.%${safe}%,roll_number.ilike.%${safe}%`);
-    }
-
-    const { data: students, error, count } = await query;
+    const { data: students, error, count } = await queryPagedRows('students', {
+      schoolId: req.user.schoolId,
+      from,
+      to,
+      q,
+      orFilter: q ? `name.ilike.%${safe}%,roll_number.ilike.%${safe}%` : '',
+      columns: STUDENT_LIST_COLUMNS,
+      includePhotos,
+      eqFilters: classFilter && classFilter !== 'all' ? { class: classFilter } : undefined,
+    });
     if (error) throw error;
-    paginatedJson(res, mergeStudentPhotos(students), count, page, limit);
+    paginatedJson(res, includePhotos ? mergeStudentPhotos(students) : students, count, page, limit);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2808,6 +2947,22 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
     }
 
     res.json(mergeStudentPhoto(saved));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/students/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data: student, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    res.json(mergeStudentPhoto(student));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3008,25 +3163,25 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
   try {
     const { page, limit, from, to } = parsePagination(req);
     const q = String(req.query.q || '').trim();
+    const includePhotos = wantsPhotos(req);
+    const safe = q.replace(/[%*,]/g, '');
 
-    let query = supabase
-      .from('staffs')
-      .select('*', { count: 'exact' })
-      .eq('school_id', req.user.schoolId)
-      .order('created_at', { ascending: false })
-      .range(from, to);
-
-    if (q) {
-      const safe = q.replace(/[%*,]/g, '');
-      query = query.or(`name.ilike.%${safe}%,role.ilike.%${safe}%`);
-    }
-
-    const { data: staff, error, count } = await query;
+    const { data: staff, error, count } = await queryPagedRows('staffs', {
+      schoolId: req.user.schoolId,
+      from,
+      to,
+      q,
+      orFilter: q ? `name.ilike.%${safe}%,role.ilike.%${safe}%` : '',
+      columns: STAFF_LIST_COLUMNS,
+      includePhotos,
+    });
     if (error) throw error;
 
     paginatedJson(
       res,
-      (staff || []).map((member) => mergePersonPhoto(normalizeStaffRecord(member))),
+      (staff || []).map((member) =>
+        includePhotos ? mergePersonPhoto(normalizeStaffRecord(member)) : normalizeStaffRecord(member)
+      ),
       count,
       page,
       limit
@@ -3165,6 +3320,22 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
   }
 });
 
+app.get('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data: staff, error } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+    res.json(mergePersonPhoto(normalizeStaffRecord(staff)));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.delete('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
@@ -3190,22 +3361,20 @@ app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, re
   try {
     const { page, limit, from, to } = parsePagination(req);
     const q = String(req.query.q || '').trim();
+    const includePhotos = wantsPhotos(req);
+    const safe = q.replace(/[%*,]/g, '');
 
-    let query = supabase
-      .from('nonstaffs')
-      .select('*', { count: 'exact' })
-      .eq('school_id', req.user.schoolId)
-      .order('created_at', { ascending: false })
-      .range(from, to);
-
-    if (q) {
-      const safe = q.replace(/[%*,]/g, '');
-      query = query.or(`name.ilike.%${safe}%,role.ilike.%${safe}%`);
-    }
-
-    const { data: nonStaff, error, count } = await query;
+    const { data: nonStaff, error, count } = await queryPagedRows('nonstaffs', {
+      schoolId: req.user.schoolId,
+      from,
+      to,
+      q,
+      orFilter: q ? `name.ilike.%${safe}%,role.ilike.%${safe}%` : '',
+      columns: NONSTAFF_LIST_COLUMNS,
+      includePhotos,
+    });
     if (error) throw error;
-    paginatedJson(res, mergePersonPhotos(nonStaff), count, page, limit);
+    paginatedJson(res, includePhotos ? mergePersonPhotos(nonStaff) : nonStaff, count, page, limit);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3279,6 +3448,22 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
 
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(saved));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data: person, error } = await supabase
+      .from('nonstaffs')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!person) return res.status(404).json({ error: 'Non-staff member not found' });
+    res.json(mergePersonPhoto(person));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3779,7 +3964,7 @@ const authenticateStaffPortal = (req, res, next) => {
     return res.status(401).json({ error: 'Staff portal session required' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, payload) => {
+  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, (err, payload) => {
     if (err || payload?.purpose !== 'staff_portal') {
       return res.status(401).json({ error: 'Invalid or expired staff portal session' });
     }
@@ -3846,13 +4031,15 @@ app.post('/api/staff-portal/regenerate', authenticateToken, enforcePlanApproval,
   }
 });
 
-/** Resolve short /{school-name}/staff-portal links to the portal token. */
+/** Resolve short /{school-name}/staff-portal links without exposing the portal token. */
 app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
   try {
     const wanted = slugifySchoolName(req.params.schoolSlug);
     if (!wanted) return res.status(400).json({ error: 'Invalid school link' });
 
-    const { data: schools, error } = await supabase.from('schools').select('*');
+    const { data: schools, error } = await supabase
+      .from('schools')
+      .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
     if (error) throw error;
 
     const match = (schools || []).find((school) => {
@@ -3868,17 +4055,92 @@ app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
       return res.status(404).json({ error: 'Staff portal not found for this school' });
     }
 
-    const token = await ensureStaffPortalToken(match.id);
     res.json({
-      token,
       schoolName: mergeSchoolWithExtras(match).name,
       schoolSlug: wanted,
     });
   } catch (error) {
     console.error('Public staff portal resolve error:', error);
-    res.status(500).json({ error: error.message || 'Failed to resolve staff portal' });
+    res.status(500).json({ error: 'Failed to resolve staff portal' });
   }
 });
+
+async function findStaffPortalSchoolBySlug(schoolSlug) {
+  const wanted = slugifySchoolName(schoolSlug);
+  if (!wanted) return null;
+  const { data: schools, error } = await supabase
+      .from('schools')
+      .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
+  if (error) throw error;
+  const match = (schools || []).find((school) => {
+    if (String(school.role || '') === 'super_admin') return false;
+    const merged = mergeSchoolWithExtras(school);
+    if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return false;
+    if (!hasPlanFeature(merged.payment_plan, 'staff')) return false;
+    if (!getSubscriptionInfo(merged).subscription_active) return false;
+    return slugifySchoolName(merged.name) === wanted;
+  });
+  if (!match) return null;
+  const token = await ensureStaffPortalToken(match.id);
+  return {
+    schoolId: match.id,
+    schoolName: mergeSchoolWithExtras(match).name,
+    token,
+  };
+}
+
+async function issueStaffPortalSession(req, res, resolved) {
+  const clientIp = getClientIp(req);
+  const hitCheck = await checkAuthHitAllowed('staff_login', clientIp);
+  if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
+  await recordAuthHit('staff_login', clientIp);
+
+  const accessCode = String(req.body.accessCode || req.body.secretCode || '').trim();
+  const role = String(req.body.role || '').trim();
+  if (!accessCode || !role) {
+    return res.status(400).json({ error: 'Access code and role are required' });
+  }
+
+  const { data: staffRows, error } = await supabase
+    .from('staffs')
+    .select('id, name, role, subjects, class_names, school_id, secret_code')
+    .eq('school_id', resolved.schoolId)
+    .eq('secret_code', accessCode);
+
+  if (error) throw error;
+
+  const staff =
+    (staffRows || []).find((row) => String(row.role || '').toLowerCase() === role.toLowerCase()) ||
+    null;
+
+  if (!staff) {
+    return res.status(401).json({ error: 'Invalid access code or role' });
+  }
+
+  const sessionToken = jwt.sign(
+    {
+      purpose: 'staff_portal',
+      schoolId: resolved.schoolId,
+      staffId: staff.id,
+      role: staff.role,
+      portalToken: resolved.token || req.params.token,
+    },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+
+  res.json({
+    sessionToken,
+    schoolName: resolved.schoolName,
+    staff: {
+      id: staff.id,
+      name: staff.name,
+      role: staff.role,
+      subjects: parseCsvList(staff.subjects),
+      classNames: parseCsvList(staff.class_names),
+    },
+  });
+}
 
 app.get('/api/staff-portal/:token/school', async (req, res) => {
   try {
@@ -3888,7 +4150,21 @@ app.get('/api/staff-portal/:token/school', async (req, res) => {
     }
     res.json({ schoolName: resolved.schoolName });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Staff portal school error:', error);
+    res.status(500).json({ error: 'Failed to load staff portal' });
+  }
+});
+
+app.post('/api/public/staff-portal/:schoolSlug/login', async (req, res) => {
+  try {
+    const resolved = await findStaffPortalSchoolBySlug(req.params.schoolSlug);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Invalid or inactive staff portal link' });
+    }
+    return issueStaffPortalSession(req, res, resolved);
+  } catch (error) {
+    console.error('Staff portal slug login error:', error);
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
@@ -3898,55 +4174,10 @@ app.post('/api/staff-portal/:token/login', async (req, res) => {
     if (!resolved) {
       return res.status(404).json({ error: 'Invalid or inactive staff portal link' });
     }
-
-    const accessCode = String(req.body.accessCode || req.body.secretCode || '').trim();
-    const role = String(req.body.role || '').trim();
-    if (!accessCode || !role) {
-      return res.status(400).json({ error: 'Access code and role are required' });
-    }
-
-    const { data: staffRows, error } = await supabase
-      .from('staffs')
-      .select('*')
-      .eq('school_id', resolved.schoolId)
-      .eq('secret_code', accessCode);
-
-    if (error) throw error;
-
-    const staff =
-      (staffRows || []).find((row) => String(row.role || '').toLowerCase() === role.toLowerCase()) ||
-      null;
-
-    if (!staff) {
-      return res.status(401).json({ error: 'Invalid access code or role' });
-    }
-
-    const sessionToken = jwt.sign(
-      {
-        purpose: 'staff_portal',
-        schoolId: resolved.schoolId,
-        staffId: staff.id,
-        role: staff.role,
-        portalToken: req.params.token,
-      },
-      JWT_SECRET,
-      { expiresIn: '12h' }
-    );
-
-    res.json({
-      sessionToken,
-      schoolName: resolved.schoolName,
-      staff: {
-        id: staff.id,
-        name: staff.name,
-        role: staff.role,
-        subjects: parseCsvList(staff.subjects),
-        classNames: parseCsvList(staff.class_names),
-      },
-    });
+    return issueStaffPortalSession(req, res, { ...resolved, token: req.params.token });
   } catch (error) {
     console.error('Staff portal login error:', error);
-    res.status(500).json({ error: error.message || 'Login failed' });
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
@@ -4428,6 +4659,9 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
     const today = new Date().toISOString().split('T')[0];
     const requestedDate = req.query.date || today;
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
+    const cacheKey = `att-sum:${req.user.schoolId}:${selectedDate}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json(cached);
 
     const [students, staff, nonStaff, attendance] = await Promise.all([
       supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
@@ -4436,28 +4670,17 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
       supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', selectedDate),
     ]);
 
-    const presentStudents = attendance.data?.filter(a => a.user_type === 'student').length || 0;
-    const presentStaff = attendance.data?.filter(a => a.user_type === 'staff').length || 0;
-    const presentNonStaff = attendance.data?.filter(a => a.user_type === 'non-staff').length || 0;
-
-    res.json({
-      date: selectedDate,
-      students: {
-        total: students.count || 0,
-        present: presentStudents,
-        percentage: students.count ? (presentStudents / students.count * 100).toFixed(2) : 0,
+    const payload = buildAttendanceSummaryPayload(
+      selectedDate,
+      {
+        students: students.count || 0,
+        staff: staff.count || 0,
+        nonStaff: nonStaff.count || 0,
       },
-      staff: {
-        total: staff.count || 0,
-        present: presentStaff,
-        percentage: staff.count ? (presentStaff / staff.count * 100).toFixed(2) : 0,
-      },
-      nonStaff: {
-        total: nonStaff.count || 0,
-        present: presentNonStaff,
-        percentage: nonStaff.count ? (presentNonStaff / nonStaff.count * 100).toFixed(2) : 0,
-      },
-    });
+      attendance.data
+    );
+    cacheSet(cacheKey, payload, DASHBOARD_TTL_MS);
+    res.json(payload);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4752,17 +4975,15 @@ app.post('/api/messages/:id/reply', authenticateToken, enforcePlanApproval, asyn
 
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
-    const cacheKey = `dash:${req.user.schoolId}`;
+    const today = new Date().toISOString().split('T')[0];
+    const requestedDate = req.query.date || today;
+    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
+    const cacheKey = `dash:${req.user.schoolId}:${selectedDate}`;
     const cached = cacheGet(cacheKey);
     if (cached) return res.json(cached);
 
     if (req.user.role !== 'super_admin') {
-      const { data: schoolAccount } = await supabase
-        .from('schools')
-        .select('*')
-        .eq('id', req.user.schoolId)
-        .maybeSingle();
-
+      const { data: schoolAccount } = await selectSchoolById(req.user.schoolId, SCHOOL_PLAN_COLUMNS);
       const merged = mergeSchoolWithExtras(schoolAccount);
 
       if (!merged?.payment_plan || (merged.plan_status || 'pending') !== 'approved') {
@@ -4773,6 +4994,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
           unreadMessages: 0,
           todayAttendance: 0,
           planPending: true,
+          attendance: null,
         });
       }
     }
@@ -4786,19 +5008,24 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         .select('id', { count: 'exact', head: true })
         .eq('school_id', req.user.schoolId)
         .is('reply', null),
-      supabase
-        .from('attendance')
-        .select('id', { count: 'exact', head: true })
-        .eq('school_id', req.user.schoolId)
-        .eq('date', new Date().toISOString().split('T')[0]),
+      supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', selectedDate),
     ]);
 
+    const totals = {
+      students: students.count || 0,
+      staff: staff.count || 0,
+      nonStaff: nonStaff.count || 0,
+    };
+    const attendanceSummary = buildAttendanceSummaryPayload(selectedDate, totals, attendance.data);
+    cacheSet(`att-sum:${req.user.schoolId}:${selectedDate}`, attendanceSummary, DASHBOARD_TTL_MS);
+
     const payload = {
-      totalStudents: students.count || 0,
-      totalStaff: staff.count || 0,
-      totalNonStaff: nonStaff.count || 0,
+      totalStudents: totals.students,
+      totalStaff: totals.staff,
+      totalNonStaff: totals.nonStaff,
       unreadMessages: messages.count || 0,
-      todayAttendance: attendance.count || 0,
+      todayAttendance: attendance.data?.length || 0,
+      attendance: attendanceSummary,
     };
     cacheSet(cacheKey, payload, DASHBOARD_TTL_MS);
     res.json(payload);
@@ -4922,39 +5149,47 @@ async function initializeDatabase() {
     await initSchoolPlanStore();
     console.log('School plan store ready (Supabase)');
 
-    const planSchema = await checkPlanSchemaReady();
-    if (!planSchema.ready) {
-      console.warn(
-        `Plan/approval columns missing or unreadable on schools (${planSchema.error?.message || 'unknown'}). ${PLAN_SCHEMA_HELP}`
-      );
-    }
+    const warmOptionalStores = async () => {
+      try {
+        const planSchema = await checkPlanSchemaReady();
+        if (!planSchema.ready) {
+          console.warn(
+            `Plan/approval columns missing or unreadable on schools (${planSchema.error?.message || 'unknown'}). ${PLAN_SCHEMA_HELP}`
+          );
+        }
 
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.warn(
-        'SUPABASE_SERVICE_ROLE_KEY is not set — using anon key. Super-admin school lists and plan writes may fail if RLS is enabled. Prefer the service role key, or run database/supabase_backend_access.sql.'
-      );
-    }
+        if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+          console.warn(
+            'SUPABASE_SERVICE_ROLE_KEY is not set — using anon key. Super-admin school lists and plan writes may fail if RLS is enabled. Prefer the service role key, or run database/supabase_backend_access.sql.'
+          );
+        }
 
-    await initStudentPhotoStore();
-    console.log('Person photo store ready');
-    await initAuthSecurityStore();
-    console.log('Auth security store ready');
-    await initPlatformTelemetry();
-    try {
-      await initSchoolWalletStore();
-      console.log('School wallet store ready');
-    } catch (walletErr) {
-      console.warn('School wallet store unavailable:', walletErr.message || walletErr);
-      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
+        await initStudentPhotoStore();
+        await initAuthSecurityStore();
+        await initPlatformTelemetry();
+        try {
+          await initSchoolWalletStore();
+        } catch (walletErr) {
+          console.warn('School wallet store unavailable:', walletErr.message || walletErr);
+          console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud wallets.');
+        }
+        try {
+          await initPlatformSmsStore();
+        } catch (smsErr) {
+          console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
+          console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
+        }
+        await seedSuperAdmin();
+      } catch (err) {
+        console.warn('Background store init failed:', err.message || err);
+      }
+    };
+
+    if (process.env.VERCEL) {
+      void warmOptionalStores();
+    } else {
+      await warmOptionalStores();
     }
-    try {
-      await initPlatformSmsStore();
-      console.log('Platform SMS store ready');
-    } catch (smsErr) {
-      console.warn('Platform SMS store unavailable:', smsErr.message || smsErr);
-      console.warn('Run database/supabase_core_billing.sql in Supabase if you want cloud SMS billing.');
-    }
-    await seedSuperAdmin();
     return true;
   } catch (err) {
     console.error('Database setup failed:', err.message || err);
@@ -4981,7 +5216,7 @@ const requireCronSecret = (req, res, next) => {
     }
     return next();
   }
-  const provided = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.secret;
+  const provided = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (provided !== expected) {
     return res.status(401).json({ error: 'Unauthorized cron request' });
   }
@@ -4997,7 +5232,7 @@ app.get('/api/cron/subscription-reminders', requireCronSecret, async (req, res) 
     res.json({ ok: true, ...result });
   } catch (error) {
     console.error('Subscription reminder cron error:', error);
-    res.status(500).json({ error: error.message || 'Reminder job failed' });
+    res.status(500).json({ error: 'Reminder job failed' });
   }
 });
 

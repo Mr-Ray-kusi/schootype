@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { Download, FileText, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
-import { cachedGet, invalidateCache } from '../utils/requestCache';
+import { invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
 import {
   downloadStudentReportCardsPdf,
   downloadSubjectRankingsPdf,
@@ -36,15 +36,22 @@ const ReportCards = () => {
   const [clearing, setClearing] = useState(false);
 
   const loadScores = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
+    const cacheKey = 'report-cards:scores';
+    if (!silent) {
+      const cached = peekCache(cacheKey);
+      if (cached) {
+        setScores(cached.scores || []);
+        setLoading(false);
+      }
+    }
     try {
-      const data = await cachedGet(
-        'report-cards:scores',
+      const data = await staleGet(
+        cacheKey,
         async () => {
           const res = await axios.get('/api/report-cards/scores');
           return res.data;
         },
-        silent ? 0 : 300000
+        silent ? 0 : REPORT_CACHE_MS
       );
       setScores(data.scores || []);
     } catch (err) {
@@ -61,7 +68,7 @@ const ReportCards = () => {
     loadScores({ silent: false });
   }, [loadScores]);
 
-  useLivePoll(() => loadScores({ silent: true }), 20000, true);
+  useLivePoll(() => loadScores({ silent: true }), 60000, !loading);
 
   const classes = useMemo(() => {
     const set = new Set(scores.map((row) => row.class_name).filter(Boolean));

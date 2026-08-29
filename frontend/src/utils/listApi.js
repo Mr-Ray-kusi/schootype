@@ -26,3 +26,12 @@ export async function fetchAllPages(axios, url, extraParams = {}) {
   }
   return items;
 }
+
+export async function fetchRecord(axios, url, fallback = null) {
+  try {
+    const { data } = await axios.get(url);
+    return data || fallback;
+  } catch {
+    return fallback;
+  }
+}

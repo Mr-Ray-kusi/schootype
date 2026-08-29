@@ -31,6 +31,7 @@ import axios from 'axios';
 import OfflineBanner from './OfflineBanner';
 import useLiteMode from '../hooks/useLiteMode';
 import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
+import { cachedGet } from '../utils/requestCache';
 
 /** True when pathname is exactly href, or a nested path under href (segment-safe). */
 const isNavActive = (pathname, href) => {
@@ -54,8 +55,12 @@ const Layout = ({ children }) => {
   const refreshUnread = useCallback(async () => {
     if (!token) return;
     try {
-      const { data } = await axios.get('/api/notifications/unread-count');
-      setUnread(Number(data.unread) || 0);
+      const { unread } = await cachedGet(
+        'notifications:unread',
+        async () => (await axios.get('/api/notifications/unread-count')).data,
+        15000
+      );
+      setUnread(Number(unread) || 0);
     } catch {
       // Table may not exist until migration is applied.
     }

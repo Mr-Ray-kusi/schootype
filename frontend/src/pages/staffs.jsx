@@ -17,8 +17,8 @@ import {
   Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { cachedGet, invalidateCache } from '../utils/requestCache';
-import { parseListResponse, fetchAllPages } from '../utils/listApi.js';
+import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
 
@@ -81,13 +81,8 @@ const Staff = () => {
   };
 
   const fetchStaff = async () => {
-    try {
-      const data = await cachedGet(`staff:${page}:${debouncedSearch}`, async () => {
-        const response = await axios.get('/api/staff', {
-          params: { page, limit: 50, q: debouncedSearch || undefined },
-        });
-        return response.data;
-      });
+    const cacheKey = `staff:${page}:${debouncedSearch}`;
+    const apply = (data) => {
       const parsed = parseListResponse(data);
       setStaff(
         parsed.items.map((item) => ({
@@ -98,6 +93,25 @@ const Staff = () => {
         }))
       );
       setTotal(parsed.total);
+    };
+    const cached = peekCache(cacheKey);
+    if (cached) {
+      apply(cached);
+      setLoading(false);
+    }
+    try {
+      const data = await staleGet(
+        cacheKey,
+        async () => {
+          const response = await axios.get('/api/staff', {
+            params: { page, limit: 50, q: debouncedSearch || undefined },
+          });
+          return response.data;
+        },
+        45000,
+        apply
+      );
+      apply(data);
     } catch (error) {
       console.error('Error fetching staff:', error);
     } finally {
@@ -133,6 +147,7 @@ const Staff = () => {
       setShowModal(false);
       resetForm();
       invalidateCache('staff');
+      invalidateCache('dashboard');
       fetchStaff();
       } catch (error) {
       if (error.offlineQueued) {
@@ -150,6 +165,7 @@ const Staff = () => {
       try {
         await axios.delete(`/api/staff/${id}`);
         invalidateCache('staff');
+        invalidateCache('dashboard');
         fetchStaff();
       } catch (error) {
         console.error('Error deleting staff:', error);
@@ -198,11 +214,11 @@ const Staff = () => {
 
   const roles = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
 
-  if (loading) {
+  if (loading && staff.length === 0) {
     return (
       <>
-<div className="text-center py-12 text-slate-300">Loading staff...</div>
-</>
+        <div className="text-center py-12 text-slate-300">Loading staff...</div>
+      </>
     );
   }
 
@@ -220,7 +236,10 @@ const Staff = () => {
               onClick={async () => {
                 setDownloadingAll(true);
                 try {
-                  const all = await fetchAllPages(axios, '/api/staff', { q: debouncedSearch || undefined });
+                  const all = await fetchAllPages(axios, '/api/staff', {
+                    q: debouncedSearch || undefined,
+                    includePhotos: 1,
+                  });
                   await downloadPeoplePacks(
                     all.map((member) => staffPack(member, buildPersonIdUrl(member.barcode))),
                     'all-staff.zip'
@@ -306,9 +325,10 @@ const Staff = () => {
                 downloadLabel="Download pack"
                 onEdit={() => handleEdit(staffMember)}
                 onDelete={() => handleDelete(staffMember.id)}
-                onDownloadPack={() =>
-                  downloadPersonPack(staffPack(staffMember, buildPersonIdUrl(staffMember.barcode)))
-                }
+                onDownloadPack={async () => {
+                  const full = await fetchRecord(axios, `/api/staff/${staffMember.id}`, staffMember);
+                  downloadPersonPack(staffPack(full, buildPersonIdUrl(full.barcode)));
+                }}
                 details={[
                   {
                     key: 'code',

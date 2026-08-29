@@ -5,7 +5,7 @@ import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/authcontext';
-import { cachedGet, DASHBOARD_CACHE_MS } from '../utils/requestCache';
+import { DASHBOARD_CACHE_MS, peekCache, staleGet } from '../utils/requestCache';
 import { useLivePoll } from '../hooks/useLivePoll';
 import useLiteMode from '../hooks/useLiteMode';
 import {
@@ -32,35 +32,41 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
+  const applyDashboardPayload = (payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    setStats(payload);
+    setAttendanceSummary(payload.attendance || null);
+  };
+
   const fetchDashboardData = useCallback(async (date, { silent = false } = {}) => {
+    const cacheKey = `dashboard:${date}`;
     try {
-      const requests = [
-        cachedGet('dashboard:stats', async () => (await axios.get('/api/dashboard/stats')).data, DASHBOARD_CACHE_MS),
-      ];
-      if (isPlanApproved && includesPlanFeature('attendance')) {
-        requests.push(
-          cachedGet(
-            `attendance-summary:${date}`,
-            async () => (await axios.get(`/api/attendance/summary?date=${date}`)).data,
-            DASHBOARD_CACHE_MS
-          )
-        );
+      if (!silent) {
+        const cached = peekCache(cacheKey);
+        if (cached) {
+          applyDashboardPayload(cached);
+          setLoading(false);
+        }
       }
-      const [statsData, attendanceData] = await Promise.all(requests);
-      setStats(statsData);
-      setAttendanceSummary(attendanceData || null);
+      const statsData = await staleGet(
+        cacheKey,
+        async () => (await axios.get(`/api/dashboard/stats?date=${date}`)).data,
+        DASHBOARD_CACHE_MS,
+        applyDashboardPayload
+      );
+      applyDashboardPayload(statsData);
     } catch (error) {
       if (!silent) console.error('Error fetching dashboard data:', error);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [includesPlanFeature, isPlanApproved]);
+  }, []);
 
   useEffect(() => {
     fetchDashboardData(selectedDate, { silent: false });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
 
-  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 20000, true);
+  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 60000, !loading);
 
   const todayLabel = format(new Date(), 'EEEE, d MMMM yyyy');
 
@@ -128,11 +134,11 @@ const Dashboard = () => {
       ]
     : [];
 
-  if (loading) {
+  if (loading && !stats.totalStudents && !attendanceSummary) {
     return (
       <>
-<div className="flex h-64 items-center justify-center text-slate-400">Loading dashboard…</div>
-</>
+        <div className="flex h-64 items-center justify-center text-slate-400">Loading dashboard…</div>
+      </>
     );
   }
 

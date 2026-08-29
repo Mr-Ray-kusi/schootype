@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
+import { staleGet, peekCache, invalidateCache } from '../utils/requestCache';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -77,9 +78,18 @@ const Messages = () => {
   }, []);
 
   const fetchMessages = async () => {
+    const cached = peekCache('messages');
+    if (cached) {
+      setMessages(cached);
+      setLoading(false);
+    }
     try {
-      const response = await axios.get('/api/messages');
-      setMessages(response.data);
+      const data = await staleGet(
+        'messages',
+        async () => (await axios.get('/api/messages')).data,
+        45000
+      );
+      setMessages(data);
     } catch (error) {
       console.error('Error fetching messages:', error);
     } finally {
@@ -179,6 +189,7 @@ const Messages = () => {
 
       setShowSendModal(false);
       resetCompose();
+      invalidateCache('messages');
       fetchMessages();
       loadSmsBalance();
       if (newMessage.deliveryChannel === 'sms') {
@@ -233,6 +244,7 @@ const Messages = () => {
       await axios.post(`/api/messages/${messageId}/reply`, { reply: replyText });
       setReplyingTo(null);
       setReplyText('');
+      invalidateCache('messages');
       fetchMessages();
     } catch (error) {
       console.error('Error sending reply:', error);
@@ -248,7 +260,7 @@ const Messages = () => {
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (loading) {
+  if (loading && messages.length === 0) {
     return (
       <>
 <div className="flex items-center justify-center py-24 text-slate-300">Loading messages…</div>

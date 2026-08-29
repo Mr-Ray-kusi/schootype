@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Plus, Trash2, BookOpen, GraduationCap } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { cachedGet, invalidateCache } from '../utils/requestCache';
+import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
@@ -22,13 +22,22 @@ const Setup = () => {
   const [savingSubjects, setSavingSubjects] = useState(false);
 
   const load = async () => {
-    try {
-      const [classData, subjectData] = await Promise.all([
-        cachedGet('classes', async () => (await axios.get('/api/classes')).data || []),
-        cachedGet('subjects', async () => (await axios.get('/api/subjects')).data || []),
-      ]);
+    const apply = ([classData, subjectData]) => {
       setClasses(classData);
       setSubjects(subjectData);
+    };
+    const cachedClasses = peekCache('classes');
+    const cachedSubjects = peekCache('subjects');
+    if (cachedClasses || cachedSubjects) {
+      apply([cachedClasses || [], cachedSubjects || []]);
+      setLoading(false);
+    }
+    try {
+      const [classData, subjectData] = await Promise.all([
+        staleGet('classes', async () => (await axios.get('/api/classes')).data || [], 45000),
+        staleGet('subjects', async () => (await axios.get('/api/subjects')).data || [], 45000),
+      ]);
+      apply([classData, subjectData]);
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to load setup');
     } finally {
@@ -129,7 +138,7 @@ const Setup = () => {
     }
   };
 
-  if (loading) {
+  if (loading && classes.length === 0 && subjects.length === 0) {
     return <div className="py-12 text-center text-slate-300">Loading setup…</div>;
   }
 

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Filter, Clock, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { cachedGet, invalidateCache } from '../utils/requestCache';
+import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import useLiteMode from '../hooks/useLiteMode';
 
 const Attendance = () => {
@@ -55,11 +55,22 @@ const Attendance = () => {
   };
 
   const fetchAttendance = async () => {
+    const cacheKey = `attendance:${selectedDate}`;
+    const cached = peekCache(cacheKey);
+    if (cached) {
+      setAttendanceRecords(cached);
+      setFilteredRecords(cached);
+      setLoading(false);
+    }
     try {
-      const data = await cachedGet(`attendance:${selectedDate}`, async () => {
-        const response = await axios.get(`/api/attendance?date=${selectedDate}`);
-        return response.data;
-      });
+      const data = await staleGet(
+        cacheKey,
+        async () => {
+          const response = await axios.get(`/api/attendance?date=${selectedDate}`);
+          return response.data;
+        },
+        45000
+      );
       setAttendanceRecords(data);
       setFilteredRecords(data);
     } catch (error) {
@@ -70,11 +81,18 @@ const Attendance = () => {
   };
 
   const fetchSummary = async () => {
+    const cacheKey = `attendance-summary:${selectedDate}`;
+    const cached = peekCache(cacheKey) || peekCache(`dashboard:${selectedDate}`)?.attendance;
+    if (cached) setSummary(cached);
     try {
-      const data = await cachedGet(`attendance-summary:${selectedDate}`, async () => {
-        const response = await axios.get(`/api/attendance/summary?date=${selectedDate}`);
-        return response.data;
-      });
+      const data = await staleGet(
+        cacheKey,
+        async () => {
+          const response = await axios.get(`/api/attendance/summary?date=${selectedDate}`);
+          return response.data;
+        },
+        45000
+      );
       setSummary(data);
     } catch (error) {
       console.error('Error fetching summary:', error);
@@ -138,11 +156,11 @@ const Attendance = () => {
     }
   };
 
-  if (loading) {
+  if (loading && attendanceRecords.length === 0) {
     return (
       <>
-<div className="text-center py-12">Loading attendance records...</div>
-</>
+        <div className="text-center py-12">Loading attendance records...</div>
+      </>
     );
   }
 

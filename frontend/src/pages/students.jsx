@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
-import { cachedGet, invalidateCache } from '../utils/requestCache';
-import { parseListResponse, fetchAllPages } from '../utils/listApi.js';
+import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/personPackExport';
 import PersonCard, { PersonGrid } from '../components/PersonCard';
 import PaginationBar from '../components/PaginationBar';
@@ -37,9 +37,20 @@ const Students = () => {
   }, [page, debouncedSearch, selectedClass]);
 
   const fetchStudents = async () => {
+    const cacheKey = `students:${page}:${debouncedSearch}:${selectedClass}`;
+    const apply = (data) => {
+      const parsed = parseListResponse(data);
+      setStudents(parsed.items);
+      setTotal(parsed.total);
+    };
+    const cached = peekCache(cacheKey);
+    if (cached) {
+      apply(cached);
+      setLoading(false);
+    }
     try {
-      const data = await cachedGet(
-        `students:${page}:${debouncedSearch}:${selectedClass}`,
+      const data = await staleGet(
+        cacheKey,
         async () => {
           const response = await axios.get('/api/students', {
             params: {
@@ -50,11 +61,11 @@ const Students = () => {
             },
           });
           return response.data;
-        }
+        },
+        45000,
+        apply
       );
-      const parsed = parseListResponse(data);
-      setStudents(parsed.items);
-      setTotal(parsed.total);
+      apply(data);
     } catch (error) {
       console.error('Error fetching students:', error);
     } finally {
@@ -74,6 +85,7 @@ const Students = () => {
       try {
         await axios.delete(`/api/students/${id}`);
         invalidateCache('students');
+        invalidateCache('dashboard');
         fetchStudents();
       } catch (error) {
         console.error('Error deleting student:', error);
@@ -101,6 +113,7 @@ const Students = () => {
         skills: editingStudent.skills,
       });
       invalidateCache('students');
+      invalidateCache('dashboard');
       setEditingStudent(null);
       fetchStudents();
     } catch (error) {
@@ -114,6 +127,7 @@ const Students = () => {
       const all = await fetchAllPages(axios, '/api/students', {
         q: debouncedSearch || undefined,
         class: selectedClass !== 'all' ? selectedClass : undefined,
+        includePhotos: 1,
       });
       if (!all.length) {
         toast.error('No students to download');
@@ -139,11 +153,11 @@ const Students = () => {
     }
   }, [location]);
 
-  if (loading) {
+  if (loading && students.length === 0) {
     return (
       <>
-<div className="text-center py-12 text-slate-300">Loading students...</div>
-</>
+        <div className="text-center py-12 text-slate-300">Loading students...</div>
+      </>
     );
   }
 
@@ -370,12 +384,17 @@ const Students = () => {
               photoUrl={student.photo_url}
               qrValue={buildStudentIdUrl(student.barcode)}
               downloadLabel="Download pack"
-              onView={() => setViewingStudent(student)}
+              onView={async () => {
+                setViewingStudent(student);
+                const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
+                setViewingStudent(full);
+              }}
               onEdit={() => handleEdit(student)}
               onDelete={() => handleDelete(student.id)}
-              onDownloadPack={() =>
-                downloadPersonPack(studentPack(student, buildStudentIdUrl(student.barcode)))
-              }
+              onDownloadPack={async () => {
+                const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
+                downloadPersonPack(studentPack(full, buildStudentIdUrl(full.barcode)));
+              }}
               details={[
                 { key: 'roll', icon: <Hash className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />, text: student.roll_number || 'N/A' },
                 student.parent_name

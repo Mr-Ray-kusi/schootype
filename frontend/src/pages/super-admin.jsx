@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
+import { peekCache, staleGet } from '../utils/requestCache';
 import { Building2, ChevronRight, Clock, DollarSign, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -32,13 +33,24 @@ const SuperAdmin = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async ({ silent = false } = {}) => {
+    const apply = (overviewData, schoolsData) => {
+      setOverview(overviewData && typeof overviewData === 'object' ? overviewData : null);
+      setSchools(Array.isArray(schoolsData) ? schoolsData : []);
+    };
+    if (!silent) {
+      const cachedOverview = peekCache('super-admin:overview');
+      const cachedSchools = peekCache('super-admin:schools');
+      if (cachedOverview || cachedSchools) {
+        apply(cachedOverview, cachedSchools || []);
+        setLoading(false);
+      }
+    }
     try {
-      const [overviewRes, schoolsRes] = await Promise.all([
-        axios.get('/api/super-admin/overview'),
-        axios.get('/api/super-admin/schools'),
+      const [overviewData, schoolsData] = await Promise.all([
+        staleGet('super-admin:overview', async () => (await axios.get('/api/super-admin/overview')).data, 30000),
+        staleGet('super-admin:schools', async () => (await axios.get('/api/super-admin/schools')).data, 30000),
       ]);
-      setOverview(overviewRes.data && typeof overviewRes.data === 'object' ? overviewRes.data : null);
-      setSchools(Array.isArray(schoolsRes.data) ? schoolsRes.data : []);
+      apply(overviewData, schoolsData);
     } catch (error) {
       if (!silent) {
         console.error('Error fetching super admin data:', error);
@@ -54,7 +66,7 @@ const SuperAdmin = () => {
     fetchData({ silent: false });
   }, [fetchData]);
 
-  useLivePoll(() => fetchData({ silent: true }), 20000, true);
+  useLivePoll(() => fetchData({ silent: true }), 60000, !loading);
 
   const sortedSchools = (Array.isArray(schools) ? schools : []).slice().sort((a, b) => {
     const order = { pending: 0, rejected: 1, approved: 2 };
@@ -77,7 +89,7 @@ const SuperAdmin = () => {
       ]
     : [];
 
-  if (loading) {
+  if (loading && !overview && schools.length === 0) {
     return (
       <>
 <div className="flex items-center justify-center h-64">

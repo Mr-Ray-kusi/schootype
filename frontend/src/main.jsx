@@ -9,6 +9,19 @@ import { enqueueMutation, isOfflineMutationUrl, mutationLabel } from './utils/of
 
 axios.defaults.timeout = 20000;
 
+const KEEP_ALIVE_MS = 4 * 60 * 1000;
+const pingApi = () => {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  axios.get('/api/health', { timeout: 8000 }).catch(() => {});
+};
+pingApi();
+if (typeof window !== 'undefined') {
+  window.setInterval(pingApi, KEEP_ALIVE_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') pingApi();
+  });
+}
+
 axios.interceptors.request.use(async (config) => {
   const method = String(config.method || 'get').toLowerCase();
   const url = config.url || '';
