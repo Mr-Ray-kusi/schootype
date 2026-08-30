@@ -43,6 +43,80 @@ export function resolveStudentFeeAmount(student, classFee) {
   return Number(classFee) || 0;
 }
 
+export function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+export function isSuccessfulFeeStatus(status) {
+  const value = String(status || 'success').toLowerCase();
+  return value === 'success' || value === 'paid';
+}
+
+export function sumFeePayments(payments) {
+  return roundMoney(
+    (payments || []).reduce((sum, row) => {
+      if (!isSuccessfulFeeStatus(row?.status)) return sum;
+      return sum + (Number(row.amount) || 0);
+    }, 0)
+  );
+}
+
+export function buildFeeBalance({ feeAmount, payments }) {
+  const due = roundMoney(feeAmount);
+  const paidAmount = sumFeePayments(payments);
+  const outstanding = roundMoney(Math.max(0, due - paidAmount));
+  return {
+    fee_amount: due,
+    paid_amount: paidAmount,
+    outstanding,
+    fully_paid: due > 0 && outstanding < 0.01,
+    payments: payments || [],
+  };
+}
+
+export async function listStudentFeePayments({ schoolId, studentId, month }) {
+  if (!schoolId || !studentId || !month) return [];
+  const { data, error } = await supabase
+    .from('fee_payments')
+    .select('*')
+    .eq('school_id', schoolId)
+    .eq('payer_id', studentId)
+    .eq('payment_month', month)
+    .order('created_at', { ascending: false });
+  if (error) {
+    if (isMissingTable(error)) return [];
+    return [];
+  }
+  return (data || []).filter((row) => isSuccessfulFeeStatus(row.status));
+}
+
+export async function refreshStudentFeeStatus({ schoolId, studentId, month }) {
+  if (!schoolId || !studentId) return null;
+  const { data: student } = await supabase
+    .from('students')
+    .select('id, monthly_fee, class')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (!student) return null;
+  const classFee = await getClassFeeAmount(schoolId, student.class);
+  const feeAmount = resolveStudentFeeAmount(student, classFee);
+  const payments = await listStudentFeePayments({
+    schoolId,
+    studentId,
+    month: month || currentFeeMonth(),
+  });
+  const balance = buildFeeBalance({ feeAmount, payments });
+  await supabase
+    .from('students')
+    .update({
+      fee_status: balance.fully_paid ? 'paid' : balance.paid_amount > 0 ? 'partial' : 'unpaid',
+    })
+    .eq('id', studentId)
+    .eq('school_id', schoolId);
+  return { student, ...balance };
+}
+
 export async function findSuccessfulFeePayment({ schoolId, studentId, month, reference }) {
   if (reference) {
     const { data, error } = await supabase
@@ -242,11 +316,11 @@ export async function settleSchoolFeeFromPaystack(data = {}) {
   });
 
   if (metadata.student_id) {
-    await supabase
-      .from('students')
-      .update({ fee_status: 'paid' })
-      .eq('id', metadata.student_id)
-      .eq('school_id', schoolId);
+    await refreshStudentFeeStatus({
+      schoolId,
+      studentId: metadata.student_id,
+      month: metadata.payment_month || currentFeeMonth(),
+    });
   }
 
   await payoutFeeToSchoolAccount(data, metadata, amountMinor);

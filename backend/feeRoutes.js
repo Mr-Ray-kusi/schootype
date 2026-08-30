@@ -23,6 +23,12 @@ import {
   findSuccessfulFeePayment,
   settleSchoolFeeFromPaystack,
   getFeePayoutAccount,
+  listStudentFeePayments,
+  buildFeeBalance,
+  refreshStudentFeeStatus,
+  recordFeePayment,
+  roundMoney,
+  isSuccessfulFeeStatus,
 } from './feePayments.js';
 
 function handlePaystackError(res, err) {
@@ -33,7 +39,11 @@ function handlePaystackError(res, err) {
   });
 }
 
-function publicStudentSummary(student, school, amount, month, paid) {
+function publicStudentSummary(student, school, amount, month, balance) {
+  const feeAmount = Number(balance?.fee_amount ?? amount) || 0;
+  const paidAmount = Number(balance?.paid_amount) || 0;
+  const outstanding = Number(balance?.outstanding ?? feeAmount) || 0;
+  const fullyPaid = Boolean(balance?.fully_paid);
   return {
     school_id: student.school_id,
     school_name: school?.name || 'School',
@@ -43,14 +53,26 @@ function publicStudentSummary(student, school, amount, month, paid) {
     class_name: student.class || null,
     roll_number: student.roll_number || null,
     barcode: student.barcode,
-    amount,
+    amount: outstanding > 0 ? outstanding : feeAmount,
+    fee_amount: feeAmount,
+    paid_amount: paidAmount,
+    outstanding,
     currency: getPaystackConfig().currency,
     payment_month: month,
-    paid: Boolean(paid),
-    paid_at: paid?.created_at || null,
+    paid: fullyPaid,
+    paid_at: balance?.payments?.[0]?.created_at || null,
     paystack_configured: getPaystackConfig().configured,
     channels: ['mobile_money', 'bank'],
   };
+}
+
+async function loadFeeBalance(student, amount, month) {
+  const payments = await listStudentFeePayments({
+    schoolId: student.school_id,
+    studentId: student.id,
+    month,
+  });
+  return buildFeeBalance({ feeAmount: amount, payments });
 }
 
 async function loadStudentFeeContext(barcode) {
@@ -64,12 +86,8 @@ async function loadStudentFeeContext(barcode) {
   ]);
   const month = currentFeeMonth();
   const amount = resolveStudentFeeAmount(student, classFee);
-  const paid = amount > 0 ? await findSuccessfulFeePayment({
-    schoolId: student.school_id,
-    studentId: student.id,
-    month,
-  }) : null;
-  return { student, school, amount, month, paid };
+  const balance = await loadFeeBalance(student, amount, month);
+  return { student, school, amount, month, balance };
 }
 
 async function findStudentInSchool(schoolId, studentId) {
@@ -111,12 +129,8 @@ async function loadStudentFeeBySchool(schoolId, studentId) {
   ]);
   const month = currentFeeMonth();
   const amount = resolveStudentFeeAmount(student, classFee);
-  const paid = await findSuccessfulFeePayment({
-    schoolId: student.school_id,
-    studentId: student.id,
-    month,
-  });
-  return { student, school, amount, month, paid };
+  const balance = await loadFeeBalance(student, amount, month);
+  return { student, school, amount, month, balance };
 }
 
 function feePayloadFromRecord(row, reference) {
@@ -233,6 +247,14 @@ async function resolveFeePayment(reference) {
 
 function normalizePayMethod(method) {
   const value = String(method || '').toLowerCase();
+  if (value === 'momo' || value === 'mobile_money') return 'momo';
+  if (value === 'bank' || value === 'bank_transfer') return 'bank';
+  return '';
+}
+
+function normalizeManualMethod(method) {
+  const value = String(method || '').toLowerCase();
+  if (value === 'cash') return 'cash';
   if (value === 'momo' || value === 'mobile_money') return 'momo';
   if (value === 'bank' || value === 'bank_transfer') return 'bank';
   return '';
@@ -434,7 +456,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       }
       const ctx = await loadStudentFeeBySchool(schoolId, studentId);
       if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
-      res.json(publicStudentSummary(ctx.student, ctx.school, ctx.amount, ctx.month, ctx.paid));
+      res.json(publicStudentSummary(ctx.student, ctx.school, ctx.amount, ctx.month, ctx.balance));
     } catch (err) {
       console.error('Public fee lookup error:', err);
       res.status(500).json({ error: 'Failed to find this student' });
@@ -562,8 +584,8 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     try {
       const ctx = await loadStudentFeeContext(req.params.barcode);
       if (!ctx) return res.status(404).json({ error: 'Student not found' });
-      const { student, school, amount, month, paid } = ctx;
-      res.json(publicStudentSummary(student, school, amount, month, paid));
+      const { student, school, amount, month, balance } = ctx;
+      res.json(publicStudentSummary(student, school, amount, month, balance));
     } catch (err) {
       console.error('Public fee lookup error:', err);
       res.status(500).json({ error: 'Failed to load fee details' });
@@ -622,31 +644,37 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       const classFeeByName = new Map(
         (classes || []).map((row) => [row.name, Number(row.fee_amount) || 0])
       );
-      const paidByStudent = new Map();
+      const paymentsByStudent = new Map();
       for (const payment of payments || []) {
-        if (payment.payer_id && !paidByStudent.has(payment.payer_id)) {
-          paidByStudent.set(payment.payer_id, payment);
-        }
+        if (!payment.payer_id || !isSuccessfulFeeStatus(payment.status)) continue;
+        const list = paymentsByStudent.get(payment.payer_id) || [];
+        list.push(payment);
+        paymentsByStudent.set(payment.payer_id, list);
       }
 
       const rows = (students || []).map((student) => {
         const amount = resolveStudentFeeAmount(student, classFeeByName.get(student.class) || 0);
-        const payment = paidByStudent.get(student.id) || null;
+        const studentPayments = paymentsByStudent.get(student.id) || [];
+        const balance = buildFeeBalance({ feeAmount: amount, payments: studentPayments });
         return {
           ...student,
-          fee_amount: amount,
+          fee_amount: balance.fee_amount,
+          paid_amount: balance.paid_amount,
+          outstanding: balance.outstanding,
           payment_month: month,
-          paid: Boolean(payment),
-          payment,
+          paid: balance.paid_amount > 0,
+          fully_paid: balance.fully_paid,
+          payment: studentPayments[0] || null,
+          payments: studentPayments,
           pay_path: student.barcode ? `/pay/${encodeURIComponent(student.barcode)}` : null,
         };
       });
 
-      const billed = rows.filter((row) => row.fee_amount > 0);
-      const paid = billed.filter((row) => row.paid);
-      const unpaid = billed.filter((row) => !row.paid);
-      const paidAmount = paid.reduce((sum, row) => sum + Number(row.payment?.amount || row.fee_amount || 0), 0);
-      const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.fee_amount || 0), 0);
+      const billed = rows.filter((row) => row.fee_amount > 0 || row.paid_amount > 0);
+      const paid = billed.filter((row) => row.paid_amount > 0);
+      const unpaid = billed.filter((row) => row.outstanding >= 0.01);
+      const paidAmount = paid.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+      const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.outstanding || 0), 0);
 
       res.json({
         month,
@@ -654,17 +682,78 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
           billed: billed.length,
           paid: paid.length,
           unpaid: unpaid.length,
-          paid_amount: paidAmount,
-          unpaid_amount: unpaidAmount,
+          paid_amount: roundMoney(paidAmount),
+          unpaid_amount: roundMoney(unpaidAmount),
         },
         paid,
         unpaid,
+        students: rows,
         payments: payments || [],
         pay_error: payError?.message || null,
       });
     } catch (err) {
       console.error('Fee overview error:', err);
       res.status(500).json({ error: err.message || 'Failed to load fees' });
+    }
+  });
+
+  app.post('/api/fees/manual', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const schoolId = req.user.schoolId;
+      const studentId = String(req.body?.studentId || '').trim();
+      const amount = roundMoney(req.body?.amount);
+      const method = normalizeManualMethod(req.body?.method);
+      const month = String(req.body?.month || currentFeeMonth()).trim() || currentFeeMonth();
+      const note = String(req.body?.reference || req.body?.note || '').trim();
+      if (!studentId) return res.status(400).json({ error: 'Select a student.' });
+      if (!method) return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
+      if (!(amount >= 0.01)) return res.status(400).json({ error: 'Enter an amount of at least GHS 0.01.' });
+
+      const { data: student, error } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', studentId)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      if (error || !student) return res.status(404).json({ error: 'Student not found' });
+
+      const payment = await recordFeePayment({
+        school_id: schoolId,
+        payer_type: 'student',
+        payer_id: student.id,
+        payer_name: student.name,
+        payer_class: student.class || null,
+        amount,
+        payment_method: method,
+        payment_month: month,
+        payment_reference: note || `manual_${student.id.slice(0, 8)}_${Date.now()}`,
+        status: 'success',
+        channel: method,
+        currency: 'GHS',
+      });
+
+      const balance = await refreshStudentFeeStatus({
+        schoolId,
+        studentId: student.id,
+        month,
+      });
+
+      res.json({
+        payment,
+        student: {
+          id: student.id,
+          name: student.name,
+          class: student.class || null,
+        },
+        month,
+        fee_amount: balance?.fee_amount || 0,
+        paid_amount: balance?.paid_amount || amount,
+        outstanding: balance?.outstanding || 0,
+        fully_paid: Boolean(balance?.fully_paid),
+      });
+    } catch (err) {
+      console.error('Manual fee record error:', err);
+      res.status(500).json({ error: err.message || 'Failed to record this payment' });
     }
   });
 
@@ -686,18 +775,14 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (!(amount > 0)) {
         return res.status(400).json({ error: 'Set a class fee in Setup before collecting payment.' });
       }
-      const paid = await findSuccessfulFeePayment({
-        schoolId: student.school_id,
-        studentId: student.id,
-        month,
-      });
-      if (paid) {
+      const balance = await loadFeeBalance(student, amount, month);
+      if (balance.fully_paid) {
         return res.status(409).json({ error: 'This student has already paid for this month.', code: 'ALREADY_PAID' });
       }
       const checkout = await startFeePayment({
         student,
         school,
-        amount,
+        amount: balance.outstanding || amount,
         month,
         email: student.parent_email || req.user.email,
         method: req.body?.method || 'bank',

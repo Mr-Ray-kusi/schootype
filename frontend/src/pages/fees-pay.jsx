@@ -18,6 +18,9 @@ const STEPS = [
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const isFullyPaid = (info) =>
+  Boolean(info?.paid) || (Number(info?.fee_amount) > 0 && Number(info?.outstanding) < 0.01);
+
 const fieldClass =
   'w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-500/70 focus:ring-2 focus:ring-sky-500/20';
 
@@ -71,7 +74,7 @@ const FeesPay = () => {
         setInfo(data);
         setSchoolId(data.school_id || '');
         setStudentId(data.barcode || barcode);
-        if (data.amount > 0) setAmount(String(data.amount));
+        setAmount(data.outstanding > 0 ? String(data.outstanding) : data.amount > 0 ? String(data.amount) : '');
         setStep(2);
       } catch (err) {
         if (!cancelled) {
@@ -148,7 +151,7 @@ const FeesPay = () => {
         studentId: studentId.trim(),
       });
       setInfo(data);
-      if (data.amount > 0) setAmount(String(data.amount));
+      setAmount(data.outstanding > 0 ? String(data.outstanding) : data.amount > 0 ? String(data.amount) : '');
       setStep(2);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not find this student.');
@@ -161,6 +164,10 @@ const FeesPay = () => {
     event?.preventDefault();
     if (!info) {
       setError('Find the student first.');
+      return;
+    }
+    if (isFullyPaid(info)) {
+      setError('This month’s fee is already fully paid.');
       return;
     }
     setError('');
@@ -263,7 +270,10 @@ const FeesPay = () => {
 
   const submitLabel = (() => {
     if (step === 1) return lookingUp ? 'Finding student…' : 'Find student';
-    if (step === 2) return 'Continue to payment';
+    if (step === 2) {
+      if (isFullyPaid(info)) return 'Fee already paid';
+      return Number(info?.paid_amount) > 0 ? 'Pay the amount left' : 'Continue to payment';
+    }
     if (momoPrompt?.needs_code) return paying ? 'Submitting code…' : 'Submit code';
     if (paying) return 'Waiting for confirmation…';
     return 'Pay';
@@ -352,13 +362,26 @@ const FeesPay = () => {
                   {info.class_name ? ` · ${info.class_name}` : ''}
                   {info.roll_number ? ` · ${info.roll_number}` : ''}
                 </p>
-                {info.amount > 0 ? (
-                  <p className="mt-3 text-sm text-slate-300">Fee: {formatGhs(info.amount)}</p>
-                ) : null}
-                {info.paid ? (
-                  <p className="mt-3 text-sm text-emerald-300">
-                    A payment is already recorded this month. You can still pay an extra amount.
-                  </p>
+                <dl className="mt-4 space-y-2 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Fee this month</dt>
+                    <dd className="font-medium text-white">{formatGhs(info.fee_amount ?? info.amount)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Already paid</dt>
+                    <dd className="font-medium text-emerald-300">{formatGhs(info.paid_amount || 0)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Amount left</dt>
+                    <dd className={`font-semibold ${isFullyPaid(info) ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {formatGhs(info.outstanding ?? info.amount)}
+                    </dd>
+                  </div>
+                </dl>
+                {isFullyPaid(info) ? (
+                  <p className="mt-3 text-sm text-emerald-300">This month’s fee is fully paid.</p>
+                ) : Number(info.paid_amount) > 0 ? (
+                  <p className="mt-3 text-sm text-amber-200">A part payment is already recorded. Pay the amount left to complete this month.</p>
                 ) : null}
               </div>
             ) : (
@@ -374,10 +397,20 @@ const FeesPay = () => {
                   {info.school_name}
                   {info.class_name ? ` · ${info.class_name}` : ''}
                 </p>
+                <dl className="mt-3 space-y-1.5 border-t border-slate-800 pt-3">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Already paid</dt>
+                    <dd className="text-emerald-300">{formatGhs(info.paid_amount || 0)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400">Amount left</dt>
+                    <dd className="font-semibold text-white">{formatGhs(info.outstanding ?? info.amount)}</dd>
+                  </div>
+                </dl>
               </div>
 
               <label className="block text-sm font-medium text-slate-300">
-                Amount (GHS)
+                Amount left to pay (GHS)
                 <input
                   className={`${fieldClass} mt-2`}
                   type="number"
@@ -497,7 +530,7 @@ const FeesPay = () => {
                 paying ||
                 lookingUp ||
                 loadingSchools ||
-                (step === 2 && !info) ||
+                (step === 2 && (!info || isFullyPaid(info))) ||
                 (step === 3 && !(Number(amount) > 0))
               }
               className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-500 px-5 py-3 font-semibold text-white hover:bg-sky-400 disabled:opacity-50"

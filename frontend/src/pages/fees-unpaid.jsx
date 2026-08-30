@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Copy, RefreshCw } from 'lucide-react';
+import { Copy, Plus, RefreshCw } from 'lucide-react';
+import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -14,6 +15,7 @@ const FeesUnpaid = () => {
     'Dear Parent, please settle outstanding school fees this month using the payment link. You can pay with MoMo, bank transfer, or USSD.'
   );
   const [sending, setSending] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -89,6 +91,14 @@ const FeesUnpaid = () => {
           </button>
           <button
             type="button"
+            onClick={() => setShowManual(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+          >
+            <Plus className="h-4 w-4" />
+            Record payment
+          </button>
+          <button
+            type="button"
             onClick={() => setShowReminderModal(true)}
             className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
@@ -118,13 +128,15 @@ const FeesUnpaid = () => {
           <p className="mt-1 text-sm text-slate-500">Set class fees in Setup if this list should show owing students.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-3xl border border-slate-700">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-3xl border border-slate-700">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
                 <th className="px-4 py-3">Student</th>
                 <th className="px-4 py-3">Class</th>
-                <th className="px-4 py-3">Amount due</th>
+                <th className="px-4 py-3">Fee</th>
+                <th className="px-4 py-3">Paid</th>
+                <th className="px-4 py-3">Outstanding</th>
                 <th className="px-4 py-3">Pay link</th>
               </tr>
             </thead>
@@ -134,6 +146,8 @@ const FeesUnpaid = () => {
                   <td className="px-4 py-3">{row.name}</td>
                   <td className="px-4 py-3">{row.class || '—'}</td>
                   <td className="px-4 py-3">{formatGhs(row.fee_amount)}</td>
+                  <td className="px-4 py-3">{formatGhs(row.paid_amount || 0)}</td>
+                  <td className="px-4 py-3 font-medium text-amber-300">{formatGhs(row.outstanding || row.fee_amount)}</td>
                   <td className="px-4 py-3">
                     {row.pay_path ? (
                       <button
@@ -194,6 +208,18 @@ const FeesUnpaid = () => {
           </div>
         </div>
       )}
+
+      {showManual ? (
+        <RecordFeePaymentModal
+          students={data?.students || unpaid}
+          month={data?.month}
+          onClose={() => setShowManual(false)}
+          onSaved={() => {
+            setLoading(true);
+            load();
+          }}
+        />
+      ) : null}
     </div>
   );
 };
