@@ -5,7 +5,6 @@ import {
   Home as HomeIcon,
   Users,
   Hexagon,
-  CreditCard,
   Shield,
   ArrowUpRight,
   Menu,
@@ -24,14 +23,13 @@ import {
   Database,
   Fingerprint,
 } from 'lucide-react';
-import { PLAN_LIST, SYSTEM_CAPABILITY_GROUPS, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
+import { SYSTEM_CAPABILITY_GROUPS } from '../constants/plans';
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', to: '#home', Icon: HomeIcon },
   { id: 'about', label: 'About', to: '#about', Icon: Users },
   { id: 'features', label: 'Features', to: '#features', Icon: Hexagon },
   { id: 'fees', label: 'Fees', to: '/fees', Icon: Wallet },
-  { id: 'plans', label: 'Plans', to: '#plans', Icon: CreditCard },
   { id: 'security', label: 'Security', to: '#security', Icon: Shield },
 ];
 
@@ -165,7 +163,7 @@ const Home = () => {
         <nav className="landing-nav-rail mx-auto hidden min-w-0 flex-1 items-stretch justify-center rounded-full px-1.5 py-1 lg:flex">
           {NAV_ITEMS.map((item, index) => {
             const isActive = activeId === item.id;
-            const showDivider = index === 2 || index === 4;
+            const showDivider = index === 2;
             const content = (
               <>
                 <item.Icon
@@ -347,21 +345,17 @@ const Home = () => {
             </p>
 
             <div className="animate-hero-rise-late mt-6 grid grid-cols-3 gap-1.5 sm:mt-10 sm:flex sm:flex-wrap sm:items-center sm:gap-4">
-              <a
-                href="#plans"
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleNavClick(NAV_ITEMS.find((i) => i.id === 'plans'));
-                }}
+              <Link
+                to="/plans"
                 className="inline-flex items-center justify-center rounded-full bg-sky-500 px-2 py-2.5 text-center text-[11px] font-semibold leading-tight text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400 sm:px-7 sm:py-3.5 sm:text-sm"
               >
                 Get started
-              </a>
+              </Link>
               <Link
                 to="/fees"
                 className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-2 py-2.5 text-center text-[11px] font-semibold leading-tight text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10 sm:px-7 sm:py-3.5 sm:text-sm"
               >
-                Pay school fees
+                Pay fees
               </Link>
               <Link
                 to="/login"
@@ -526,96 +520,8 @@ const Home = () => {
             to="/fees"
             className="mt-10 inline-flex items-center justify-center rounded-full bg-sky-500 px-7 py-3.5 text-sm font-semibold text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400"
           >
-            Pay school fees
+            Pay fees
           </Link>
-        </div>
-      </section>
-
-      {/* Plans */}
-      <section
-        id="plans"
-        className="scroll-mt-28 border-t border-white/5 bg-gradient-to-b from-slate-950 to-slate-900 px-6 py-20 md:px-10 lg:px-14"
-      >
-        <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Plans</p>
-          <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-            Choose the package that matches your school
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Annual plans by school size. Pick the tier that matches your enrollment — billed once per year.
-          </p>
-
-          <div className="mt-10 overflow-x-auto rounded-2xl border border-white/10">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-900/80 text-slate-300">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">School Size</th>
-                  <th className="px-4 py-3 font-semibold">Students</th>
-                  <th className="px-4 py-3 font-semibold">Annual Cost (USD)</th>
-                  <th className="px-4 py-3 font-semibold">Annual Cost (GHS)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 text-slate-200">
-                {PLAN_LIST.map((plan) => (
-                  <tr key={`row-${plan.id}`} className="bg-slate-950/40">
-                    <td className="px-4 py-3 font-medium text-white">{plan.name}</td>
-                    <td className="px-4 py-3">{plan.sizeLabel}</td>
-                    <td className="px-4 py-3">{formatPlanPriceUsd(plan)}</td>
-                    <td className="px-4 py-3">{formatPlanPriceGhs(plan)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-12 grid gap-8 lg:grid-cols-3">
-            {PLAN_LIST.map((plan) => (
-              <div
-                key={plan.id}
-                className={`flex flex-col border-t-2 pt-6 ${
-                  plan.highlighted ? 'border-sky-400' : 'border-white/15'
-                }`}
-              >
-                {plan.highlighted && (
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
-                    Most popular
-                  </p>
-                )}
-                <h3 className="font-display text-2xl font-bold text-white">{plan.name}</h3>
-                <p className="mt-1 text-sm font-medium text-sky-300">{plan.sizeLabel}</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">{plan.description}</p>
-                <div className="mt-5 space-y-1">
-                  <p className="font-display text-2xl font-bold text-white">{formatPlanPriceGhs(plan)}</p>
-                  <p className="text-sm text-slate-400">{formatPlanPriceUsd(plan)} USD · per year</p>
-                </div>
-                <ul className="mt-6 flex-1 space-y-2.5">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-slate-300">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" strokeWidth={2.5} />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  to={`/signup?plan=${plan.id}`}
-                  className={`mt-8 inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition ${
-                    plan.highlighted
-                      ? 'bg-sky-500 text-white hover:bg-sky-400'
-                      : 'border border-white/20 text-white hover:border-white/40 hover:bg-white/5'
-                  }`}
-                >
-                  Start with {plan.name}
-                </Link>
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-8 text-center text-sm text-slate-500">
-            Prefer the full comparison page?{' '}
-            <Link to="/plans" className="font-medium text-sky-400 hover:text-sky-300">
-              View plans
-            </Link>
-          </p>
         </div>
       </section>
 

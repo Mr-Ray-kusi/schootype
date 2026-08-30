@@ -145,7 +145,7 @@ const StudentPublicId = () => {
               className="inline-flex items-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400"
             >
               <CreditCard className="h-4 w-4" />
-              Pay school fees
+              Pay fees
             </Link>
           ) : null}
         </div>
