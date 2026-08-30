@@ -204,12 +204,11 @@ async function startFeePayment({
     let displayText = charge?.display_text || '';
     if (!displayText) {
       if (needsCode && isTelecel) {
-        displayText =
-          'Dial the Telecel USSD in the prompt to get a voucher, then enter that voucher here. That is not your MoMo PIN.';
+        displayText = 'Dial the Telecel USSD to get a voucher, then enter that voucher here.';
       } else if (needsCode) {
-        displayText = 'Enter the code from the prompt. For MTN, that should be a phone prompt for your MoMo PIN, not an SMS from Paystack.';
+        displayText = 'Enter the verification code sent for this payment.';
       } else {
-        displayText = `Check ${phoneLocal} for the MoMo prompt and enter your MoMo PIN there. Do not wait for a Paystack SMS PIN.`;
+        displayText = `A confirmation prompt was sent to ${phoneLocal}. Approve it on your phone.`;
       }
     }
     return {
@@ -259,7 +258,7 @@ async function startFeePayment({
     reference,
     public_key: publicKey || null,
     amount: payAmount,
-    currency,
+    currency: 'GHS',
     month,
     payout_ready: payout.hasPayout,
   };
@@ -362,20 +361,41 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (!reference || !code) {
         return res.status(400).json({ error: 'Enter the code from the prompt to continue.' });
       }
-      const submitted =
+      let submitted =
         codeType === 'pin'
           ? await submitChargePin({ reference, pin: code })
           : await submitChargeOtp({ reference, otp: code });
-      const status = String(submitted?.status || '').toLowerCase();
+      let status = String(submitted?.status || '').toLowerCase();
+
+      if (status !== 'success' && status !== 'failed' && status !== 'abandoned') {
+        try {
+          const verified = await verifyTransaction(reference);
+          if (verified) {
+            submitted = {
+              ...submitted,
+              ...verified,
+              metadata: verified.metadata || submitted?.metadata,
+              reference: verified.reference || submitted?.reference || reference,
+            };
+            status = String(verified.status || status).toLowerCase();
+          }
+        } catch {
+          // Charge may still be pending; the client will poll verify.
+        }
+      }
+
       if (status === 'success') {
         await settleSchoolFeeFromPaystack(submitted);
       }
+
+      const nextUrl = submitted?.url || submitted?.redirecturl || null;
       res.json({
         mode: 'momo',
         reference: submitted?.reference || reference,
         status: status || 'pending',
         needs_code: status === 'send_otp' || status === 'send_pin',
         display_text: submitted?.display_text || null,
+        authorization_url: status === 'open_url' ? nextUrl : null,
       });
     } catch (err) {
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);

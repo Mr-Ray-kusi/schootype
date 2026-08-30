@@ -36,10 +36,11 @@ async function paystackRequest(path, { method = 'GET', body } = {}) {
 
   const payload = await response.json().catch(() => ({}));
 
-  // MoMo charge success responses use message "Charge attempted" with data.status
-  // like pay_offline / pending / send_otp — that is NOT a failure.
+  // Charge + OTP/PIN follow-ups use "Charge attempted" with data.status
+  // like pay_offline / pending / send_otp / success — that is NOT a failure.
+  const isChargePath = path === '/charge' || path.startsWith('/charge/');
   const chargeStarted =
-    path === '/charge' &&
+    isChargePath &&
     payload?.data &&
     (payload.status === true ||
       String(payload.message || '').toLowerCase() === 'charge attempted');

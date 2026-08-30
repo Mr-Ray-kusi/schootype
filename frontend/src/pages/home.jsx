@@ -472,16 +472,14 @@ const Home = () => {
             Parents pay school fees online
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Choose the school, enter the student ID, and pay with MoMo or bank. After you confirm the
-            PIN, the amount is credited to that school — Fees Paid, the school wallet, and the account
-            saved in Bank Settings.
+            Choose the school, enter the student ID, verify the student, then pay with MoMo or bank.
           </p>
 
           <div className="mt-10 grid gap-6 sm:grid-cols-3">
             {[
-              { step: '1', title: 'Select the school', body: 'Pick the school name, then enter the student ID from the ID card.' },
-              { step: '2', title: 'Pay with MoMo or bank', body: 'Enter the amount, choose MoMo or bank, then confirm the PIN on your phone or bank.' },
-              { step: '3', title: 'School receives the money', body: 'The payment is recorded for that student and settled to the school’s own account.' },
+              { step: '1', title: 'Select school and student ID', body: 'Pick the school, then enter the student ID from the ID card to search.' },
+              { step: '2', title: 'Verify student details', body: 'Confirm the name, class, and fee belong to the right student before you pay.' },
+              { step: '3', title: 'Pay and confirm', body: 'Choose MoMo or bank, enter the amount, and confirm the payment.' },
             ].map((item) => (
               <div key={item.step} className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">Step {item.step}</p>
