@@ -204,3 +204,90 @@
 .auth-checkbox {
   accent-color: #ff5722;
 }
+
+@keyframes chart-sheen {
+  0% {
+    background-position: 0% 40%;
+  }
+  50% {
+    background-position: 100% 60%;
+  }
+  100% {
+    background-position: 0% 40%;
+  }
+}
+
+@keyframes chart-orb-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(14%, -12%, 0) scale(1.14);
+  }
+  66% {
+    transform: translate3d(-10%, 10%, 0) scale(0.92);
+  }
+}
+
+@keyframes chart-orb-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-16%, 12%, 0) scale(1.2);
+  }
+}
+
+@keyframes chart-orb-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(10%, -8%, 0) scale(1.18);
+    opacity: 0.75;
+  }
+}
+
+.chart-animated-bg {
+  background: linear-gradient(
+    120deg,
+    rgba(168, 85, 247, 0.16),
+    rgba(20, 20, 22, 0.35),
+    rgba(236, 72, 153, 0.14),
+    rgba(99, 102, 241, 0.12)
+  );
+  background-size: 220% 220%;
+  animation: chart-sheen 14s ease-in-out infinite;
+}
+
+.chart-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(48px);
+  pointer-events: none;
+}
+
+.chart-orb-a {
+  animation: chart-orb-a 16s ease-in-out infinite;
+}
+
+.chart-orb-b {
+  animation: chart-orb-b 18s ease-in-out infinite;
+}
+
+.chart-orb-c {
+  animation: chart-orb-c 12s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-animated-bg,
+  .chart-orb-a,
+  .chart-orb-b,
+  .chart-orb-c {
+    animation: none;
+  }
+}

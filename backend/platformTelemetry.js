@@ -151,6 +151,7 @@ function buildPerformanceSeries({ events, newUsers, range, now }) {
   const pages = new Map();
   const slow = new Map();
   const keyEvents = new Map();
+  const failures = new Map();
   const active = new Map();
   const newcomers = new Map();
 
@@ -167,6 +168,7 @@ function buildPerformanceSeries({ events, newUsers, range, now }) {
     if (type === 'login') bump(logins, key);
     if (type === 'page_view') bump(pages, key);
     if (type === 'page_slow') bump(slow, key);
+    if (type === 'login_failed' || type === 'payment_failed') bump(failures, key);
     if (SERIES_KEY_TYPES.has(type)) bump(keyEvents, key);
     if (SERIES_ACTIVE_TYPES.has(type)) {
       if (!active.has(key)) active.set(key, new Set());
@@ -199,6 +201,7 @@ function buildPerformanceSeries({ events, newUsers, range, now }) {
       pages: toPoints(pages),
       slow: toPoints(slow),
       events: toPoints(keyEvents),
+      errors: toPoints(failures),
       newUsers: toPoints(newcomers),
     },
   };
@@ -621,6 +624,7 @@ export async function getPlatformAnalytics(options = {}) {
       pageViewsThisWeek: inRange('page_view', weekStart).length,
       pageViewsInRange: pageViews.length,
       keyEventsInRange: keyEventsAll.length,
+      errorsInRange: inRange('login_failed', rangeStart).length + inRange('payment_failed', rangeStart).length,
       heartbeatsToday: inRange('heartbeat', dayStart).length,
     },
     loginsBySchool: loginAdoption(events, dayStart, weekStart),
@@ -631,7 +635,7 @@ export async function getPlatformAnalytics(options = {}) {
       failedLoginsThisWeek: failedLoginsWeek.length,
       failedPaymentsToday: failedPaymentsToday.length,
       failedPaymentsThisWeek: failedPaymentsWeek.length,
-      recent: [...failedLoginsWeek, ...failedPaymentsWeek]
+      recent: [...inRange('login_failed', rangeStart), ...inRange('payment_failed', rangeStart)]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 20)
         .map((event) => ({

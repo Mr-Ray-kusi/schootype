@@ -118,10 +118,14 @@ const PerformanceChart = ({
   };
 
   return (
-    <div ref={wrapRef} className={`relative h-[280px] w-full md:h-[340px] ${className}`}>
+    <div ref={wrapRef} className={`relative h-[280px] w-full overflow-hidden rounded-2xl md:h-[340px] ${className}`}>
+      <div className="chart-animated-bg pointer-events-none absolute inset-0" />
+      <div className="chart-orb chart-orb-a -left-10 -top-8 h-52 w-52 bg-violet-500/30" />
+      <div className="chart-orb chart-orb-b -bottom-10 -right-8 h-60 w-60 bg-fuchsia-500/25" />
+      <div className="chart-orb chart-orb-c left-1/3 top-1/2 h-36 w-72 -translate-x-1/2 -translate-y-1/2 bg-indigo-500/20" />
       <svg
         viewBox={`0 0 ${size.w} ${size.h}`}
-        className="h-full w-full overflow-visible"
+        className="relative z-10 h-full w-full overflow-visible"
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         onTouchStart={(event) => {

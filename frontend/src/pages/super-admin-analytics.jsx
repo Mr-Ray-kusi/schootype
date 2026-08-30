@@ -3,7 +3,6 @@ import axios from 'axios';
 import {
   Activity,
   AlertTriangle,
-  Clock,
   DollarSign,
   Gauge,
   LogIn,
@@ -173,9 +172,19 @@ const SuperAdminAnalytics = () => {
         unit: 'logins',
         formatValue: (value) => `${Number(value || 0).toLocaleString()} logins`,
       },
+      {
+        id: 'errors',
+        title: 'Failed logins & payments',
+        value: counts.errorsInRange ?? (errors.recent || []).length,
+        subtitle: `${errors.failedLoginsToday || 0} failed logins today · ${errors.failedPaymentsToday || 0} failed payments today`,
+        icon: AlertTriangle,
+        unit: 'errors',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} errors`,
+      },
     ],
     [
       activeUsers.length,
+      counts.errorsInRange,
       counts.keyEventsInRange,
       counts.loginsInRange,
       counts.loginsThisWeek,
@@ -185,6 +194,9 @@ const SuperAdminAnalytics = () => {
       counts.pageViewsToday,
       data?.activeWindowMinutes,
       data?.slowPageMs,
+      errors.failedLoginsToday,
+      errors.failedPaymentsToday,
+      errors.recent,
       keyEvents.length,
       newUsers.length,
       rangeLabel,
@@ -218,7 +230,7 @@ const SuperAdminAnalytics = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
           title="Total students"
           value={stats.totalStudents || 0}
@@ -239,13 +251,6 @@ const SuperAdminAnalytics = () => {
           subtitle="Messages delivered today"
           icon={MessageSquare}
           color="bg-amber-500"
-        />
-        <StatCard
-          title="Errors this week"
-          value={(errors.failedLoginsThisWeek || 0) + (errors.failedPaymentsThisWeek || 0)}
-          subtitle={`${errors.failedLoginsToday || 0} failed logins today · ${errors.failedPaymentsToday || 0} failed payments today`}
-          icon={AlertTriangle}
-          color="bg-rose-500"
         />
       </div>
 
@@ -273,7 +278,9 @@ const SuperAdminAnalytics = () => {
         })}
       </div>
 
-      <section className="overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-[0_0_80px_rgba(168,85,247,0.08)] md:p-8">
+      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-[0_0_80px_rgba(168,85,247,0.08)] md:p-8">
+        <div className="chart-animated-bg pointer-events-none absolute inset-0 opacity-60" />
+        <div className="relative z-10">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-xl font-semibold tracking-tight text-white md:text-2xl">{selected.title}</h2>
@@ -451,32 +458,25 @@ const SuperAdminAnalytics = () => {
                 ))}
               </ul>
             ))}
-        </div>
-      </section>
 
-      <section className="overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 md:p-8">
-        <div className="mb-4">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
-            <Clock className="h-5 w-5 text-rose-300" />
-            Errors
-          </h2>
-          <p className="text-xs text-zinc-500">Failed logins and failed payments</p>
-        </div>
-        {(errors.recent || []).length === 0 ? (
-          <EmptyRow text="No failed logins or payments this week." />
-        ) : (
-          <ul className="divide-y divide-white/5">
-            {errors.recent.map((event) => (
-              <li key={event.id} className="flex items-center justify-between gap-3 py-3">
-                <div>
-                  <p className="font-medium text-white">{event.label}</p>
-                  <p className="text-sm text-zinc-300">{event.schoolName || event.email || 'Unknown'}</p>
-                </div>
-                <span className="text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
-              </li>
+          {selectedPanel === 'errors' &&
+            ((errors.recent || []).length === 0 ? (
+              <EmptyRow text="No failed logins or payments in this range." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {errors.recent.map((event) => (
+                  <li key={event.id} className="flex items-center justify-between gap-3 py-3">
+                    <div>
+                      <p className="font-medium text-white">{event.label}</p>
+                      <p className="text-sm text-zinc-300">{event.schoolName || event.email || 'Unknown'}</p>
+                    </div>
+                    <span className="text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
             ))}
-          </ul>
-        )}
+        </div>
+        </div>
       </section>
     </div>
   );
