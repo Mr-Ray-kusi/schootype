@@ -101,19 +101,28 @@ const FeesPay = () => {
           window.location.href = `/pay/receipt?reference=${encodeURIComponent(momoPrompt.reference)}`;
           return;
         }
-        if (data.status === 'failed' || data.status === 'abandoned') {
-          setError('Payment was not completed. Try again.');
+        if (data.status === 'failed' || data.status === 'timeout') {
+          setError(data.display_text || 'Payment failed. Try again.');
           setMomoPrompt(null);
+          setPaying(false);
+          return;
+        }
+        if (data.needs_code) {
+          setMomoPrompt((prev) => ({
+            ...prev,
+            needs_code: true,
+            display_text: data.display_text || prev?.display_text,
+          }));
           setPaying(false);
           return;
         }
       } catch {
         // Keep waiting while Paystack finalizes the charge.
       }
-      if (!cancelled && attempts < 40) {
+      if (!cancelled && attempts < 80) {
         window.setTimeout(poll, 3000);
       } else if (!cancelled) {
-        setError('Still waiting for confirmation. Approve the prompt on your phone, then try again.');
+        setError('Still waiting for confirmation. Approve the prompt on your phone, then refresh this page.');
         setPaying(false);
       }
     };
@@ -225,7 +234,7 @@ const FeesPay = () => {
         window.location.href = `/pay/receipt?reference=${encodeURIComponent(data.reference || momoPrompt.reference)}`;
         return;
       }
-      if (data.status === 'failed' || data.status === 'abandoned') {
+      if (data.status === 'failed' || data.status === 'timeout') {
         setError(data.display_text || 'That code was not accepted. Try the payment again.');
         setMomoPrompt(null);
         setOtpCode('');
@@ -236,7 +245,10 @@ const FeesPay = () => {
         ...prev,
         reference: data.reference || prev?.reference,
         needs_code: Boolean(data.needs_code),
-        display_text: data.display_text || prev?.display_text,
+        display_text:
+          data.display_text ||
+          prev?.display_text ||
+          'Code accepted. Approve the confirmation on your phone if it appears.',
       }));
       if (!data.needs_code) setOtpCode('');
       setPaying(!data.needs_code);

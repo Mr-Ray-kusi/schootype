@@ -191,8 +191,21 @@ async function payoutFeeToSchoolAccount(data, metadata, amountMinor) {
   }
 }
 
+export function parsePaystackMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
 export async function settleSchoolFeeFromPaystack(data = {}) {
-  const metadata = data.metadata && typeof data.metadata === 'object' ? data.metadata : {};
+  const metadata = parsePaystackMetadata(data.metadata);
   if (metadata.kind !== 'school_fee') return null;
 
   const reference = data.reference;

@@ -33,7 +33,7 @@ import {
   failWithdrawal,
   makeWalletReference,
 } from './schoolWalletStore.js';
-import { settleSchoolFeeFromPaystack } from './feePayments.js';
+import { parsePaystackMetadata, settleSchoolFeeFromPaystack } from './feePayments.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
 import { findPlatformSchoolId } from './smsBilling.js';
 import { getDemoMoneyClearBaselineMinor } from './platformSmsStore.js';
@@ -570,7 +570,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
 
       if (event === 'charge.success' || event === 'transaction.success') {
         const ref = data.reference;
-        const metadata = data.metadata && typeof data.metadata === 'object' ? data.metadata : {};
+        const metadata = parsePaystackMetadata(data.metadata);
         if (metadata.kind === 'school_fee') {
           await settleSchoolFeeFromPaystack(data);
         } else if (ref) {

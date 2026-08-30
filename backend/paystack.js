@@ -260,6 +260,33 @@ export async function verifyTransaction(reference) {
   return paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`);
 }
 
+/** Charge API status for MoMo/OTP flows. Do not use transaction/verify for this. */
+export async function fetchCharge(reference) {
+  return paystackRequest(`/charge/${encodeURIComponent(reference)}`);
+}
+
+export function isPaystackPendingStatus(status) {
+  const value = String(status || '').toLowerCase();
+  return [
+    'pending',
+    'ongoing',
+    'processing',
+    'queued',
+    'pay_offline',
+    'send_otp',
+    'send_pin',
+    'send_birthday',
+    'send_phone',
+    'open_url',
+    'abandoned',
+  ].includes(value);
+}
+
+export function isPaystackFailedStatus(status) {
+  const value = String(status || '').toLowerCase();
+  return value === 'failed' || value === 'timeout' || value === 'reversed';
+}
+
 export async function initiateTransfer({
   amountMinor,
   currency,

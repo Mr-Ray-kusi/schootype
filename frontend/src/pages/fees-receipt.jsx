@@ -19,14 +19,27 @@ const FeesReceipt = () => {
       return undefined;
     }
     let cancelled = false;
+    let attempts = 0;
     const load = async () => {
       try {
         const { data } = await axios.get(`/api/public/fees/verify/${encodeURIComponent(reference)}`);
-        if (!cancelled) setResult(data);
+        if (cancelled) return;
+        setResult(data);
+        if (data.status === 'success' || data.status === 'failed' || data.status === 'timeout') {
+          setLoading(false);
+          return;
+        }
+        attempts += 1;
+        if (attempts < 20) {
+          window.setTimeout(load, 3000);
+          return;
+        }
+        setLoading(false);
       } catch (err) {
-        if (!cancelled) setError(err.response?.data?.error || 'Could not confirm this payment.');
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setError(err.response?.data?.error || 'Could not confirm this payment.');
+          setLoading(false);
+        }
       }
     };
     load();
@@ -47,7 +60,13 @@ const FeesReceipt = () => {
           <p className="mt-6 text-rose-300">{error}</p>
         ) : (
           <>
-            <h1 className="mt-4 text-3xl font-bold">{success ? 'Payment received' : 'Payment not complete'}</h1>
+            <h1 className="mt-4 text-3xl font-bold">
+              {success
+                ? 'Payment received'
+                : result.status === 'failed' || result.status === 'timeout'
+                  ? 'Payment not complete'
+                  : 'Waiting for confirmation'}
+            </h1>
             <p className="mt-2 text-sm text-slate-400">
               {result.student_name || 'Student'} · {result.payment_month || ''}
             </p>

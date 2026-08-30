@@ -2,6 +2,9 @@ import {
   getPaystackConfig,
   initializeTransaction,
   verifyTransaction,
+  fetchCharge,
+  isPaystackFailedStatus,
+  isPaystackPendingStatus,
   chargeMobileMoney,
   submitChargeOtp,
   submitChargePin,
@@ -114,6 +117,118 @@ async function loadStudentFeeBySchool(schoolId, studentId) {
     month,
   });
   return { student, school, amount, month, paid };
+}
+
+function feePayloadFromRecord(row, reference) {
+  return {
+    reference: row.payment_reference || reference,
+    amount: toMinorUnits(row.amount),
+    currency: row.currency || 'GHS',
+    channel: row.channel || null,
+    metadata: {
+      kind: 'school_fee',
+      school_id: row.school_id,
+      student_id: row.payer_id,
+      payer_name: row.payer_name,
+      payment_month: row.payment_month,
+    },
+  };
+}
+
+async function resolveFeePayment(reference) {
+  const alreadyPaid = await findSuccessfulFeePayment({ reference });
+  if (alreadyPaid) {
+    return {
+      status: 'success',
+      payload: feePayloadFromRecord(alreadyPaid, reference),
+      needs_code: false,
+      display_text: null,
+    };
+  }
+
+  let charge = null;
+  try {
+    charge = await fetchCharge(reference);
+  } catch {
+    charge = null;
+  }
+
+  const chargeStatus = String(charge?.status || '').toLowerCase();
+  if (chargeStatus === 'success') {
+    let payload = charge;
+    try {
+      const verified = await verifyTransaction(reference);
+      if (verified) {
+        payload = {
+          ...charge,
+          ...verified,
+          metadata: verified.metadata || charge.metadata,
+          reference: verified.reference || charge.reference || reference,
+        };
+      }
+    } catch {
+      // Charge success is enough to settle.
+    }
+    await settleSchoolFeeFromPaystack(payload);
+    return {
+      status: 'success',
+      payload,
+      needs_code: false,
+      display_text: payload?.display_text || null,
+    };
+  }
+
+  if (charge && isPaystackFailedStatus(chargeStatus)) {
+    return {
+      status: 'failed',
+      payload: charge,
+      needs_code: false,
+      display_text: charge.display_text || charge.gateway_response || null,
+    };
+  }
+
+  if (chargeStatus === 'send_otp' || chargeStatus === 'send_pin') {
+    return {
+      status: chargeStatus,
+      payload: charge,
+      needs_code: true,
+      display_text: charge.display_text || 'Enter the verification code sent for this payment.',
+    };
+  }
+
+  if (charge && isPaystackPendingStatus(chargeStatus)) {
+    return {
+      status: 'pending',
+      payload: charge,
+      needs_code: false,
+      display_text: charge.display_text || 'Waiting for confirmation.',
+    };
+  }
+
+  try {
+    const verified = await verifyTransaction(reference);
+    const txStatus = String(verified?.status || '').toLowerCase();
+    if (txStatus === 'success') {
+      await settleSchoolFeeFromPaystack(verified);
+      return { status: 'success', payload: verified, needs_code: false, display_text: null };
+    }
+    if (isPaystackFailedStatus(txStatus)) {
+      return {
+        status: 'failed',
+        payload: verified,
+        needs_code: false,
+        display_text: verified?.gateway_response || null,
+      };
+    }
+    return {
+      status: 'pending',
+      payload: verified,
+      needs_code: false,
+      display_text: null,
+    };
+  } catch {
+    return { status: 'pending', payload: charge, needs_code: false, display_text: null };
+  }
 }
 
 function normalizePayMethod(method) {
@@ -268,19 +383,19 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.get('/api/public/fees/verify/:reference', async (req, res) => {
     try {
       const reference = req.params.reference;
-      const verified = await verifyTransaction(reference);
-      if (verified?.status === 'success') {
-        await settleSchoolFeeFromPaystack(verified);
-      }
-      const meta = verified?.metadata || {};
+      const resolved = await resolveFeePayment(reference);
+      const payload = resolved.payload || {};
+      const meta = payload.metadata || {};
       res.json({
-        status: verified?.status || 'unknown',
-        reference,
-        amount: fromMinorUnits(verified?.amount),
-        currency: verified?.currency || 'GHS',
-        channel: verified?.channel || null,
+        status: resolved.status,
+        reference: payload.reference || reference,
+        amount: fromMinorUnits(payload.amount),
+        currency: payload.currency || 'GHS',
+        channel: payload.channel || null,
         student_name: meta.payer_name || null,
         payment_month: meta.payment_month || null,
+        needs_code: resolved.needs_code,
+        display_text: resolved.display_text,
       });
     } catch (err) {
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
@@ -361,41 +476,80 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (!reference || !code) {
         return res.status(400).json({ error: 'Enter the code from the prompt to continue.' });
       }
-      let submitted =
+      const submitted =
         codeType === 'pin'
           ? await submitChargePin({ reference, pin: code })
           : await submitChargeOtp({ reference, otp: code });
-      let status = String(submitted?.status || '').toLowerCase();
-
-      if (status !== 'success' && status !== 'failed' && status !== 'abandoned') {
-        try {
-          const verified = await verifyTransaction(reference);
-          if (verified) {
-            submitted = {
-              ...submitted,
-              ...verified,
-              metadata: verified.metadata || submitted?.metadata,
-              reference: verified.reference || submitted?.reference || reference,
-            };
-            status = String(verified.status || status).toLowerCase();
-          }
-        } catch {
-          // Charge may still be pending; the client will poll verify.
-        }
-      }
-
-      if (status === 'success') {
-        await settleSchoolFeeFromPaystack(submitted);
-      }
-
+      const submittedStatus = String(submitted?.status || '').toLowerCase();
       const nextUrl = submitted?.url || submitted?.redirecturl || null;
+      const submittedRef = submitted?.reference || reference;
+
+      if (submittedStatus === 'success') {
+        await settleSchoolFeeFromPaystack(submitted);
+        return res.json({
+          mode: 'momo',
+          reference: submittedRef,
+          status: 'success',
+          needs_code: false,
+          display_text: submitted?.display_text || null,
+          authorization_url: null,
+        });
+      }
+
+      if (submittedStatus === 'open_url' && nextUrl) {
+        return res.json({
+          mode: 'momo',
+          reference: submittedRef,
+          status: 'open_url',
+          needs_code: false,
+          display_text: submitted?.display_text || null,
+          authorization_url: nextUrl,
+        });
+      }
+
+      if (isPaystackFailedStatus(submittedStatus)) {
+        return res.json({
+          mode: 'momo',
+          reference: submittedRef,
+          status: 'failed',
+          needs_code: false,
+          display_text: submitted?.display_text || submitted?.gateway_response || 'That code was not accepted.',
+          authorization_url: null,
+        });
+      }
+
+      if (
+        submittedStatus &&
+        isPaystackPendingStatus(submittedStatus) &&
+        submittedStatus !== 'send_otp' &&
+        submittedStatus !== 'send_pin'
+      ) {
+        return res.json({
+          mode: 'momo',
+          reference: submittedRef,
+          status: 'pending',
+          needs_code: false,
+          display_text:
+            submitted?.display_text ||
+            'Code accepted. Approve the confirmation on your phone if it appears.',
+          authorization_url: null,
+        });
+      }
+
+      const resolved = await resolveFeePayment(submittedRef);
+      const waitingOnPhone = resolved.status === 'pending' && !resolved.needs_code;
       res.json({
         mode: 'momo',
-        reference: submitted?.reference || reference,
-        status: status || 'pending',
-        needs_code: status === 'send_otp' || status === 'send_pin',
-        display_text: submitted?.display_text || null,
-        authorization_url: status === 'open_url' ? nextUrl : null,
+        reference: submittedRef,
+        status: resolved.status,
+        needs_code: resolved.needs_code,
+        display_text:
+          resolved.display_text ||
+          submitted?.display_text ||
+          (waitingOnPhone
+            ? 'Code accepted. Approve the confirmation on your phone if it appears.'
+            : null),
+        authorization_url: null,
       });
     } catch (err) {
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
