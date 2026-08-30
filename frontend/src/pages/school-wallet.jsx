@@ -408,6 +408,18 @@ const SchoolWallet = () => {
 
                 <div className="mt-8 grid grid-cols-2 gap-4 border-t border-white/10 pt-5">
                   <div>
+                    <p className="text-xs uppercase tracking-wide text-sky-200/80">Paid online</p>
+                    <p className="mt-2 text-lg font-semibold text-sky-100">
+                      {loading ? '—' : formatGhs(wallet?.paid_online_major)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-amber-200/80">Cashed</p>
+                    <p className="mt-2 text-lg font-semibold text-amber-100">
+                      {loading ? '—' : formatGhs(wallet?.cashed_major)}
+                    </p>
+                  </div>
+                  <div>
                     <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-slate-400">
                       <Clock3 className="h-3.5 w-3.5" />
                       Pending

@@ -48,6 +48,24 @@ function formatMoney(wallet) {
   };
 }
 
+function feeSourceTotals(transactions) {
+  let onlineMinor = 0;
+  let cashedMinor = 0;
+  for (const tx of transactions || []) {
+    if (String(tx.status || '') !== 'success') continue;
+    const type = String(tx.type || '');
+    if (type !== 'credit' && type !== 'deposit') continue;
+    const label = formatTransaction(tx)?.source_label;
+    const amount = Number(tx.amount) || 0;
+    if (label === 'Cashed') cashedMinor += amount;
+    else if (label === 'Paid online') onlineMinor += amount;
+  }
+  return {
+    paid_online_major: fromMinorUnits(onlineMinor),
+    cashed_major: fromMinorUnits(cashedMinor),
+  };
+}
+
 function formatTransaction(tx) {
   if (!tx) return null;
   const metadata = parsePaystackMetadata(tx.metadata);
@@ -150,13 +168,16 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       const [wallet, accounts, transactions] = await Promise.all([
         getWallet(schoolId),
         listWalletAccounts(schoolId),
-        listWalletTransactions(schoolId, { limit: 20 }),
+        listWalletTransactions(schoolId, { limit: 5000 }),
       ]);
 
       res.json({
-        wallet: formatMoney(wallet),
+        wallet: {
+          ...formatMoney(wallet),
+          ...feeSourceTotals(transactions),
+        },
         accounts,
-        transactions: transactions.map(formatTransaction),
+        transactions: transactions.slice(0, 20).map(formatTransaction),
         paystack: {
           configured: getPaystackConfig().configured,
           public_key: getPaystackConfig().publicKey || null,
