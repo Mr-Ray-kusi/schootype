@@ -140,10 +140,10 @@ const Home = () => {
 
   const navBar = (
     <>
-      <div className="landing-nav mx-auto flex max-w-6xl items-center gap-1.5 rounded-full px-2.5 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.12)] sm:gap-3 sm:px-4 sm:py-2.5">
+      <div className="landing-nav mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full px-3 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.12)] sm:gap-3 sm:px-4 sm:py-2.5">
         <a
           href="#home"
-          className="flex min-w-0 flex-1 items-center gap-1.5 pl-0.5 sm:flex-none sm:gap-2.5 sm:pl-1"
+          className="flex shrink-0 items-center gap-2 pl-0.5 sm:gap-2.5"
           onClick={(e) => {
             e.preventDefault();
             handleNavClick(NAV_ITEMS[0]);
@@ -152,11 +152,11 @@ const Home = () => {
           <span className="landing-nav-logo flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-extrabold text-white sm:h-10 sm:w-10 sm:text-sm">
             S
           </span>
-          <span className="min-w-0 leading-tight">
-            <span className="block truncate font-display text-[13px] font-extrabold tracking-tight text-slate-900 sm:text-lg">
+          <span className="leading-tight">
+            <span className="block whitespace-nowrap font-display text-[15px] font-extrabold tracking-tight text-slate-900 sm:text-lg">
               SCHOOLTYPE
             </span>
-            <span className="hidden truncate text-[10px] font-medium tracking-wide text-slate-500 sm:block">
+            <span className="hidden text-[10px] font-medium tracking-wide text-slate-500 sm:block">
               Connect. Track. Manage.
             </span>
           </span>
@@ -213,12 +213,9 @@ const Home = () => {
                     ? '/select-plan'
                     : '/dashboard'
               }
-              className="landing-nav-cta group inline-flex items-center gap-1.5 rounded-full py-1.5 pl-3 pr-1.5 text-xs font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110 sm:gap-2 sm:py-2 sm:pl-4 sm:pr-2 sm:text-sm"
+              className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white/80 lg:inline-flex"
             >
-              <span className="whitespace-nowrap">Open dashboard</span>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:h-7 sm:w-7">
-                <ArrowUpRight className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={2.5} />
-              </span>
+              Dashboard
             </Link>
           ) : (
             <>
@@ -230,11 +227,11 @@ const Home = () => {
               </Link>
               <Link
                 to="/plans"
-                className="landing-nav-cta group inline-flex items-center gap-1.5 rounded-full py-1.5 pl-3 pr-1.5 text-xs font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110 sm:gap-2 sm:py-2 sm:pl-4 sm:pr-2 sm:text-sm"
+                className="landing-nav-cta group hidden items-center gap-2 rounded-full py-2 pl-4 pr-2 text-sm font-semibold text-white shadow-md shadow-violet-500/25 transition hover:brightness-110 sm:inline-flex"
               >
                 <span className="whitespace-nowrap">Get started</span>
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:h-7 sm:w-7">
-                  <ArrowUpRight className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={2.5} />
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-violet-600 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+                  <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.5} />
                 </span>
               </Link>
             </>
@@ -290,7 +287,7 @@ const Home = () => {
               onClick={() => setMenuOpen(false)}
               className="mt-2 flex items-center justify-center rounded-full border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              Open dashboard
+              Dashboard
             </Link>
           ) : (
             <Link
@@ -316,8 +313,8 @@ const Home = () => {
       <section id="home" className="relative -mt-[4.75rem] min-h-screen scroll-mt-0 overflow-hidden pt-[4.75rem]">
         <div className="absolute inset-0">
           <img
-            src="/hero-students.jpg"
-            alt=""
+            src="/landing-hero.jpg"
+            alt="Students at a school courtyard"
             className="h-full w-full object-cover animate-ken-burns"
           />
           <div
@@ -336,39 +333,39 @@ const Home = () => {
           />
         </div>
 
-        <div className="relative z-10 flex min-h-[calc(100vh-4.75rem)] flex-col justify-center px-6 pb-16 pt-8 md:px-10 lg:px-14 lg:pb-24">
+        <div className="relative z-10 flex min-h-[calc(100vh-4.75rem)] flex-col justify-center px-4 pb-12 pt-6 sm:px-6 md:px-10 lg:px-14 lg:pb-24">
           <div className="max-w-2xl">
-            <p className="animate-hero-fade font-display text-4xl font-extrabold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
+            <p className="animate-hero-fade font-display text-[1.65rem] font-extrabold tracking-tight text-white sm:text-4xl md:text-6xl lg:text-7xl">
               SCHOOLTYPE
             </p>
-            <h1 className="animate-hero-rise mt-5 font-display text-2xl font-bold leading-snug tracking-tight text-white/95 sm:text-3xl md:text-4xl">
+            <h1 className="animate-hero-rise mt-3 font-display text-lg font-bold leading-snug tracking-tight text-white/95 sm:mt-5 sm:text-2xl md:text-4xl">
               The central connection point for all your school academic activities
             </h1>
-            <p className="animate-hero-rise-late mt-5 max-w-lg text-base leading-relaxed text-slate-200/90 sm:text-lg">
+            <p className="animate-hero-rise-late mt-3 max-w-lg text-sm leading-relaxed text-slate-200/90 sm:mt-5 sm:text-base md:text-lg">
               Track students and staff, mark attendance with QR codes, send SMS or email, manage fees
               and wallets — everything your school needs, connected in one place.
             </p>
 
-            <div className="animate-hero-rise-late mt-10 flex flex-wrap items-center gap-4">
+            <div className="animate-hero-rise-late mt-6 grid grid-cols-3 gap-1.5 sm:mt-10 sm:flex sm:flex-wrap sm:items-center sm:gap-4">
               <a
                 href="#plans"
                 onClick={(e) => {
                   e.preventDefault();
                   handleNavClick(NAV_ITEMS.find((i) => i.id === 'plans'));
                 }}
-                className="inline-flex items-center justify-center rounded-full bg-sky-500 px-7 py-3.5 text-sm font-semibold text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400 hover:shadow-sky-400/40"
+                className="inline-flex items-center justify-center rounded-full bg-sky-500 px-2 py-2.5 text-center text-[11px] font-semibold leading-tight text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400 sm:px-7 sm:py-3.5 sm:text-sm"
               >
                 Get started
               </a>
               <Link
                 to="/fees"
-                className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10"
+                className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-2 py-2.5 text-center text-[11px] font-semibold leading-tight text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10 sm:px-7 sm:py-3.5 sm:text-sm"
               >
                 Pay school fees
               </Link>
               <Link
                 to="/login"
-                className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10"
+                className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-2 py-2.5 text-center text-[11px] font-semibold leading-tight text-white backdrop-blur-sm transition hover:border-white/40 hover:bg-white/10 sm:px-7 sm:py-3.5 sm:text-sm"
               >
                 Sign in
               </Link>
@@ -380,40 +377,52 @@ const Home = () => {
       {/* About */}
       <section
         id="about"
-        className="scroll-mt-28 border-t border-white/5 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 py-20 md:px-10 lg:px-14"
+        className="scroll-mt-28 border-t border-white/5 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20"
       >
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">About Schooltype</p>
-          <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-            Built to connect every part of school life
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Schooltype helps schools move from scattered registers and chats to one trusted system —
-            connecting people, attendance, academics, messaging, and payments under a single brand
-            your staff and parents can rely on.
-          </p>
+          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
+            <div className="overflow-hidden rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+              <img
+                src="/landing-about.jpg"
+                alt="A teacher helping students in class"
+                className="h-56 w-full object-cover sm:h-72 lg:h-[28rem]"
+                loading="lazy"
+              />
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">About Schooltype</p>
+              <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+                Built to connect every part of school life
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
+                Schooltype helps schools move from scattered registers and chats to one trusted system —
+                connecting people, attendance, academics, messaging, and payments under a single brand
+                your staff and parents can rely on.
+              </p>
+            </div>
+          </div>
 
-          <div className="mt-12 grid gap-10 md:grid-cols-3">
+          <div className="mt-10 grid gap-6 sm:grid-cols-3">
             {ABOUT_POINTS.map(({ Icon, title, body }) => (
-              <div key={title}>
+              <div key={title} className="rounded-3xl border border-white/10 bg-slate-900/50 p-5">
                 <Icon className="h-7 w-7 text-sky-400" strokeWidth={1.75} />
-                <h3 className="mt-4 font-display text-xl font-bold text-white">{title}</h3>
+                <h3 className="mt-4 font-display text-lg font-bold text-white sm:text-xl">{title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{body}</p>
               </div>
             ))}
           </div>
 
-          <div className="mt-14 grid gap-8 border-t border-white/10 pt-10 sm:grid-cols-3">
+          <div className="mt-10 grid gap-6 border-t border-white/10 pt-8 sm:grid-cols-3">
             <div>
-              <p className="font-display text-3xl font-bold text-white">Multi-tenant</p>
+              <p className="font-display text-2xl font-bold text-white sm:text-3xl">Multi-tenant</p>
               <p className="mt-1 text-sm text-slate-400">Isolated school workspaces on one platform</p>
             </div>
             <div>
-              <p className="font-display text-3xl font-bold text-white">End-to-end</p>
+              <p className="font-display text-2xl font-bold text-white sm:text-3xl">End-to-end</p>
               <p className="mt-1 text-sm text-slate-400">People, attendance, academics & finance</p>
             </div>
             <div>
-              <p className="font-display text-3xl font-bold text-white">Plan-ready</p>
+              <p className="font-display text-2xl font-bold text-white sm:text-3xl">Plan-ready</p>
               <p className="mt-1 text-sm text-slate-400">Starter to Enterprise feature packages</p>
             </div>
           </div>
@@ -421,16 +430,28 @@ const Home = () => {
       </section>
 
       {/* Features */}
-      <section id="features" className="scroll-mt-28 bg-slate-900/80 px-6 py-20 md:px-10 lg:px-14">
+      <section id="features" className="scroll-mt-28 bg-slate-900/80 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20">
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Features</p>
-          <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-            Everything your school needs in one system
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            From student IDs and QR check-in to report cards, bulk messaging, and school wallets —
-            Schooltype covers the daily tools administrators actually use.
-          </p>
+          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
+            <div className="order-2 overflow-hidden rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.35)] lg:order-1">
+              <img
+                src="/landing-features.jpg"
+                alt="A school administrator checking student attendance"
+                className="h-56 w-full object-cover sm:h-72 lg:h-[26rem]"
+                loading="lazy"
+              />
+            </div>
+            <div className="order-1 lg:order-2">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Features</p>
+              <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+                Everything your school needs in one system
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
+                From student IDs and QR check-in to report cards, bulk messaging, and school wallets —
+                Schooltype covers the daily tools administrators actually use.
+              </p>
+            </div>
+          </div>
 
           <div className="mt-12 grid gap-12 sm:grid-cols-2">
             {SYSTEM_CAPABILITY_GROUPS.map((group, index) => {
@@ -464,16 +485,28 @@ const Home = () => {
       {/* Fees payment */}
       <section
         id="fees"
-        className="scroll-mt-28 border-t border-white/5 bg-slate-950 px-6 py-20 md:px-10 lg:px-14"
+        className="scroll-mt-28 border-t border-white/5 bg-slate-950 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20"
       >
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Fees payment</p>
-          <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-            Parents pay school fees online
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
-            Choose the school, enter the student ID, verify the student, then pay with MoMo or bank.
-          </p>
+          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Fees payment</p>
+              <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+                Parents pay school fees online
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
+                Choose the school, enter the student ID, verify the student, then pay with MoMo or bank.
+              </p>
+            </div>
+            <div className="overflow-hidden rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+              <img
+                src="/landing-fees.jpg"
+                alt="A parent paying school fees on a phone"
+                className="h-56 w-full object-cover sm:h-72 lg:h-80"
+                loading="lazy"
+              />
+            </div>
+          </div>
 
           <div className="mt-10 grid gap-6 sm:grid-cols-3">
             {[
@@ -587,13 +620,24 @@ const Home = () => {
       </section>
 
       {/* Security */}
-      <section id="security" className="scroll-mt-28 bg-slate-900 px-6 py-20 md:px-10 lg:px-14">
+      <section id="security" className="scroll-mt-28 bg-slate-900 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20">
         <div className="mx-auto max-w-6xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Security</p>
-          <h2 className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-            Built to keep school data authentic and protected
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 md:text-lg">
+          <div className="relative mb-10 overflow-hidden rounded-3xl border border-white/10">
+            <img
+              src="/landing-security.jpg"
+              alt="A school administrator reviewing records in a quiet office"
+              className="h-48 w-full object-cover sm:h-64 md:h-80"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 p-5 sm:p-8">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Security</p>
+              <h2 className="mt-2 max-w-2xl font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+                Built to keep school data authentic and protected
+              </h2>
+            </div>
+          </div>
+          <p className="max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
             Schooltype treats school records as sensitive operational data. Access is authenticated,
             schools are isolated from each other, and critical actions stay behind verified
             sessions and plan-approved roles.
