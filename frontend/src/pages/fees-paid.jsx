@@ -51,7 +51,7 @@ const FeesPaid = () => {
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Paid</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Payments for {data?.month || 'this month'} via MoMo, bank, cash, or USSD. Select a student to open the receipt.
+            Payments for {data?.term_name || data?.period_label || data?.month || 'this term'}. Select a student to open the receipt.
           </p>
         </div>
         <div className="flex gap-2">

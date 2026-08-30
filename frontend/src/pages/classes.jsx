@@ -1,14 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, BookOpen, GraduationCap, Save } from 'lucide-react';
+import { BookOpen, Calendar, GraduationCap, Plus, Save, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 
+const TERM_NAMES = ['First Term', 'Second Term', 'Third Term', 'Fourth Term'];
+
 const fieldClass =
-  'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
+  'w-full rounded-lg border border-slate-600/80 bg-slate-950/60 px-3 py-1.5 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500/60 focus:ring-1 focus:ring-sky-500/30';
 
 const emptyClassRow = () => ({ name: '', capacity: '', feeAmount: '' });
 const emptySubjectRow = () => ({ name: '' });
+const emptyTermRow = (index) => ({
+  id: '',
+  name: TERM_NAMES[index] || `Term ${index + 1}`,
+  starts_on: '',
+  ends_on: '',
+});
 
 const Setup = () => {
   const [classes, setClasses] = useState([]);
@@ -22,6 +30,10 @@ const Setup = () => {
   const [savingSubjects, setSavingSubjects] = useState(false);
   const [classFeeDrafts, setClassFeeDrafts] = useState({});
   const [savingFees, setSavingFees] = useState(false);
+  const [termCount, setTermCount] = useState(2);
+  const [termRows, setTermRows] = useState([emptyTermRow(0), emptyTermRow(1)]);
+  const [currentTerm, setCurrentTerm] = useState(null);
+  const [savingTerms, setSavingTerms] = useState(false);
 
   const load = async () => {
     const apply = ([classData, subjectData]) => {
@@ -40,11 +52,25 @@ const Setup = () => {
       setLoading(false);
     }
     try {
-      const [classData, subjectData] = await Promise.all([
+      const [classData, subjectData, termData] = await Promise.all([
         staleGet('classes', async () => (await axios.get('/api/classes')).data || [], 45000),
         staleGet('subjects', async () => (await axios.get('/api/subjects')).data || [], 45000),
+        axios.get('/api/academic-terms').then(({ data }) => data).catch(() => ({ terms: [], current: null })),
       ]);
       apply([classData, subjectData]);
+      const saved = termData?.terms || [];
+      if (saved.length) {
+        setTermCount(saved.length);
+        setTermRows(
+          saved.map((term, index) => ({
+            id: term.id,
+            name: term.name || TERM_NAMES[index] || `Term ${index + 1}`,
+            starts_on: term.starts_on || '',
+            ends_on: term.ends_on || '',
+          }))
+        );
+      }
+      setCurrentTerm(termData?.current || null);
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to load setup');
     } finally {
@@ -71,6 +97,49 @@ const Setup = () => {
       return next;
     });
   }, [subjectCount]);
+
+  useEffect(() => {
+    setTermRows((rows) => {
+      const next = rows.slice(0, termCount);
+      while (next.length < termCount) next.push(emptyTermRow(next.length));
+      return next;
+    });
+  }, [termCount]);
+
+  const saveTerms = async () => {
+    const toSave = termRows.filter((row) => row.name.trim());
+    if (!toSave.length) {
+      toast.error('Add at least one term name.');
+      return;
+    }
+    setSavingTerms(true);
+    try {
+      const { data } = await axios.put('/api/academic-terms', {
+        terms: toSave.map((row) => ({
+          id: row.id || undefined,
+          name: row.name.trim(),
+          starts_on: row.starts_on || null,
+          ends_on: row.ends_on || null,
+        })),
+      });
+      const saved = data.terms || [];
+      setTermCount(saved.length || toSave.length);
+      setTermRows(
+        (saved.length ? saved : toSave).map((term, index) => ({
+          id: term.id || '',
+          name: term.name || TERM_NAMES[index],
+          starts_on: term.starts_on || '',
+          ends_on: term.ends_on || '',
+        }))
+      );
+      setCurrentTerm(data.current || null);
+      toast.success('Academic terms saved');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to save terms');
+    } finally {
+      setSavingTerms(false);
+    }
+  };
 
   const saveClasses = async (e) => {
     e.preventDefault();
@@ -173,28 +242,113 @@ const Setup = () => {
   };
 
   if (loading && classes.length === 0 && subjects.length === 0) {
-    return <div className="py-12 text-center text-slate-300">Loading setup…</div>;
+    return <div className="py-8 text-center text-sm text-slate-300">Loading setup…</div>;
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">Academic</p>
-        <h1 className="mt-2 text-3xl font-bold text-white">Setup</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Add the classes and subjects your school uses, and set the fee each class should pay.
+        <h1 className="text-2xl font-bold text-white">Setup</h1>
+        <p className="mt-0.5 text-sm text-slate-400">
+          Terms, classes, fees, and subjects. Keep this tight so the school year is easy to run.
         </p>
       </div>
 
-      <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
-        <div className="mb-6 flex items-center gap-2">
-          <GraduationCap className="h-5 w-5 text-sky-400" />
-          <h2 className="text-lg font-semibold text-white">Classes</h2>
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-amber-300" />
+            <h2 className="text-sm font-semibold text-white">Academic terms</h2>
+          </div>
+          {currentTerm?.name ? (
+            <p className="text-xs text-slate-400">
+              Current: <span className="text-amber-200">{currentTerm.name}</span>
+            </p>
+          ) : null}
+        </div>
+        <div className="mb-3 max-w-[11rem]">
+          <label className="mb-1 block text-xs font-medium text-slate-300">Number of terms</label>
+          <input
+            type="number"
+            min="1"
+            max="4"
+            value={termCount}
+            onChange={(e) => setTermCount(Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
+            className={fieldClass}
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="pb-2 pr-2 font-medium">Term</th>
+                <th className="pb-2 pr-2 font-medium">Starts</th>
+                <th className="pb-2 font-medium">Ends</th>
+              </tr>
+            </thead>
+            <tbody>
+              {termRows.map((row, index) => (
+                <tr key={row.id || index}>
+                  <td className="py-1 pr-2">
+                    <input
+                      className={fieldClass}
+                      value={row.name}
+                      onChange={(e) => {
+                        const next = [...termRows];
+                        next[index] = { ...next[index], name: e.target.value };
+                        setTermRows(next);
+                      }}
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input
+                      type="date"
+                      className={fieldClass}
+                      value={row.starts_on}
+                      onChange={(e) => {
+                        const next = [...termRows];
+                        next[index] = { ...next[index], starts_on: e.target.value };
+                        setTermRows(next);
+                      }}
+                    />
+                  </td>
+                  <td className="py-1">
+                    <input
+                      type="date"
+                      className={fieldClass}
+                      value={row.ends_on}
+                      onChange={(e) => {
+                        const next = [...termRows];
+                        next[index] = { ...next[index], ends_on: e.target.value };
+                        setTermRows(next);
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <button
+          type="button"
+          onClick={saveTerms}
+          disabled={savingTerms}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+        >
+          <Save className="h-3.5 w-3.5" />
+          {savingTerms ? 'Saving…' : 'Save terms'}
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <GraduationCap className="h-4 w-4 text-sky-400" />
+          <h2 className="text-sm font-semibold text-white">Classes and fees</h2>
         </div>
 
-        <form onSubmit={saveClasses} className="space-y-4">
-          <div className="max-w-xs">
-            <label className="mb-1.5 block text-sm font-medium text-slate-200">Number of classes</label>
+        <form onSubmit={saveClasses} className="space-y-2">
+          <div className="max-w-[11rem]">
+            <label className="mb-1 block text-xs font-medium text-slate-300">Number to add</label>
             <input
               type="number"
               min="1"
@@ -204,129 +358,119 @@ const Setup = () => {
               className={fieldClass}
             />
           </div>
-
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {classRows.map((row, index) => (
-              <div key={index} className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-200">Class Name</label>
-                  <input
-                    type="text"
-                    value={row.name}
-                    onChange={(e) => {
-                      const next = [...classRows];
-                      next[index] = { ...next[index], name: e.target.value };
-                      setClassRows(next);
-                    }}
-                    className={fieldClass}
-                    placeholder="e.g. JHS 1A"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-200">Class Capacity</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={row.capacity}
-                    onChange={(e) => {
-                      const next = [...classRows];
-                      next[index] = { ...next[index], capacity: e.target.value };
-                      setClassRows(next);
-                    }}
-                    className={fieldClass}
-                    placeholder="e.g. 45"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-200">Term fee (GHS)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={row.feeAmount}
-                    onChange={(e) => {
-                      const next = [...classRows];
-                      next[index] = { ...next[index], feeAmount: e.target.value };
-                      setClassRows(next);
-                    }}
-                    className={fieldClass}
-                    placeholder="e.g. 350"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <button
-            type="submit"
-            disabled={savingClasses}
-            className="inline-flex items-center gap-2 rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            {savingClasses ? 'Saving…' : 'Add class'}
-          </button>
-        </form>
-
-        <div className="mt-8 border-t border-slate-700/80 pt-6">
-          <h3 className="text-sm font-semibold text-white">Fees by class</h3>
-          <p className="mt-1 text-sm text-slate-400">
-            Set how much each class pays. Parents will see this amount on Fees payment.
-          </p>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {classes.map((item) => (
-            <div key={item.id} className="rounded-2xl border border-slate-700 bg-slate-800/70 p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold text-white">{item.name}</p>
-                  <p className="mt-1 text-xs text-slate-400">Capacity: {item.capacity || 'Not set'}</p>
-                </div>
-                <button type="button" onClick={() => deleteClass(item.id)} className="p-1 text-red-400 hover:text-red-300">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-              <label className="mt-3 block text-xs font-medium text-slate-300">
-                Fee to pay (GHS)
+              <div key={index} className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={row.name}
+                  onChange={(e) => {
+                    const next = [...classRows];
+                    next[index] = { ...next[index], name: e.target.value };
+                    setClassRows(next);
+                  }}
+                  className={fieldClass}
+                  placeholder="Class name"
+                />
+                <input
+                  type="number"
+                  min="1"
+                  value={row.capacity}
+                  onChange={(e) => {
+                    const next = [...classRows];
+                    next[index] = { ...next[index], capacity: e.target.value };
+                    setClassRows(next);
+                  }}
+                  className={fieldClass}
+                  placeholder="Capacity"
+                />
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  value={classFeeDrafts[item.id] ?? ''}
-                  onChange={(e) =>
-                    setClassFeeDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
-                  }
-                  className={`${fieldClass} mt-1.5 py-2`}
-                  placeholder="0.00"
+                  value={row.feeAmount}
+                  onChange={(e) => {
+                    const next = [...classRows];
+                    next[index] = { ...next[index], feeAmount: e.target.value };
+                    setClassRows(next);
+                  }}
+                  className={fieldClass}
+                  placeholder="Term fee"
                 />
-              </label>
-            </div>
-          ))}
-        </div>
-        {classes.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">No classes yet. Add class names above, then set each class fee.</p>
-        ) : (
+              </div>
+            ))}
+          </div>
           <button
-            type="button"
-            onClick={saveClassFees}
-            disabled={savingFees}
-            className="mt-4 inline-flex items-center gap-2 rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+            type="submit"
+            disabled={savingClasses}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
           >
-            <Save className="h-4 w-4" />
-            {savingFees ? 'Saving fees…' : 'Save class fees'}
+            <Plus className="h-3.5 w-3.5" />
+            {savingClasses ? 'Saving…' : 'Add classes'}
           </button>
+        </form>
+
+        {classes.length ? (
+          <div className="mt-3 overflow-x-auto border-t border-slate-800 pt-3">
+            <table className="w-full min-w-[480px] text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="pb-2 pr-2 font-medium">Class</th>
+                  <th className="pb-2 pr-2 font-medium">Capacity</th>
+                  <th className="pb-2 pr-2 font-medium">Term fee (GHS)</th>
+                  <th className="pb-2 font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {classes.map((item) => (
+                  <tr key={item.id} className="border-t border-slate-800/80">
+                    <td className="py-1.5 pr-2 font-medium text-white">{item.name}</td>
+                    <td className="py-1.5 pr-2 text-slate-400">{item.capacity || '—'}</td>
+                    <td className="py-1.5 pr-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={classFeeDrafts[item.id] ?? ''}
+                        onChange={(e) =>
+                          setClassFeeDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                        }
+                        className={`${fieldClass} max-w-[8rem]`}
+                        placeholder="0.00"
+                      />
+                    </td>
+                    <td className="py-1.5 text-right">
+                      <button type="button" onClick={() => deleteClass(item.id)} className="p-1 text-red-400 hover:text-red-300">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button
+              type="button"
+              onClick={saveClassFees}
+              disabled={savingFees}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {savingFees ? 'Saving…' : 'Save fees'}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500">No classes yet.</p>
         )}
       </section>
 
-      <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
-        <div className="mb-6 flex items-center gap-2">
-          <BookOpen className="h-5 w-5 text-emerald-400" />
-          <h2 className="text-lg font-semibold text-white">Subjects</h2>
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-emerald-400" />
+          <h2 className="text-sm font-semibold text-white">Subjects</h2>
         </div>
-
-        <form onSubmit={saveSubjects} className="space-y-4">
-          <div className="max-w-xs">
-            <label className="mb-1.5 block text-sm font-medium text-slate-200">Number of subjects</label>
+        <form onSubmit={saveSubjects} className="space-y-2">
+          <div className="max-w-[11rem]">
+            <label className="mb-1 block text-xs font-medium text-slate-300">Number to add</label>
             <input
               type="number"
               min="1"
@@ -336,50 +480,45 @@ const Setup = () => {
               className={fieldClass}
             />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {subjectRows.map((row, index) => (
-              <div key={index}>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Subject name</label>
-                <input
-                  type="text"
-                  value={row.name}
-                  onChange={(e) => {
-                    const next = [...subjectRows];
-                    next[index] = { name: e.target.value };
-                    setSubjectRows(next);
-                  }}
-                  className={fieldClass}
-                  placeholder="e.g. Mathematics"
-                />
-              </div>
+              <input
+                key={index}
+                type="text"
+                value={row.name}
+                onChange={(e) => {
+                  const next = [...subjectRows];
+                  next[index] = { name: e.target.value };
+                  setSubjectRows(next);
+                }}
+                className={fieldClass}
+                placeholder="Subject name"
+              />
             ))}
           </div>
           <button
             type="submit"
             disabled={savingSubjects}
-            className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             {savingSubjects ? 'Saving…' : 'Add subjects'}
           </button>
         </form>
-
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {subjects.map((item) => (
             <span
               key={item.id}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-100"
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs text-slate-100"
             >
               {item.name}
               <button type="button" onClick={() => deleteSubject(item.id)} className="text-red-400 hover:text-red-300">
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3 w-3" />
               </button>
             </span>
           ))}
         </div>
-        {subjects.length === 0 && (
-          <p className="mt-4 text-sm text-slate-500">No subjects yet. Add subject names above.</p>
-        )}
+        {subjects.length === 0 ? <p className="mt-2 text-xs text-slate-500">No subjects yet.</p> : null}
       </section>
     </div>
   );

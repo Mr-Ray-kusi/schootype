@@ -259,7 +259,7 @@ export async function updateManualFeePayment({ schoolId, paymentId, amount, meth
     .select()
     .maybeSingle();
   if (updateError) throw updateError;
-  return data || existing;
+  return { payment: data || { ...existing, ...next }, previousAmount: Number(existing.amount) || 0 };
 }
 
 /**
@@ -338,6 +338,19 @@ export function parsePaystackMetadata(raw) {
   return typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
+export async function creditCashedFeeToWallet({ schoolId, amount, reference, studentName, periodLabel }) {
+  const amountMinor = toMinorUnits(amount);
+  if (!schoolId || !reference || amountMinor <= 0) return null;
+  return creditInternalFunds(schoolId, amountMinor, {
+    reference,
+    description: `School fees · Cashed · ${studentName || 'Student'} · ${periodLabel || ''}`.trim(),
+    metadata: {
+      kind: 'school_fee',
+      source: 'cashed',
+    },
+  });
+}
+
 export async function settleSchoolFeeFromPaystack(data = {}) {
   const metadata = parsePaystackMetadata(data.metadata);
   if (metadata.kind !== 'school_fee') return null;
@@ -349,9 +362,10 @@ export async function settleSchoolFeeFromPaystack(data = {}) {
 
   await creditInternalFunds(schoolId, amountMinor, {
     reference,
-    description: `School fees · ${metadata.payer_name || 'Student'} · ${metadata.payment_month || ''}`.trim(),
+    description: `School fees · Paid online · ${metadata.payer_name || 'Student'} · ${metadata.term_name || metadata.payment_month || ''}`.trim(),
     metadata: {
       kind: 'school_fee',
+      source: 'online',
       student_id: metadata.student_id || null,
       channel: data.channel || null,
       payment_month: metadata.payment_month || currentFeeMonth(),

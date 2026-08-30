@@ -17,7 +17,6 @@ import { getFrontendBaseUrl } from './emailVerification.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
 import {
-  currentFeeMonth,
   getClassFeeAmount,
   resolveStudentFeeAmount,
   findSuccessfulFeePayment,
@@ -31,7 +30,15 @@ import {
   roundMoney,
   isSuccessfulFeeStatus,
   isManualFeePayment,
+  creditCashedFeeToWallet,
 } from './feePayments.js';
+import {
+  listAcademicTerms,
+  replaceAcademicTerms,
+  resolveFeePeriod,
+  getFeePeriodByKey,
+  formatPeriodLabel,
+} from './academicTerms.js';
 
 function handlePaystackError(res, err) {
   const status = err.status || 500;
@@ -41,7 +48,7 @@ function handlePaystackError(res, err) {
   });
 }
 
-function publicStudentSummary(student, school, amount, month, balance) {
+function publicStudentSummary(student, school, amount, month, balance, period) {
   const feeAmount = Number(balance?.fee_amount ?? amount) || 0;
   const paidAmount = Number(balance?.paid_amount) || 0;
   const outstanding = Number(balance?.outstanding ?? feeAmount) || 0;
@@ -61,6 +68,10 @@ function publicStudentSummary(student, school, amount, month, balance) {
     outstanding,
     currency: getPaystackConfig().currency,
     payment_month: month,
+    term_name: period?.name || month,
+    term_starts_on: period?.starts_on || null,
+    term_ends_on: period?.ends_on || null,
+    period_label: formatPeriodLabel(period) || month,
     paid: fullyPaid,
     paid_at: balance?.payments?.[0]?.created_at || null,
     paystack_configured: getPaystackConfig().configured,
@@ -86,10 +97,11 @@ async function loadStudentFeeContext(barcode) {
     supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
     getClassFeeAmount(student.school_id, student.class),
   ]);
-  const month = currentFeeMonth();
+  const period = await resolveFeePeriod(student.school_id);
+  const month = period.key;
   const amount = resolveStudentFeeAmount(student, classFee);
   const balance = await loadFeeBalance(student, amount, month);
-  return { student, school, amount, month, balance };
+  return { student, school, amount, month, balance, period };
 }
 
 async function findStudentInSchool(schoolId, studentId) {
@@ -129,10 +141,11 @@ async function loadStudentFeeBySchool(schoolId, studentId) {
     supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
     getClassFeeAmount(student.school_id, student.class),
   ]);
-  const month = currentFeeMonth();
+  const period = await resolveFeePeriod(student.school_id);
+  const month = period.key;
   const amount = resolveStudentFeeAmount(student, classFee);
   const balance = await loadFeeBalance(student, amount, month);
-  return { student, school, amount, month, balance };
+  return { student, school, amount, month, balance, period };
 }
 
 function feePayloadFromRecord(row, reference) {
@@ -254,6 +267,15 @@ function normalizePayMethod(method) {
   return '';
 }
 
+function throwIfFullyPaid(ctx) {
+  if (!ctx?.balance?.fully_paid) return;
+  const label = ctx.period?.name || 'this term';
+  const err = new Error(`There is no outstanding payment to make for ${label}.`);
+  err.status = 409;
+  err.code = 'FULLY_PAID';
+  throw err;
+}
+
 function normalizeManualMethod(method) {
   const value = String(method || '').toLowerCase();
   if (value === 'cash') return 'cash';
@@ -271,6 +293,7 @@ async function startFeePayment({
   method = 'bank',
   phone,
   provider,
+  termName,
 }) {
   const { configured, publicKey } = getPaystackConfig();
   if (!configured) {
@@ -297,6 +320,7 @@ async function startFeePayment({
     payer_name: student.name,
     payer_class: student.class || null,
     payment_month: month,
+    term_name: termName || month,
     amount_major: payAmount,
     payment_method: payMethod,
     settle_mode: payout.subaccountCode ? 'subaccount' : payout.recipientCode ? 'transfer' : 'wallet',
@@ -404,6 +428,29 @@ async function startFeePayment({
 }
 
 export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval }) {
+  app.get('/api/academic-terms', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const terms = await listAcademicTerms(req.user.schoolId);
+      const current = await resolveFeePeriod(req.user.schoolId);
+      res.json({ terms, current });
+    } catch (err) {
+      console.error('List academic terms error:', err);
+      res.status(500).json({ error: err.message || 'Failed to load academic terms' });
+    }
+  });
+
+  app.put('/api/academic-terms', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const terms = await replaceAcademicTerms(req.user.schoolId, req.body?.terms || []);
+      const current = await resolveFeePeriod(req.user.schoolId);
+      res.json({ terms, current });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      console.error('Save academic terms error:', err);
+      res.status(500).json({ error: err.message || 'Failed to save academic terms' });
+    }
+  });
+
   app.get('/api/public/fees/verify/:reference', async (req, res) => {
     try {
       const reference = req.params.reference;
@@ -458,7 +505,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       }
       const ctx = await loadStudentFeeBySchool(schoolId, studentId);
       if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
-      res.json(publicStudentSummary(ctx.student, ctx.school, ctx.amount, ctx.month, ctx.balance));
+      res.json(publicStudentSummary(ctx.student, ctx.school, ctx.amount, ctx.month, ctx.balance, ctx.period));
     } catch (err) {
       console.error('Public fee lookup error:', err);
       res.status(500).json({ error: 'Failed to find this student' });
@@ -474,11 +521,13 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (!method) return res.status(400).json({ error: 'Select MoMo or bank.' });
       const ctx = await loadStudentFeeBySchool(schoolId, studentId);
       if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      throwIfFullyPaid(ctx);
       const payment = await startFeePayment({
         student: ctx.student,
         school: ctx.school,
         amount: Number.isFinite(amount) && amount > 0 ? amount : ctx.amount,
         month: ctx.month,
+        termName: ctx.period?.name,
         email: req.body?.email || ctx.student.parent_email || ctx.school?.email,
         method,
         phone: req.body?.phone,
@@ -486,6 +535,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       });
       res.json(payment);
     } catch (err) {
+      if (err.code === 'FULLY_PAID' || err.status === 409) {
+        return res.status(409).json({ error: err.message, code: 'FULLY_PAID' });
+      }
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
       console.error('Public fee pay error:', err);
       res.status(500).json({ error: 'Failed to start fee payment' });
@@ -586,8 +638,8 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     try {
       const ctx = await loadStudentFeeContext(req.params.barcode);
       if (!ctx) return res.status(404).json({ error: 'Student not found' });
-      const { student, school, amount, month, balance } = ctx;
-      res.json(publicStudentSummary(student, school, amount, month, balance));
+      const { student, school, amount, month, balance, period } = ctx;
+      res.json(publicStudentSummary(student, school, amount, month, balance, period));
     } catch (err) {
       console.error('Public fee lookup error:', err);
       res.status(500).json({ error: 'Failed to load fee details' });
@@ -598,7 +650,8 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     try {
       const ctx = await loadStudentFeeContext(req.params.barcode);
       if (!ctx) return res.status(404).json({ error: 'Student not found' });
-      const { student, school, amount, month } = ctx;
+      const { student, school, amount, month, period } = ctx;
+      throwIfFullyPaid(ctx);
       const requested = Number(req.body?.amount);
       const payAmount = Number.isFinite(requested) && requested > 0 ? requested : amount;
       if (!(payAmount > 0)) {
@@ -609,6 +662,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         school,
         amount: payAmount,
         month,
+        termName: period?.name,
         email: req.body?.email || student.parent_email || school?.email,
         method: req.body?.method || 'bank',
         phone: req.body?.phone,
@@ -616,6 +670,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       });
       res.json(checkout);
     } catch (err) {
+      if (err.code === 'FULLY_PAID' || err.status === 409) {
+        return res.status(409).json({ error: err.message, code: 'FULLY_PAID' });
+      }
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
       console.error('Fee checkout error:', err);
       res.status(500).json({ error: 'Failed to start fee payment' });
@@ -625,7 +682,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.get('/api/fees/overview', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
-      const month = String(req.query.month || currentFeeMonth());
+      const period = req.query.month
+        ? await getFeePeriodByKey(schoolId, String(req.query.month))
+        : await resolveFeePeriod(schoolId);
+      const month = period.key;
       const [{ data: students, error: studentError }, { data: classes }, { data: payments, error: payError }] =
         await Promise.all([
           supabase
@@ -683,6 +743,11 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
       res.json({
         month,
+        term_name: period.name,
+        term_starts_on: period.starts_on,
+        term_ends_on: period.ends_on,
+        period_label: formatPeriodLabel(period),
+        terms: await listAcademicTerms(schoolId),
         totals: {
           billed: billed.length,
           paid: paid.length,
@@ -708,7 +773,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       const studentId = String(req.body?.studentId || '').trim();
       const amount = roundMoney(req.body?.amount);
       const method = normalizeManualMethod(req.body?.method);
-      const month = String(req.body?.month || currentFeeMonth()).trim() || currentFeeMonth();
+      const period = req.body?.month
+        ? await getFeePeriodByKey(schoolId, String(req.body.month))
+        : await resolveFeePeriod(schoolId);
+      const month = period.key;
       const note = String(req.body?.reference || req.body?.note || '').trim();
       if (!studentId) return res.status(400).json({ error: 'Select a student.' });
       if (!method) return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
@@ -743,6 +811,14 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         month,
       });
 
+      await creditCashedFeeToWallet({
+        schoolId,
+        amount,
+        reference: `feecash_${payment?.payment_reference || payment?.id || Date.now()}`,
+        studentName: student.name,
+        periodLabel: period.name || month,
+      });
+
       res.json({
         payment,
         student: {
@@ -775,18 +851,31 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
       }
 
-      const payment = await updateManualFeePayment({
+      const updated = await updateManualFeePayment({
         schoolId,
         paymentId,
         amount,
         method,
         reference: req.body?.reference,
       });
+      const payment = updated.payment || updated;
+      const previousAmount = Number(updated.previousAmount) || Number(payment.amount) || 0;
       const balance = await refreshStudentFeeStatus({
         schoolId,
         studentId: payment.payer_id,
         month: payment.payment_month,
       });
+      const nextAmount = Number(payment.amount) || 0;
+      if (nextAmount > previousAmount + 0.009) {
+        const period = await getFeePeriodByKey(schoolId, payment.payment_month);
+        await creditCashedFeeToWallet({
+          schoolId,
+          amount: roundMoney(nextAmount - previousAmount),
+          reference: `feecash_adj_${payment.id}_${Date.now()}`,
+          studentName: payment.payer_name,
+          periodLabel: period.name || payment.payment_month,
+        });
+      }
 
       res.json({
         payment: { ...payment, manual: true },
@@ -818,20 +907,25 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         getClassFeeAmount(student.school_id, student.class),
         supabase.from('schools').select('id, name, email').eq('id', student.school_id).maybeSingle(),
       ]);
-      const month = currentFeeMonth();
+      const period = await resolveFeePeriod(student.school_id);
+      const month = period.key;
       const amount = resolveStudentFeeAmount(student, classFee);
       if (!(amount > 0)) {
         return res.status(400).json({ error: 'Set a class fee in Setup before collecting payment.' });
       }
       const balance = await loadFeeBalance(student, amount, month);
       if (balance.fully_paid) {
-        return res.status(409).json({ error: 'This student has already paid for this month.', code: 'ALREADY_PAID' });
+        return res.status(409).json({
+          error: `There is no outstanding payment to make for ${period.name}.`,
+          code: 'ALREADY_PAID',
+        });
       }
       const checkout = await startFeePayment({
         student,
         school,
         amount: balance.outstanding || amount,
         month,
+        termName: period.name,
         email: student.parent_email || req.user.email,
         method: req.body?.method || 'bank',
         phone: req.body?.phone,

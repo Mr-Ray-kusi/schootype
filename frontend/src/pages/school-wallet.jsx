@@ -511,8 +511,8 @@ const SchoolWallet = () => {
 
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h3 className="text-sm font-semibold capitalize text-white">
-                                  {tx.type}
+                                <h3 className="text-sm font-semibold text-white">
+                                  {tx.description || (tx.type === 'credit' || tx.type === 'deposit' ? 'Credit' : tx.type)}
                                 </h3>
                                 <p
                                   className={`text-sm font-semibold ${
@@ -524,6 +524,17 @@ const SchoolWallet = () => {
                                 </p>
                               </div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                {tx.source_label ? (
+                                  <span
+                                    className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                                      tx.source_label === 'Cashed'
+                                        ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                                        : 'border-sky-500/30 bg-sky-500/10 text-sky-100'
+                                    }`}
+                                  >
+                                    {tx.source_label}
+                                  </span>
+                                ) : null}
                                 <span
                                   className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${style}`}
                                 >

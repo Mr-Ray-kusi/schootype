@@ -79,7 +79,7 @@ const FeesUnpaid = () => {
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Unpaid</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Outstanding balances for {data?.month || 'this month'}. Share the pay link so parents can use MoMo, bank, or USSD.
+            Outstanding balances for {data?.term_name || data?.period_label || data?.month || 'this term'}. Share the pay link so parents can use MoMo, bank, or USSD.
           </p>
         </div>
         <div className="flex gap-2">

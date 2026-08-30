@@ -50,10 +50,14 @@ function formatMoney(wallet) {
 
 function formatTransaction(tx) {
   if (!tx) return null;
+  const source = tx.metadata?.source;
+  const sourceLabel =
+    source === 'cashed' ? 'Cashed' : source === 'online' || tx.metadata?.kind === 'school_fee' ? 'Paid online' : null;
   return {
     ...tx,
     amount_major: fromMinorUnits(tx.amount),
     fee_major: fromMinorUnits(tx.fee),
+    source_label: sourceLabel,
   };
 }
 

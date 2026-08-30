@@ -188,3 +188,18 @@ CREATE INDEX IF NOT EXISTS idx_platform_events_school_created
 ALTER TABLE IF EXISTS platform_events DISABLE ROW LEVEL SECURITY;
 
 ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS paystack_subaccount_code TEXT;
+
+CREATE TABLE IF NOT EXISTS academic_terms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id UUID REFERENCES schools(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 1,
+  starts_on DATE,
+  ends_on DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_academic_terms_school
+  ON academic_terms (school_id, sort_order);
+
+ALTER TABLE IF EXISTS academic_terms DISABLE ROW LEVEL SECURITY;

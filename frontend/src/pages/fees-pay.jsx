@@ -167,7 +167,7 @@ const FeesPay = () => {
       return;
     }
     if (isFullyPaid(info)) {
-      setError('This month’s fee is already fully paid.');
+      setError(`There is no outstanding payment to make for ${info.term_name || 'this term'}.`);
       return;
     }
     setError('');
@@ -271,7 +271,7 @@ const FeesPay = () => {
   const submitLabel = (() => {
     if (step === 1) return lookingUp ? 'Finding student…' : 'Find student';
     if (step === 2) {
-      if (isFullyPaid(info)) return 'Fee already paid';
+      if (isFullyPaid(info)) return 'Cannot proceed';
       return Number(info?.paid_amount) > 0 ? 'Pay the amount left' : 'Continue to payment';
     }
     if (momoPrompt?.needs_code) return paying ? 'Submitting code…' : 'Submit code';
@@ -362,9 +362,12 @@ const FeesPay = () => {
                   {info.class_name ? ` · ${info.class_name}` : ''}
                   {info.roll_number ? ` · ${info.roll_number}` : ''}
                 </p>
-                <dl className="mt-4 space-y-2 text-sm">
+                <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">
+                  {info.term_name || info.period_label || 'Current term'}
+                </p>
+                <dl className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
-                    <dt className="text-slate-400">Fee this month</dt>
+                    <dt className="text-slate-400">Fee this term</dt>
                     <dd className="font-medium text-white">{formatGhs(info.fee_amount ?? info.amount)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
@@ -379,9 +382,11 @@ const FeesPay = () => {
                   </div>
                 </dl>
                 {isFullyPaid(info) ? (
-                  <p className="mt-3 text-sm text-emerald-300">This month’s fee is fully paid.</p>
+                  <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-100">
+                    There is no outstanding payment to make for {info.term_name || 'this term'}. You cannot proceed.
+                  </div>
                 ) : Number(info.paid_amount) > 0 ? (
-                  <p className="mt-3 text-sm text-amber-200">A part payment is already recorded. Pay the amount left to complete this month.</p>
+                  <p className="mt-3 text-sm text-amber-200">A part payment is already recorded. Pay the amount left to complete this term.</p>
                 ) : null}
               </div>
             ) : (

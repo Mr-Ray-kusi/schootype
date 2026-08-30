@@ -173,6 +173,19 @@ ALTER TABLE classes ADD COLUMN IF NOT EXISTS fee_amount NUMERIC DEFAULT 0;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee NUMERIC DEFAULT 0;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS fee_status TEXT DEFAULT 'unpaid';
 
+CREATE TABLE IF NOT EXISTS academic_terms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id UUID REFERENCES schools(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 1,
+  starts_on DATE,
+  ends_on DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_academic_terms_school
+  ON academic_terms (school_id, sort_order);
+
 CREATE TABLE IF NOT EXISTS auth_rate_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   kind TEXT NOT NULL,
