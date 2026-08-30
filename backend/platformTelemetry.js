@@ -4,8 +4,18 @@ import { supabase } from './supabaseClient.js';
 const MEMORY_CAP = 8000;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const SLOW_PAGE_MS = 3000;
-const LOOKBACK_DAYS = 14;
 const FETCH_LIMIT = 20000;
+const ANALYTICS_RANGES = new Set(['1d', '1w', '1m', '6m', '1y']);
+const SERIES_ACTIVE_TYPES = new Set(['heartbeat', 'page_view', 'login']);
+const SERIES_KEY_TYPES = new Set([
+  'login',
+  'login_failed',
+  'signup',
+  'payment_failed',
+  'payment_success',
+  'sms_sent',
+  'page_slow',
+]);
 
 const CLIENT_EVENT_TYPES = new Set(['heartbeat', 'page_view', 'page_slow']);
 const SERVER_EVENT_TYPES = new Set([
@@ -46,10 +56,152 @@ function startOfWeek(date = new Date()) {
   return d;
 }
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
+function startOfHour(date = new Date()) {
+  const d = new Date(date);
+  d.setMinutes(0, 0, 0);
   return d;
+}
+
+function startOfMonth(date = new Date()) {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function normalizeAnalyticsRange(value) {
+  const key = String(value || '1w').toLowerCase();
+  return ANALYTICS_RANGES.has(key) ? key : '1w';
+}
+
+function startOfUnit(date, unit) {
+  if (unit === 'hour') return startOfHour(date);
+  if (unit === 'day') return startOfDay(date);
+  if (unit === 'week') return startOfWeek(date);
+  return startOfMonth(date);
+}
+
+function addTimeUnit(date, unit) {
+  const d = new Date(date);
+  if (unit === 'hour') d.setHours(d.getHours() + 1);
+  else if (unit === 'day') d.setDate(d.getDate() + 1);
+  else if (unit === 'week') d.setDate(d.getDate() + 7);
+  else d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+function analyticsRangeWindow(range, now = new Date()) {
+  if (range === '1d') {
+    const start = startOfHour(now);
+    start.setHours(start.getHours() - 23);
+    return { start, unit: 'hour' };
+  }
+  if (range === '1w') {
+    const start = startOfDay(now);
+    start.setDate(start.getDate() - 6);
+    return { start, unit: 'day' };
+  }
+  if (range === '1m') {
+    const start = startOfDay(now);
+    start.setDate(start.getDate() - 29);
+    return { start, unit: 'day' };
+  }
+  if (range === '6m') {
+    const start = startOfWeek(now);
+    start.setDate(start.getDate() - 7 * 25);
+    return { start, unit: 'week' };
+  }
+  const start = startOfMonth(now);
+  start.setMonth(start.getMonth() - 11);
+  return { start, unit: 'month' };
+}
+
+function formatBucketLabel(date, unit) {
+  if (unit === 'hour') return date.toLocaleTimeString('en-GB', { hour: 'numeric' });
+  if (unit === 'day') return date.toLocaleDateString('en-GB', { weekday: 'short' });
+  if (unit === 'week') return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return date.toLocaleDateString('en-GB', { month: 'short' });
+}
+
+function enumerateBuckets(start, now, unit) {
+  const buckets = [];
+  let cursor = startOfUnit(start, unit);
+  const end = now.getTime();
+  let guard = 0;
+  while (cursor.getTime() <= end && guard < 400) {
+    buckets.push({
+      t: cursor.toISOString(),
+      label: formatBucketLabel(cursor, unit),
+    });
+    cursor = addTimeUnit(cursor, unit);
+    guard += 1;
+  }
+  return buckets;
+}
+
+function personKey(event) {
+  return `${event.school_id || ''}|${event.email || event.role || event.id}`;
+}
+
+function buildPerformanceSeries({ events, newUsers, range, now }) {
+  const { start, unit } = analyticsRangeWindow(range, now);
+  const buckets = enumerateBuckets(start, now, unit);
+  const known = new Set(buckets.map((bucket) => bucket.t));
+  const logins = new Map();
+  const pages = new Map();
+  const slow = new Map();
+  const keyEvents = new Map();
+  const active = new Map();
+  const newcomers = new Map();
+
+  const bump = (map, key, amount = 1) => {
+    map.set(key, (map.get(key) || 0) + amount);
+  };
+
+  for (const event of events || []) {
+    const at = new Date(event.created_at);
+    if (Number.isNaN(at.getTime()) || at < start) continue;
+    const key = startOfUnit(at, unit).toISOString();
+    if (!known.has(key)) continue;
+    const type = event.event_type;
+    if (type === 'login') bump(logins, key);
+    if (type === 'page_view') bump(pages, key);
+    if (type === 'page_slow') bump(slow, key);
+    if (SERIES_KEY_TYPES.has(type)) bump(keyEvents, key);
+    if (SERIES_ACTIVE_TYPES.has(type)) {
+      if (!active.has(key)) active.set(key, new Set());
+      active.get(key).add(personKey(event));
+    }
+  }
+
+  for (const user of newUsers || []) {
+    const at = new Date(user.createdAt);
+    if (Number.isNaN(at.getTime()) || at < start) continue;
+    const key = startOfUnit(at, unit).toISOString();
+    if (!known.has(key)) continue;
+    bump(newcomers, key);
+  }
+
+  const toPoints = (map, unique = false) =>
+    buckets.map((bucket) => ({
+      t: bucket.t,
+      label: bucket.label,
+      value: unique ? map.get(bucket.t)?.size || 0 : map.get(bucket.t) || 0,
+    }));
+
+  return {
+    range,
+    unit,
+    start: start.toISOString(),
+    series: {
+      active: toPoints(active, true),
+      logins: toPoints(logins),
+      pages: toPoints(pages),
+      slow: toPoints(slow),
+      events: toPoints(keyEvents),
+      newUsers: toPoints(newcomers),
+    },
+  };
 }
 
 function trimText(value, max = 180) {
@@ -343,7 +495,7 @@ async function feesCollectedToday(dayStartIso) {
   }
 }
 
-async function newSchoolsSince(sinceIso) {
+async function newSchoolsSince(sinceIso, limit = 100) {
   if (!supabase) return [];
   try {
     const { data, error } = await supabase
@@ -351,7 +503,7 @@ async function newSchoolsSince(sinceIso) {
       .select('id, name, email, role, created_at')
       .gte('created_at', sinceIso)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(limit);
     if (error) return [];
     return (data || []).filter((school) => school.role !== 'super_admin');
   } catch {
@@ -359,18 +511,20 @@ async function newSchoolsSince(sinceIso) {
   }
 }
 
-export async function getPlatformAnalytics() {
+export async function getPlatformAnalytics(options = {}) {
   const now = new Date();
+  const range = normalizeAnalyticsRange(options.range);
+  const { start: rangeStart } = analyticsRangeWindow(range, now);
   const dayStart = startOfDay(now);
   const weekStart = startOfWeek(now);
-  const lookback = daysAgo(LOOKBACK_DAYS);
-  const events = (await loadEventsSince(lookback)).filter(isSchoolUsageEvent);
+  const loadSince = new Date(Math.min(rangeStart.getTime(), weekStart.getTime()));
+  const events = (await loadEventsSince(loadSince)).filter(isSchoolUsageEvent);
 
   const inRange = (type, since) =>
     events.filter((event) => event.event_type === type && new Date(event.created_at) >= since);
 
-  const pageViews = inRange('page_view', weekStart);
-  const slowPages = inRange('page_slow', weekStart);
+  const pageViews = inRange('page_view', rangeStart);
+  const slowPages = inRange('page_slow', rangeStart);
   const failedLoginsToday = inRange('login_failed', dayStart);
   const failedLoginsWeek = inRange('login_failed', weekStart);
   const failedPaymentsToday = inRange('payment_failed', dayStart);
@@ -388,10 +542,10 @@ export async function getPlatformAnalytics() {
       eq: { column: 'delivery_channel', value: 'sms' },
     }),
     feesCollectedToday(dayStart.toISOString()),
-    newSchoolsSince(weekStart.toISOString()),
+    newSchoolsSince(rangeStart.toISOString(), range === '6m' || range === '1y' ? 500 : 100),
   ]);
 
-  const signupEvents = inRange('signup', weekStart);
+  const signupEvents = inRange('signup', rangeStart);
   const newUsers = [];
   const seen = new Set();
   for (const school of recentSchools) {
@@ -418,10 +572,10 @@ export async function getPlatformAnalytics() {
   }
 
   const keyTypes = new Set(['login', 'login_failed', 'signup', 'payment_failed', 'payment_success', 'sms_sent', 'page_slow']);
-  const keyEvents = events
-    .filter((event) => keyTypes.has(event.event_type))
-    .slice(0, 40)
-    .map((event) => ({
+  const keyEventsAll = events.filter(
+    (event) => keyTypes.has(event.event_type) && new Date(event.created_at) >= rangeStart
+  );
+  const keyEvents = keyEventsAll.slice(0, 40).map((event) => ({
       id: event.id,
       type: event.event_type,
       label: eventLabel(event),
@@ -450,17 +604,23 @@ export async function getPlatformAnalytics() {
     };
   });
 
+  const chart = buildPerformanceSeries({ events, newUsers, range, now });
+
   return {
     generatedAt: now.toISOString(),
     tableReady,
+    range,
     activeWindowMinutes: 5,
     slowPageMs: SLOW_PAGE_MS,
     activeUsers: uniqueActiveUsers(events, now.getTime()),
     eventCounts: {
       loginsToday: inRange('login', dayStart).length,
       loginsThisWeek: inRange('login', weekStart).length,
+      loginsInRange: inRange('login', rangeStart).length,
       pageViewsToday: inRange('page_view', dayStart).length,
-      pageViewsThisWeek: pageViews.length,
+      pageViewsThisWeek: inRange('page_view', weekStart).length,
+      pageViewsInRange: pageViews.length,
+      keyEventsInRange: keyEventsAll.length,
       heartbeatsToday: inRange('heartbeat', dayStart).length,
     },
     loginsBySchool: loginAdoption(events, dayStart, weekStart),
@@ -490,6 +650,7 @@ export async function getPlatformAnalytics() {
     },
     keyEvents,
     newUsers: newUsers.slice(0, 30),
+    chart,
   };
 }
 

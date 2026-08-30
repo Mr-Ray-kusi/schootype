@@ -2377,7 +2377,7 @@ app.post('/api/telemetry', authenticateToken, async (req, res) => {
 
 app.get('/api/super-admin/analytics', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
-    const analytics = await getPlatformAnalytics();
+    const analytics = await getPlatformAnalytics({ range: req.query.range });
     res.json(analytics);
   } catch (error) {
     console.error('Super admin analytics error:', error);

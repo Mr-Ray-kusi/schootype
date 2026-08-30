@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   Activity,
@@ -13,7 +13,24 @@ import {
   Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import PerformanceChart, { percentChange } from '../components/PerformanceChart';
 import { useLivePoll } from '../hooks/useLivePoll';
+
+const RANGES = [
+  { id: '1d', label: '1D' },
+  { id: '1w', label: '1W' },
+  { id: '1m', label: '1M' },
+  { id: '6m', label: '6M' },
+  { id: '1y', label: '1Y' },
+];
+
+const RANGE_LABELS = {
+  '1d': 'last 24 hours',
+  '1w': 'this week',
+  '1m': 'last 30 days',
+  '6m': 'last 6 months',
+  '1y': 'last 12 months',
+};
 
 const formatMoney = (amount) =>
   new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 2 }).format(
@@ -42,12 +59,12 @@ const relativeTime = (iso) => {
 };
 
 const StatCard = ({ title, value, subtitle, icon: Icon, color }) => (
-  <div className="rounded-xl border border-slate-600 bg-slate-800 p-5">
+  <div className="rounded-2xl border border-white/10 bg-zinc-900/70 p-5">
     <div className="flex items-start justify-between gap-3">
       <div>
-        <p className="text-sm text-slate-300">{title}</p>
+        <p className="text-sm text-zinc-400">{title}</p>
         <p className="mt-1 text-2xl font-bold text-white">{value}</p>
-        {subtitle ? <p className="mt-1 text-xs text-slate-400">{subtitle}</p> : null}
+        {subtitle ? <p className="mt-1 text-xs text-zinc-500">{subtitle}</p> : null}
       </div>
       <div className={`${color} shrink-0 rounded-full p-3`}>
         <Icon className="h-5 w-5 text-white" />
@@ -56,63 +73,37 @@ const StatCard = ({ title, value, subtitle, icon: Icon, color }) => (
   </div>
 );
 
-const PanelTab = ({ title, value, subtitle, icon: Icon, color, active, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={`min-w-[9.5rem] flex-1 rounded-xl border p-4 text-left transition ${
-      active
-        ? 'border-sky-400 bg-slate-700 ring-1 ring-sky-400/60'
-        : 'border-slate-600 bg-slate-800 hover:border-slate-500'
-    }`}
-  >
-    <div className="flex items-start justify-between gap-2">
-      <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-slate-300 sm:text-sm">{title}</p>
-        <p className="mt-1 text-xl font-bold text-white sm:text-2xl">{value}</p>
-        {subtitle ? <p className="mt-1 hidden truncate text-xs text-slate-400 lg:block">{subtitle}</p> : null}
-      </div>
-      <div className={`${color} shrink-0 rounded-full p-2 sm:p-3`}>
-        <Icon className="h-4 w-4 text-white sm:h-5 sm:w-5" />
-      </div>
-    </div>
-  </button>
-);
-
-const EmptyRow = ({ text }) => (
-  <p className="px-4 py-6 text-center text-sm text-slate-400">{text}</p>
-);
+const EmptyRow = ({ text }) => <p className="px-1 py-6 text-center text-sm text-zinc-500">{text}</p>;
 
 const SuperAdminAnalytics = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedPanel, setSelectedPanel] = useState('active');
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedPanel, setSelectedPanel] = useState('pages');
+  const [range, setRange] = useState('1w');
 
   const fetchData = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setRefreshing(true);
     try {
-      const { data: payload } = await axios.get('/api/super-admin/analytics');
+      const { data: payload } = await axios.get('/api/super-admin/analytics', { params: { range } });
       setData(payload);
     } catch (error) {
       if (!silent) {
         toast.error(error.response?.data?.error || 'Failed to load analytics');
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, []);
+  }, [range]);
 
   useLivePoll(() => fetchData({ silent: true }), 20000, true);
 
   React.useEffect(() => {
     fetchData({ silent: false });
   }, [fetchData]);
-
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center text-slate-300">Loading platform analytics...</div>
-    );
-  }
 
   const activeUsers = data?.activeUsers || [];
   const loginsBySchool = data?.loginsBySchool || [];
@@ -123,65 +114,101 @@ const SuperAdminAnalytics = () => {
   const newUsers = data?.newUsers || [];
   const stats = data?.dataStats || {};
   const counts = data?.eventCounts || {};
+  const chart = data?.chart || {};
+  const rangeLabel = RANGE_LABELS[range] || RANGE_LABELS['1w'];
 
-  const panels = [
-    {
-      id: 'active',
-      title: 'Active users now',
-      value: activeUsers.length,
-      subtitle: `Seen in the last ${data?.activeWindowMinutes || 5} minutes`,
-      icon: Users,
-      color: 'bg-emerald-500',
-    },
-    {
-      id: 'logins',
-      title: 'Daily / weekly logins',
-      value: counts.loginsToday || 0,
-      subtitle: `${counts.loginsThisWeek || 0} this week`,
-      icon: LogIn,
-      color: 'bg-sky-500',
-    },
-    {
-      id: 'pages',
-      title: 'Pages most visited',
-      value: counts.pageViewsThisWeek || 0,
-      subtitle: `${counts.pageViewsToday || 0} today`,
-      icon: MousePointerClick,
-      color: 'bg-primary-500',
-    },
-    {
-      id: 'slow',
-      title: 'Slow pages',
-      value: slowPages.length,
-      subtitle: `Slower than ${data?.slowPageMs || 3000} ms`,
-      icon: Gauge,
-      color: 'bg-amber-500',
-    },
-    {
-      id: 'events',
-      title: 'Key events',
-      value: keyEvents.length,
-      subtitle: 'Logins, signups, payments',
-      icon: Activity,
-      color: 'bg-indigo-500',
-    },
-    {
-      id: 'newUsers',
-      title: 'New users',
-      value: newUsers.length,
-      subtitle: 'Schools that joined this week',
-      icon: UserPlus,
-      color: 'bg-fuchsia-500',
-    },
-  ];
+  const panels = useMemo(
+    () => [
+      {
+        id: 'pages',
+        title: 'Pages most visited',
+        value: counts.pageViewsInRange ?? counts.pageViewsThisWeek ?? 0,
+        subtitle: `${counts.pageViewsToday || 0} today`,
+        icon: MousePointerClick,
+        unit: 'views',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} views`,
+      },
+      {
+        id: 'slow',
+        title: 'Slow pages',
+        value: slowPages.reduce((sum, row) => sum + (Number(row.count) || 0), 0) || slowPages.length,
+        subtitle: `Slower than ${data?.slowPageMs || 3000} ms`,
+        icon: Gauge,
+        unit: 'slow loads',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} slow loads`,
+      },
+      {
+        id: 'events',
+        title: 'Key events',
+        value: counts.keyEventsInRange ?? keyEvents.length,
+        subtitle: 'Logins, signups, payments',
+        icon: Activity,
+        unit: 'events',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} events`,
+      },
+      {
+        id: 'newUsers',
+        title: 'New users',
+        value: newUsers.length,
+        subtitle: `Schools that joined ${rangeLabel}`,
+        icon: UserPlus,
+        unit: 'schools',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} schools`,
+      },
+      {
+        id: 'active',
+        title: 'Active users',
+        value: activeUsers.length,
+        subtitle: `Seen in the last ${data?.activeWindowMinutes || 5} minutes`,
+        icon: Users,
+        unit: 'users',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} users`,
+      },
+      {
+        id: 'logins',
+        title: 'Daily / weekly login',
+        value: counts.loginsInRange ?? counts.loginsToday ?? 0,
+        subtitle: `${counts.loginsToday || 0} today · ${counts.loginsThisWeek || 0} this week`,
+        icon: LogIn,
+        unit: 'logins',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} logins`,
+      },
+    ],
+    [
+      activeUsers.length,
+      counts.keyEventsInRange,
+      counts.loginsInRange,
+      counts.loginsThisWeek,
+      counts.loginsToday,
+      counts.pageViewsInRange,
+      counts.pageViewsThisWeek,
+      counts.pageViewsToday,
+      data?.activeWindowMinutes,
+      data?.slowPageMs,
+      keyEvents.length,
+      newUsers.length,
+      rangeLabel,
+      slowPages,
+    ]
+  );
 
   const selected = panels.find((panel) => panel.id === selectedPanel) || panels[0];
+  const series = chart.series?.[selected.id] || [];
+  const latest = series[series.length - 1]?.value ?? 0;
+  const previous = series.length > 1 ? series[0]?.value : null;
+  const change = percentChange(latest, previous);
+
+  if (loading && !data) {
+    return (
+      <div className="flex h-64 items-center justify-center text-slate-300">Loading platform analytics...</div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-white">Platform analytics</h1>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 text-sm text-zinc-400">
           Live usage for GES / municipality oversight — who is signed in, what they use, and where the system is slow.
         </p>
         {data?.tableReady === false && (
@@ -222,179 +249,230 @@ const SuperAdminAnalytics = () => {
         />
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-1">
-        {panels.map((panel) => (
-          <PanelTab
-            key={panel.id}
-            title={panel.title}
-            value={panel.value}
-            subtitle={panel.subtitle}
-            icon={panel.icon}
-            color={panel.color}
-            active={selectedPanel === panel.id}
-            onClick={() => setSelectedPanel(panel.id)}
-          />
-        ))}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {panels.map((panel) => {
+          const Icon = panel.icon;
+          const active = selectedPanel === panel.id;
+          return (
+            <button
+              key={panel.id}
+              type="button"
+              onClick={() => setSelectedPanel(panel.id)}
+              aria-pressed={active}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${
+                active
+                  ? 'border-transparent bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20'
+                  : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:border-white/20 hover:text-white'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="font-medium">{panel.title}</span>
+              <span className={active ? 'text-white/80' : 'text-zinc-500'}>{panel.value}</span>
+            </button>
+          );
+        })}
       </div>
 
-      <section className="overflow-hidden rounded-xl border border-slate-600 bg-slate-800">
-        <div className="border-b border-slate-600 p-5">
-          <h2 className="text-lg font-semibold text-white">{selected.title}</h2>
-          <p className="text-xs text-slate-400">{selected.subtitle}</p>
+      <section className="overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-[0_0_80px_rgba(168,85,247,0.08)] md:p-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-white md:text-2xl">{selected.title}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-400">
+              <span className="text-lg font-semibold text-white">{selected.formatValue(latest)}</span>
+              {change != null ? (
+                <span
+                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
+                    change >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
+                  }`}
+                >
+                  {change >= 0 ? '+' : ''}
+                  {change}%
+                </span>
+              ) : null}
+              <span>· {rangeLabel}</span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 self-start rounded-full border border-white/10 bg-zinc-950/70 p-1">
+            {RANGES.map((item) => {
+              const active = range === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setRange(item.id)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {selectedPanel === 'active' &&
-          (activeUsers.length === 0 ? (
-            <EmptyRow text="Nobody is active right now." />
-          ) : (
-            <ul className="divide-y divide-slate-700">
-              {activeUsers.map((user) => (
-                <li key={`${user.schoolId || ''}-${user.email || user.lastSeen}`} className="px-5 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-white">{user.schoolName || 'Unknown school'}</p>
-                      <p className="truncate text-sm text-slate-300">{user.email || 'No email'}</p>
-                      <p className="text-xs text-slate-400">
-                        {user.role === 'super_admin' ? 'Platform admin' : user.role || 'admin'} · {user.page || user.path || '—'}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-xs text-emerald-300">{relativeTime(user.lastSeen)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ))}
+        <div className={`mt-6 ${refreshing ? 'opacity-60' : ''}`}>
+          <PerformanceChart points={series} unit={chart.unit || 'day'} formatValue={selected.formatValue} />
+        </div>
 
-        {selectedPanel === 'logins' &&
-          (loginsBySchool.length === 0 ? (
-            <EmptyRow text="No school logins recorded yet this week." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-900/60 text-left text-xs uppercase tracking-wide text-slate-400">
-                  <tr>
-                    <th className="px-5 py-3">School</th>
-                    <th className="px-5 py-3">Today</th>
-                    <th className="px-5 py-3">This week</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700">
-                  {loginsBySchool.map((row) => (
-                    <tr key={row.schoolId || row.email}>
-                      <td className="px-5 py-3">
-                        <p className="font-medium text-white">{row.schoolName}</p>
-                        <p className="text-xs text-slate-400">{row.email}</p>
-                      </td>
-                      <td className="px-5 py-3 text-slate-200">{row.daily}</td>
-                      <td className="px-5 py-3 text-slate-200">{row.weekly}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
+        <div className="mt-6 border-t border-white/10 pt-5">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{selected.subtitle}</p>
 
-        {selectedPanel === 'pages' &&
-          (topPages.length === 0 ? (
-            <EmptyRow text="No page visits recorded this week." />
-          ) : (
-            <ul className="divide-y divide-slate-700">
-              {topPages.map((row) => {
-                const max = topPages[0]?.count || 1;
-                return (
-                  <li key={row.page} className="px-5 py-3">
-                    <div className="mb-1 flex items-center justify-between gap-3">
-                      <span className="font-medium text-white">{row.page}</span>
-                      <span className="text-sm text-slate-300">{row.count}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-700">
-                      <div
-                        className="h-full rounded-full bg-sky-500"
-                        style={{ width: `${Math.max(8, Math.round((row.count / max) * 100))}%` }}
-                      />
+          {selectedPanel === 'active' &&
+            (activeUsers.length === 0 ? (
+              <EmptyRow text="Nobody is active right now." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {activeUsers.map((user) => (
+                  <li key={`${user.schoolId || ''}-${user.email || user.lastSeen}`} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{user.schoolName || 'Unknown school'}</p>
+                        <p className="truncate text-sm text-zinc-300">{user.email || 'No email'}</p>
+                        <p className="text-xs text-zinc-500">
+                          {user.role === 'super_admin' ? 'Platform admin' : user.role || 'admin'} · {user.page || user.path || '—'}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs text-emerald-300">{relativeTime(user.lastSeen)}</span>
                     </div>
                   </li>
-                );
-              })}
-            </ul>
-          ))}
+                ))}
+              </ul>
+            ))}
 
-        {selectedPanel === 'slow' &&
-          (slowPages.length === 0 ? (
-            <EmptyRow text="No slow pages this week." />
-          ) : (
-            <ul className="divide-y divide-slate-700">
-              {slowPages.map((row) => (
-                <li key={row.page} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div>
-                    <p className="font-medium text-white">{row.page}</p>
-                    <p className="text-xs text-slate-400">
-                      {row.count} slow load{row.count === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                  <span className="text-sm text-amber-300">{(row.avgMs / 1000).toFixed(1)}s avg</span>
-                </li>
-              ))}
-            </ul>
-          ))}
+          {selectedPanel === 'logins' &&
+            (loginsBySchool.length === 0 ? (
+              <EmptyRow text="No school logins recorded yet this week." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
+                    <tr>
+                      <th className="py-3 pr-5">School</th>
+                      <th className="py-3 pr-5">Today</th>
+                      <th className="py-3">This week</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {loginsBySchool.map((row) => (
+                      <tr key={row.schoolId || row.email}>
+                        <td className="py-3 pr-5">
+                          <p className="font-medium text-white">{row.schoolName}</p>
+                          <p className="text-xs text-zinc-500">{row.email}</p>
+                        </td>
+                        <td className="py-3 pr-5 text-zinc-200">{row.daily}</td>
+                        <td className="py-3 text-zinc-200">{row.weekly}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
 
-        {selectedPanel === 'events' &&
-          (keyEvents.length === 0 ? (
-            <EmptyRow text="No key events yet." />
-          ) : (
-            <ul className="divide-y divide-slate-700">
-              {keyEvents.map((event) => (
-                <li key={event.id} className="px-5 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium text-white">{event.label}</p>
-                      <p className="truncate text-sm text-slate-300">
-                        {event.schoolName || event.email || 'Unknown'}
-                        {event.page ? ` · ${event.page}` : ''}
+          {selectedPanel === 'pages' &&
+            (topPages.length === 0 ? (
+              <EmptyRow text="No page visits recorded in this range." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {topPages.map((row) => {
+                  const max = topPages[0]?.count || 1;
+                  return (
+                    <li key={row.page} className="py-3">
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <span className="font-medium text-white">{row.page}</span>
+                        <span className="text-sm text-zinc-300">{row.count}</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                          style={{ width: `${Math.max(8, Math.round((row.count / max) * 100))}%` }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ))}
+
+          {selectedPanel === 'slow' &&
+            (slowPages.length === 0 ? (
+              <EmptyRow text="No slow pages in this range." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {slowPages.map((row) => (
+                  <li key={row.page} className="flex items-center justify-between gap-3 py-3">
+                    <div>
+                      <p className="font-medium text-white">{row.page}</p>
+                      <p className="text-xs text-zinc-500">
+                        {row.count} slow load{row.count === 1 ? '' : 's'}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs text-slate-400">{relativeTime(event.createdAt)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ))}
+                    <span className="text-sm text-amber-300">{(row.avgMs / 1000).toFixed(1)}s avg</span>
+                  </li>
+                ))}
+              </ul>
+            ))}
 
-        {selectedPanel === 'newUsers' &&
-          (newUsers.length === 0 ? (
-            <EmptyRow text="No new schools this week." />
-          ) : (
-            <ul className="divide-y divide-slate-700">
-              {newUsers.map((user) => (
-                <li key={user.schoolId || user.email} className="px-5 py-3">
-                  <p className="font-medium text-white">{user.schoolName || 'New school'}</p>
-                  <p className="text-sm text-slate-300">{user.email}</p>
-                  <p className="text-xs text-slate-400">{formatTime(user.createdAt)}</p>
-                </li>
-              ))}
-            </ul>
-          ))}
+          {selectedPanel === 'events' &&
+            (keyEvents.length === 0 ? (
+              <EmptyRow text="No key events yet." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {keyEvents.map((event) => (
+                  <li key={event.id} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-white">{event.label}</p>
+                        <p className="truncate text-sm text-zinc-300">
+                          {event.schoolName || event.email || 'Unknown'}
+                          {event.page ? ` · ${event.page}` : ''}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ))}
+
+          {selectedPanel === 'newUsers' &&
+            (newUsers.length === 0 ? (
+              <EmptyRow text="No new schools in this range." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {newUsers.map((user) => (
+                  <li key={user.schoolId || user.email} className="py-3">
+                    <p className="font-medium text-white">{user.schoolName || 'New school'}</p>
+                    <p className="text-sm text-zinc-300">{user.email}</p>
+                    <p className="text-xs text-zinc-500">{formatTime(user.createdAt)}</p>
+                  </li>
+                ))}
+              </ul>
+            ))}
+        </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-600 bg-slate-800">
-        <div className="border-b border-slate-600 p-5">
+      <section className="overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 md:p-8">
+        <div className="mb-4">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
             <Clock className="h-5 w-5 text-rose-300" />
             Errors
           </h2>
-          <p className="text-xs text-slate-400">Failed logins and failed payments</p>
+          <p className="text-xs text-zinc-500">Failed logins and failed payments</p>
         </div>
         {(errors.recent || []).length === 0 ? (
           <EmptyRow text="No failed logins or payments this week." />
         ) : (
-          <ul className="divide-y divide-slate-700">
+          <ul className="divide-y divide-white/5">
             {errors.recent.map((event) => (
-              <li key={event.id} className="flex items-center justify-between gap-3 px-5 py-3">
+              <li key={event.id} className="flex items-center justify-between gap-3 py-3">
                 <div>
                   <p className="font-medium text-white">{event.label}</p>
-                  <p className="text-sm text-slate-300">{event.schoolName || event.email || 'Unknown'}</p>
+                  <p className="text-sm text-zinc-300">{event.schoolName || event.email || 'Unknown'}</p>
                 </div>
-                <span className="text-xs text-slate-400">{relativeTime(event.createdAt)}</span>
+                <span className="text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
               </li>
             ))}
           </ul>
