@@ -33,7 +33,7 @@ import {
   failWithdrawal,
   makeWalletReference,
 } from './schoolWalletStore.js';
-import { parsePaystackMetadata, settleSchoolFeeFromPaystack } from './feePayments.js';
+import { parsePaystackMetadata, settleSchoolFeeFromPaystack, syncSchoolFeeCredits } from './feePayments.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
 import { findPlatformSchoolId } from './smsBilling.js';
 import { getDemoMoneyClearBaselineMinor } from './platformSmsStore.js';
@@ -50,11 +50,18 @@ function formatMoney(wallet) {
 
 function formatTransaction(tx) {
   if (!tx) return null;
-  const source = tx.metadata?.source;
+  const metadata = parsePaystackMetadata(tx.metadata);
+  const source = metadata.source;
+  const description = String(tx.description || '');
   const sourceLabel =
-    source === 'cashed' ? 'Cashed' : source === 'online' || tx.metadata?.kind === 'school_fee' ? 'Paid online' : null;
+    source === 'cashed' || /cashed/i.test(description)
+      ? 'Cashed'
+      : source === 'online' || metadata.kind === 'school_fee' || /paid online/i.test(description)
+        ? 'Paid online'
+        : null;
   return {
     ...tx,
+    metadata,
     amount_major: fromMinorUnits(tx.amount),
     fee_major: fromMinorUnits(tx.fee),
     source_label: sourceLabel,
@@ -127,6 +134,11 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       const schoolId = req.user.schoolId;
       const { currency } = getPaystackConfig();
       await ensureWallet(schoolId, currency);
+      try {
+        await syncSchoolFeeCredits(schoolId);
+      } catch (syncErr) {
+        console.warn('School fee wallet sync failed:', syncErr.message || syncErr);
+      }
       const platformSchoolId = await findPlatformSchoolId(supabase);
       if (platformSchoolId && schoolId === platformSchoolId) {
         try {

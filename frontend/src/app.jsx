@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Home from './pages/home';
 import Login from './pages/login';
@@ -15,28 +15,29 @@ import StaffPortal from './pages/staff-portal';
 import Layout from './components/layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './contexts/authcontext';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Students = lazy(() => import('./pages/students'));
-const Staff = lazy(() => import('./pages/staffs'));
-const NonStaff = lazy(() => import('./pages/nonstaffs'));
-const Attendance = lazy(() => import('./pages/attendance'));
-const Messages = lazy(() => import('./pages/message'));
-const Scanner = lazy(() => import('./pages/scanner'));
-const AddStudent = lazy(() => import('./pages/addstudends'));
-const Classes = lazy(() => import('./pages/classes'));
-const ReportCards = lazy(() => import('./pages/report-cards'));
-const FeesPaid = lazy(() => import('./pages/fees-paid'));
-const FeesUnpaid = lazy(() => import('./pages/fees-unpaid'));
-const BankSettings = lazy(() => import('./pages/bank-settings'));
-const SchoolWallet = lazy(() => import('./pages/school-wallet'));
-const SuperAdmin = lazy(() => import('./pages/super-admin'));
-const SuperAdminSchool = lazy(() => import('./pages/super-admin-school'));
-const SuperAdminBroadcast = lazy(() => import('./pages/super-admin-broadcast'));
-const SuperAdminSms = lazy(() => import('./pages/super-admin-sms'));
-const SuperAdminMonitor = lazy(() => import('./pages/super-admin-monitor'));
-const SuperAdminAnalytics = lazy(() => import('./pages/super-admin-analytics'));
-const Notifications = lazy(() => import('./pages/notifications'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const Students = lazyWithRetry(() => import('./pages/students'));
+const Staff = lazyWithRetry(() => import('./pages/staffs'));
+const NonStaff = lazyWithRetry(() => import('./pages/nonstaffs'));
+const Attendance = lazyWithRetry(() => import('./pages/attendance'));
+const Messages = lazyWithRetry(() => import('./pages/message'));
+const Scanner = lazyWithRetry(() => import('./pages/scanner'));
+const AddStudent = lazyWithRetry(() => import('./pages/addstudends'));
+const Classes = lazyWithRetry(() => import('./pages/classes'));
+const ReportCards = lazyWithRetry(() => import('./pages/report-cards'));
+const FeesPaid = lazyWithRetry(() => import('./pages/fees-paid'));
+const FeesUnpaid = lazyWithRetry(() => import('./pages/fees-unpaid'));
+const BankSettings = lazyWithRetry(() => import('./pages/bank-settings'));
+const SchoolWallet = lazyWithRetry(() => import('./pages/school-wallet'));
+const SuperAdmin = lazyWithRetry(() => import('./pages/super-admin'));
+const SuperAdminSchool = lazyWithRetry(() => import('./pages/super-admin-school'));
+const SuperAdminBroadcast = lazyWithRetry(() => import('./pages/super-admin-broadcast'));
+const SuperAdminSms = lazyWithRetry(() => import('./pages/super-admin-sms'));
+const SuperAdminMonitor = lazyWithRetry(() => import('./pages/super-admin-monitor'));
+const SuperAdminAnalytics = lazyWithRetry(() => import('./pages/super-admin-analytics'));
+const Notifications = lazyWithRetry(() => import('./pages/notifications'));
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-slate-900 text-slate-300">Loading...</div>

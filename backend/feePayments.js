@@ -338,6 +338,42 @@ export function parsePaystackMetadata(raw) {
   return typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
+export async function syncSchoolFeeCredits(schoolId) {
+  if (!schoolId) return;
+  const { data: payments, error } = await supabase
+    .from('fee_payments')
+    .select('id, amount, payer_name, payer_id, payment_reference, payment_method, payment_month, channel, status')
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error || !payments?.length) return;
+
+  for (const payment of payments) {
+    if (!isSuccessfulFeeStatus(payment.status)) continue;
+    const amount = Number(payment.amount) || 0;
+    if (amount <= 0) continue;
+    const manual = isManualFeePayment(payment);
+    const source = manual ? 'cashed' : 'online';
+    const reference = manual
+      ? `feecash_${payment.payment_reference || payment.id}`
+      : payment.payment_reference;
+    if (!reference) continue;
+    try {
+      await creditInternalFunds(schoolId, toMinorUnits(amount), {
+        reference,
+        description: `School fees · ${source === 'cashed' ? 'Cashed' : 'Paid online'} · ${payment.payer_name || 'Student'} · ${payment.payment_month || ''}`.trim(),
+        metadata: {
+          kind: 'school_fee',
+          source,
+          student_id: payment.payer_id || null,
+        },
+      });
+    } catch (err) {
+      console.warn('Fee wallet sync skipped:', err.message);
+    }
+  }
+}
+
 export async function creditCashedFeeToWallet({ schoolId, amount, reference, studentName, periodLabel }) {
   const amountMinor = toMinorUnits(amount);
   if (!schoolId || !reference || amountMinor <= 0) return null;

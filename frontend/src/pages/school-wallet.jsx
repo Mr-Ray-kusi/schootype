@@ -276,7 +276,9 @@ const SchoolWallet = () => {
       }
 
       if (filter === 'deposit') {
-        rows = rows.filter((tx) => tx.type === 'deposit');
+        rows = rows.filter(
+          (tx) => tx.type === 'deposit' || tx.type === 'credit' || tx.metadata?.kind === 'school_fee'
+        );
       } else if (filter === 'withdrawal') {
         rows = rows.filter((tx) => tx.type === 'withdrawal');
       }
@@ -487,7 +489,11 @@ const SchoolWallet = () => {
                     </div>
                   ) : (
                     transactions.map((tx) => {
-                      const isDeposit = tx.type === 'deposit';
+                      const isDeposit =
+                        tx.type === 'deposit' ||
+                        tx.type === 'credit' ||
+                        tx.metadata?.kind === 'school_fee' ||
+                        Boolean(tx.source_label);
                       const style = statusStyles[tx.status] || statusStyles.pending;
                       return (
                         <article

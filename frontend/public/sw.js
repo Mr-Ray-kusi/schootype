@@ -1,5 +1,5 @@
-const CACHE_NAME = 'schootype-lite-v1';
-const APP_SHELL = ['/', '/manifest.webmanifest'];
+const CACHE_NAME = 'schootype-lite-v3';
+const APP_SHELL = ['/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -16,12 +16,35 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+const isDocumentRequest = (request, url) =>
+  request.mode === 'navigate' ||
+  request.destination === 'document' ||
+  url.pathname === '/' ||
+  url.pathname.endsWith('.html');
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
+
+  // Always take the latest HTML so Vite chunk hashes stay in sync after deploy.
+  if (isDocumentRequest(request, url)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {
@@ -34,7 +57,8 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => cached);
-      return cached || networked;
+      if (url.pathname.startsWith('/assets/') && cached) return cached;
+      return networked;
     })
   );
 });
