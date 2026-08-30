@@ -27,8 +27,10 @@ import {
   buildFeeBalance,
   refreshStudentFeeStatus,
   recordFeePayment,
+  updateManualFeePayment,
   roundMoney,
   isSuccessfulFeeStatus,
+  isManualFeePayment,
 } from './feePayments.js';
 
 function handlePaystackError(res, err) {
@@ -665,7 +667,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
           paid: balance.paid_amount > 0,
           fully_paid: balance.fully_paid,
           payment: studentPayments[0] || null,
-          payments: studentPayments,
+          payments: studentPayments.map((payment) => ({
+            ...payment,
+            manual: isManualFeePayment(payment),
+          })),
           pay_path: student.barcode ? `/pay/${encodeURIComponent(student.barcode)}` : null,
         };
       });
@@ -724,9 +729,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         payer_name: student.name,
         payer_class: student.class || null,
         amount,
-        payment_method: method,
+        payment_method: 'manual',
         payment_month: month,
-        payment_reference: note || `manual_${student.id.slice(0, 8)}_${Date.now()}`,
+        payment_reference: note ? `manual:${note}` : `manual_${student.id.slice(0, 8)}_${Date.now()}`,
         status: 'success',
         channel: method,
         currency: 'GHS',
@@ -754,6 +759,49 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     } catch (err) {
       console.error('Manual fee record error:', err);
       res.status(500).json({ error: err.message || 'Failed to record this payment' });
+    }
+  });
+
+  app.patch('/api/fees/manual/:paymentId', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const schoolId = req.user.schoolId;
+      const paymentId = String(req.params.paymentId || '').trim();
+      const amount = req.body?.amount == null ? undefined : roundMoney(req.body.amount);
+      const method = req.body?.method == null ? undefined : normalizeManualMethod(req.body.method);
+      if (amount != null && !(amount >= 0.01)) {
+        return res.status(400).json({ error: 'Enter an amount of at least GHS 0.01.' });
+      }
+      if (req.body?.method != null && !method) {
+        return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
+      }
+
+      const payment = await updateManualFeePayment({
+        schoolId,
+        paymentId,
+        amount,
+        method,
+        reference: req.body?.reference,
+      });
+      const balance = await refreshStudentFeeStatus({
+        schoolId,
+        studentId: payment.payer_id,
+        month: payment.payment_month,
+      });
+
+      res.json({
+        payment: { ...payment, manual: true },
+        month: payment.payment_month,
+        fee_amount: balance?.fee_amount || 0,
+        paid_amount: balance?.paid_amount || 0,
+        outstanding: balance?.outstanding || 0,
+        fully_paid: Boolean(balance?.fully_paid),
+      });
+    } catch (err) {
+      if (err.status === 403 || err.status === 404 || err.status === 400) {
+        return res.status(err.status).json({ error: err.message, code: err.code || undefined });
+      }
+      console.error('Manual fee update error:', err);
+      res.status(500).json({ error: err.message || 'Failed to update this payment' });
     }
   });
 

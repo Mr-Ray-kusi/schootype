@@ -2,15 +2,19 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Copy, Plus, RefreshCw } from 'lucide-react';
+import { useAuth } from '../contexts/authcontext';
 import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
+import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const FeesPaid = () => {
+  const { school } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showManual, setShowManual] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -39,6 +43,7 @@ const FeesPaid = () => {
 
   const paid = data?.paid || [];
   const totals = data?.totals || {};
+  const selected = (data?.students || paid).find((row) => row.id === selectedId) || null;
 
   return (
     <div className="space-y-6">
@@ -46,7 +51,7 @@ const FeesPaid = () => {
         <div>
           <h1 className="text-3xl font-bold text-white">Fees Paid</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Payments for {data?.month || 'this month'} via MoMo, bank, cash, or USSD.
+            Payments for {data?.month || 'this month'} via MoMo, bank, cash, or USSD. Select a student to open the receipt.
           </p>
         </div>
         <div className="flex gap-2">
@@ -112,7 +117,11 @@ const FeesPaid = () => {
               {paid.map((row) => {
                 const outstanding = Number(row.outstanding) || 0;
                 return (
-                  <tr key={row.id} className="border-t border-slate-700 bg-slate-900 text-slate-100">
+                  <tr
+                    key={row.id}
+                    onClick={() => setSelectedId(row.id)}
+                    className="cursor-pointer border-t border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800/80"
+                  >
                     <td className="px-4 py-3">{row.name}</td>
                     <td className="px-4 py-3">{row.class || '—'}</td>
                     <td className="px-4 py-3">{formatGhs(row.fee_amount)}</td>
@@ -123,7 +132,14 @@ const FeesPaid = () => {
                     <td className="px-4 py-3 capitalize">{row.payment?.channel || row.payment?.payment_method || 'Paystack'}</td>
                     <td className="px-4 py-3">
                       {row.pay_path ? (
-                        <button type="button" onClick={() => copyLink(row.pay_path)} className="text-sky-400 hover:text-sky-300">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            copyLink(row.pay_path);
+                          }}
+                          className="text-sky-400 hover:text-sky-300"
+                        >
                           <Copy className="h-4 w-4" />
                         </button>
                       ) : (
@@ -144,6 +160,19 @@ const FeesPaid = () => {
           month={data?.month}
           onClose={() => setShowManual(false)}
           onSaved={() => {
+            setLoading(true);
+            load();
+          }}
+        />
+      ) : null}
+
+      {selected ? (
+        <FeePaymentReceiptModal
+          student={selected}
+          month={data?.month}
+          schoolName={school?.name}
+          onClose={() => setSelectedId(null)}
+          onChanged={() => {
             setLoading(true);
             load();
           }}

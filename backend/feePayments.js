@@ -52,6 +52,16 @@ export function isSuccessfulFeeStatus(status) {
   return value === 'success' || value === 'paid';
 }
 
+export function isManualFeePayment(row) {
+  const method = String(row?.payment_method || '').toLowerCase();
+  const channel = String(row?.channel || '').toLowerCase();
+  const ref = String(row?.payment_reference || '');
+  if (ref.startsWith('fee_')) return false;
+  if (method === 'manual' || method === 'cash') return true;
+  if (ref.startsWith('manual_') || ref.startsWith('manual:')) return true;
+  return ['cash', 'momo', 'bank'].includes(method) && !/^T\d|^sk_/.test(ref);
+}
+
 export function sumFeePayments(payments) {
   return roundMoney(
     (payments || []).reduce((sum, row) => {
@@ -200,6 +210,56 @@ export async function recordFeePayment(row) {
     throw error;
   }
   return null;
+}
+
+export async function updateManualFeePayment({ schoolId, paymentId, amount, method, reference }) {
+  const { data: existing, error } = await supabase
+    .from('fee_payments')
+    .select('*')
+    .eq('id', paymentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (error || !existing) {
+    const err = new Error('Payment not found');
+    err.status = 404;
+    throw err;
+  }
+  if (!isManualFeePayment(existing)) {
+    const err = new Error('Online payments cannot be edited.');
+    err.status = 403;
+    err.code = 'ONLINE_LOCKED';
+    throw err;
+  }
+
+  const next = {};
+  if (amount != null) next.amount = roundMoney(amount);
+  if (method) {
+    next.payment_method = 'manual';
+    next.channel = method;
+  }
+  if (reference !== undefined) {
+    const note = String(reference || '').trim();
+    if (note.startsWith('fee_')) {
+      const err = new Error('That reference belongs to an online payment and cannot be used here.');
+      err.status = 400;
+      throw err;
+    }
+    next.payment_reference = note
+      ? note.startsWith('manual')
+        ? note
+        : `manual:${note}`
+      : existing.payment_reference || `manual_${existing.payer_id || 'fee'}_${Date.now()}`;
+  }
+
+  const { data, error: updateError } = await supabase
+    .from('fee_payments')
+    .update(next)
+    .eq('id', paymentId)
+    .eq('school_id', schoolId)
+    .select()
+    .maybeSingle();
+  if (updateError) throw updateError;
+  return data || existing;
 }
 
 /**

@@ -2,12 +2,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Copy, Plus, RefreshCw } from 'lucide-react';
+import { useAuth } from '../contexts/authcontext';
 import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
+import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const FeesUnpaid = () => {
+  const { school } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showReminderModal, setShowReminderModal] = useState(false);
@@ -16,6 +19,7 @@ const FeesUnpaid = () => {
   );
   const [sending, setSending] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -67,6 +71,7 @@ const FeesUnpaid = () => {
 
   const unpaid = data?.unpaid || [];
   const totals = data?.totals || {};
+  const selected = (data?.students || unpaid).find((row) => row.id === selectedId) || null;
 
   return (
     <div className="space-y-6">
@@ -142,7 +147,11 @@ const FeesUnpaid = () => {
             </thead>
             <tbody>
               {unpaid.map((row) => (
-                <tr key={row.id} className="border-t border-slate-700 bg-slate-900 text-slate-100">
+                <tr
+                  key={row.id}
+                  onClick={() => setSelectedId(row.id)}
+                  className="cursor-pointer border-t border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800/80"
+                >
                   <td className="px-4 py-3">{row.name}</td>
                   <td className="px-4 py-3">{row.class || '—'}</td>
                   <td className="px-4 py-3">{formatGhs(row.fee_amount)}</td>
@@ -152,7 +161,10 @@ const FeesUnpaid = () => {
                     {row.pay_path ? (
                       <button
                         type="button"
-                        onClick={() => copyLink(row.pay_path)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          copyLink(row.pay_path);
+                        }}
                         className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
                       >
                         <Copy className="h-4 w-4" />
@@ -215,6 +227,19 @@ const FeesUnpaid = () => {
           month={data?.month}
           onClose={() => setShowManual(false)}
           onSaved={() => {
+            setLoading(true);
+            load();
+          }}
+        />
+      ) : null}
+
+      {selected ? (
+        <FeePaymentReceiptModal
+          student={selected}
+          month={data?.month}
+          schoolName={school?.name}
+          onClose={() => setSelectedId(null)}
+          onChanged={() => {
             setLoading(true);
             load();
           }}
