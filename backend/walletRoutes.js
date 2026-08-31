@@ -439,7 +439,12 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
           email: req.user.email,
           role: req.user.role,
           path: '/school-wallet',
-          meta: { reference, channel: 'mobile_money' },
+          meta: {
+            reason: 'provider_declined',
+            message: displayText || 'MoMo payment declined',
+            reference,
+            channel: 'mobile_money',
+          },
         }).catch(() => {});
         return res.status(400).json({
           error: displayText || 'MoMo payment failed. Try again.',
@@ -576,7 +581,15 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
             email: req.user.email,
             role: req.user.role,
             path: '/school-wallet',
-            meta: { reference, status: verified.status },
+            meta: {
+              reason: String(verified.status).toLowerCase() === 'abandoned' ? 'abandoned' : 'provider_declined',
+              message:
+                String(verified.status).toLowerCase() === 'abandoned'
+                  ? 'Payment abandoned before completion'
+                  : 'Payment declined by provider',
+              reference,
+              status: verified.status,
+            },
           }).catch(() => {});
         }
       }
@@ -628,7 +641,12 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
             eventType: 'payment_failed',
             schoolId: failed?.transaction?.school_id || failed?.wallet?.school_id || null,
             path: '/school-wallet',
-            meta: { reference: ref, event },
+            meta: {
+              reason: 'transfer_failed',
+              message: data.reason || 'Withdrawal or transfer failed',
+              reference: ref,
+              event,
+            },
           }).catch(() => {});
         }
       }

@@ -89,6 +89,7 @@ import {
   recordClientEvents,
   getPlatformAnalytics,
 } from './platformTelemetry.js';
+import { getSchoolAnalytics } from './schoolAnalytics.js';
 import { getGoogleAuthConfig, verifyGoogleIdentity } from './googleAuth.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -233,7 +234,7 @@ const SCHOOL_AUTH_COLUMNS = [
 const STUDENT_LIST_COLUMNS =
   'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, skills, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
-  'id, school_id, name, role, barcode, qr_code, secret_code, subjects, class_names, created_at';
+  'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
 const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
 
 const wantsPhotos = (req) =>
@@ -1246,11 +1247,27 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const hitCheck = await checkAuthHitAllowed('login', clientIp);
-    if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
+    if (!hitCheck.allowed) {
+      recordPlatformEvent({
+        eventType: 'login_failed',
+        email,
+        path: '/login',
+        meta: { reason: 'rate_limited', message: 'Too many login attempts' },
+      }).catch(() => {});
+      return sendAuthRateLimited(res, hitCheck);
+    }
     await recordAuthHit('login', clientIp, email);
 
     const loginCheck = await checkLoginAllowed(email, clientIp);
-    if (!loginCheck.allowed) return sendAuthRateLimited(res, loginCheck);
+    if (!loginCheck.allowed) {
+      recordPlatformEvent({
+        eventType: 'login_failed',
+        email,
+        path: '/login',
+        meta: { reason: 'rate_limited', message: 'Too many login attempts' },
+      }).catch(() => {});
+      return sendAuthRateLimited(res, loginCheck);
+    }
 
     // Prefer exact match; fall back to case-insensitive if needed
     let { data: school, error: schoolError } = await supabase
@@ -1271,6 +1288,12 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (schoolError) {
       console.error('Login lookup error:', schoolError);
+      recordPlatformEvent({
+        eventType: 'login_failed',
+        email,
+        path: '/login',
+        meta: { reason: 'system_failure', message: 'System failure during login' },
+      }).catch(() => {});
       return res.status(500).json({ error: 'Login failed. Please try again.' });
     }
 
@@ -1306,6 +1329,11 @@ app.post('/api/auth/login', async (req, res) => {
         schoolId: school?.id || null,
         schoolName: school?.name || null,
         role: school ? getSchoolRole(school) : null,
+        path: '/login',
+        meta: {
+          reason: school ? 'wrong_password' : 'unknown_email',
+          message: school ? 'Wrong password' : 'Email not found',
+        },
       }).catch(() => {});
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -1349,6 +1377,12 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    recordPlatformEvent({
+      eventType: 'login_failed',
+      email: req.body?.email?.trim?.().toLowerCase?.() || null,
+      path: '/login',
+      meta: { reason: 'system_failure', message: 'System failure during login' },
+    }).catch(() => {});
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -3144,6 +3178,13 @@ app.delete('/api/students/:id', authenticateToken, enforcePlanApproval, async (r
 // ============ STAFF ROUTES ============
 
 // helper to normalize DB records for the frontend
+const parseSalary = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return Math.round(amount * 100) / 100;
+};
+
 const normalizeStaffRecord = (rec) => {
   if (!rec) return rec;
   return {
@@ -3151,6 +3192,7 @@ const normalizeStaffRecord = (rec) => {
     secretCode: rec.secret_code || null,
     subjects: rec.subjects || '',
     classNames: rec.class_names || '',
+    salary: rec.salary == null || rec.salary === '' ? null : Number(rec.salary),
   };
 };
 
@@ -3185,7 +3227,7 @@ const slugifySchoolName = (name) => {
 
 const insertStaffRecord = async (record) => {
   const payload = fillIdentityCodes({ ...record });
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url', 'barcode', 'qr_code'];
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'salary', 'photo_url', 'barcode', 'qr_code'];
 
   for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
     const { data, error } = await supabase.from('staffs').insert([payload]).select().single();
@@ -3210,7 +3252,7 @@ const insertStaffRecord = async (record) => {
 
 const updateStaffRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url'];
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'salary', 'photo_url'];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase
@@ -3270,7 +3312,7 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
 app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, secretCode, subjects, classNames, class_names, photo } = req.body;
+    const { name, role, secretCode, subjects, classNames, class_names, photo, salary } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Staff name is required' });
@@ -3299,6 +3341,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
       secret_code: accessCode,
       subjects: subjectsValue,
       class_names: classesValue,
+      salary: parseSalary(salary),
       created_at: new Date(),
     };
     if (photo) insertObj.photo_url = photo;
@@ -3338,6 +3381,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       class_names,
       photo,
       photo_url: photoUrl,
+      salary,
     } = req.body;
 
     const { data: currentStaff, error: fetchError } = await supabase
@@ -3368,6 +3412,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       const nextClasses = classNames !== undefined ? classNames : class_names;
       updates.class_names = nextClasses?.toString?.().trim?.() || null;
     }
+    if (salary !== undefined) updates.salary = parseSalary(salary);
 
     if (secretCode !== undefined) {
       updates.secret_code = String(secretCode || '').trim() || generateSecretCode();
@@ -4918,7 +4963,11 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
         email: req.user.email,
         role: req.user.role,
         path: '/messages',
-        meta: { count: smsDelivery.sent },
+        meta: {
+          count: smsDelivery.sent,
+          delivered: smsDelivery.sent,
+          failed: smsDelivery.failed || 0,
+        },
       }).catch(() => {});
     }
 
@@ -5077,6 +5126,16 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     res.json(payload);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/dashboard/analytics', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const analytics = await getSchoolAnalytics(req.user.schoolId, { range: req.query.range });
+    res.json(analytics);
+  } catch (error) {
+    console.error('School analytics error:', error);
+    res.status(500).json({ error: error.message || 'Failed to load school analytics' });
   }
 });
 

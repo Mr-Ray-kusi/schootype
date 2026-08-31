@@ -20,7 +20,6 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const Students = lazyWithRetry(() => import('./pages/students'));
 const Staff = lazyWithRetry(() => import('./pages/staffs'));
-const NonStaff = lazyWithRetry(() => import('./pages/nonstaffs'));
 const Attendance = lazyWithRetry(() => import('./pages/attendance'));
 const Messages = lazyWithRetry(() => import('./pages/message'));
 const Scanner = lazyWithRetry(() => import('./pages/scanner'));
@@ -137,11 +136,9 @@ function App() {
                   <Route element={<PlanFeatureRoute feature="students" />}>
                     <Route path="/students" element={<Students />} />
                   </Route>
-                  <Route element={<PlanFeatureRoute feature="staff" />}>
+                  <Route element={<PlanFeatureRoute features={['staff', 'non-staff']} />}>
                     <Route path="/staff" element={<Staff />} />
-                  </Route>
-                  <Route element={<PlanFeatureRoute feature="non-staff" />}>
-                    <Route path="/non-staff" element={<NonStaff />} />
+                    <Route path="/non-staff" element={<Navigate to="/staff?type=non-staff" replace />} />
                   </Route>
                   <Route element={<PlanFeatureRoute feature="attendance" />}>
                     <Route path="/attendance" element={<Attendance />} />

@@ -11,7 +11,7 @@ import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, nonStaffPack } from '../utils/personPackExport';
 
-const NonStaff = () => {
+const NonStaff = ({ hideHeader = false }) => {
   const [nonStaff, setNonStaff] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -155,7 +155,7 @@ const NonStaff = () => {
 <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white">Non-Staff Management</h1>
+            <h1 className="text-3xl font-bold text-white">{hideHeader ? 'Non-staff' : 'Non-Staff Management'}</h1>
             <p className="mt-1 text-sm text-slate-400">{total} people</p>
           </div>
           <div className="flex flex-wrap gap-2">

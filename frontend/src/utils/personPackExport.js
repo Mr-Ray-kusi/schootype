@@ -209,6 +209,7 @@ export function staffPack(member, qrValue) {
     details: {
       Name: member.name,
       Role: member.role || '',
+      Salary: member.salary ?? '',
       'Access code': member.secretCode || member.secret_code || '',
       Subjects: member.subjects || '',
       Classes: member.classNames || member.class_names || '',

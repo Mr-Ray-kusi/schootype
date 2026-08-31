@@ -1,0 +1,213 @@
+import React, { useCallback, useMemo, useState } from 'react';
+import axios from 'axios';
+import { CalendarCheck, DollarSign, MessageSquare, Receipt } from 'lucide-react';
+import PerformanceChart, { percentChange } from './PerformanceChart';
+import { useLivePoll } from '../hooks/useLivePoll';
+
+const RANGES = [
+  { id: '1d', label: '1D' },
+  { id: '1w', label: '1W' },
+  { id: '1m', label: '1M' },
+  { id: '6m', label: '6M' },
+  { id: '1y', label: '1Y' },
+];
+
+const RANGE_LABELS = {
+  '1d': 'last 24 hours',
+  '1w': 'this week',
+  '1m': 'last 30 days',
+  '6m': 'last 6 months',
+  '1y': 'last 12 months',
+};
+
+const formatMoney = (amount) =>
+  new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 2 }).format(amount || 0);
+
+const formatTime = (iso) => {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  return date.toLocaleString();
+};
+
+const SchoolAnalyticsChart = () => {
+  const [data, setData] = useState(null);
+  const [range, setRange] = useState('1w');
+  const [selectedPanel, setSelectedPanel] = useState('attendance');
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(
+    async ({ silent = false } = {}) => {
+      try {
+        const { data: payload } = await axios.get('/api/dashboard/analytics', { params: { range } });
+        setData(payload);
+      } catch {
+        if (!silent) setData(null);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [range]
+  );
+
+  React.useEffect(() => {
+    setLoading(true);
+    fetchData({ silent: false });
+  }, [fetchData]);
+
+  useLivePoll(() => fetchData({ silent: true }), 60000, !loading);
+
+  const totals = data?.totals || {};
+  const previews = data?.previews || {};
+  const rangeLabel = RANGE_LABELS[range] || RANGE_LABELS['1w'];
+
+  const panels = useMemo(
+    () => [
+      {
+        id: 'attendance',
+        title: 'Attendance',
+        value: totals.attendanceInRange || 0,
+        icon: CalendarCheck,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} marked`,
+      },
+      {
+        id: 'feesPaid',
+        title: 'Fees paid',
+        value: totals.feesPaidInRange || 0,
+        icon: DollarSign,
+        formatValue: (value) => formatMoney(value),
+      },
+      {
+        id: 'feesUnpaid',
+        title: 'Fees unpaid',
+        value: totals.feesUnpaidNow || 0,
+        icon: Receipt,
+        formatValue: (value) => formatMoney(value),
+      },
+      {
+        id: 'smsSent',
+        title: 'SMS sent',
+        value: totals.smsSentInRange || 0,
+        icon: MessageSquare,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} sent`,
+      },
+      {
+        id: 'smsDelivered',
+        title: 'SMS delivered',
+        value: totals.smsDeliveredInRange || 0,
+        icon: MessageSquare,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} delivered`,
+      },
+    ],
+    [totals]
+  );
+
+  const selected = panels.find((panel) => panel.id === selectedPanel) || panels[0];
+  const series = data?.chart?.series?.[selected.id] || [];
+  const latest = series[series.length - 1]?.value ?? 0;
+  const previous = series.length > 1 ? series[0]?.value : null;
+  const change = percentChange(latest, previous);
+
+  const preview = previews[selected.id] || [];
+
+  return (
+    <section className="relative overflow-hidden rounded-3xl border border-slate-700/80 bg-[#141416] p-5 shadow-[0_0_80px_rgba(14,165,233,0.08)] md:p-7">
+      <div className="chart-animated-bg pointer-events-none absolute inset-0 opacity-50" />
+      <div className="relative z-10">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">School performance</h2>
+            <p className="mt-2 text-xl font-semibold text-white md:text-2xl">{selected.title}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+              <span className="text-lg font-semibold text-white">{selected.formatValue(latest)}</span>
+              {change != null ? (
+                <span
+                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
+                    change >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
+                  }`}
+                >
+                  {change >= 0 ? '+' : ''}
+                  {change}%
+                </span>
+              ) : null}
+              <span>· {rangeLabel}</span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 self-start rounded-full border border-white/10 bg-zinc-950/70 p-1">
+            {RANGES.map((item) => {
+              const active = range === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setRange(item.id)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? 'bg-gradient-to-r from-sky-500 to-violet-500 text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+          {panels.map((panel) => {
+            const Icon = panel.icon;
+            const active = selectedPanel === panel.id;
+            return (
+              <button
+                key={panel.id}
+                type="button"
+                onClick={() => setSelectedPanel(panel.id)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${
+                  active
+                    ? 'border-transparent bg-gradient-to-r from-sky-500 to-violet-500 text-white'
+                    : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:text-white'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="font-medium">{panel.title}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-6">
+          {loading && !data ? (
+            <p className="py-16 text-center text-sm text-slate-400">Loading school chart…</p>
+          ) : (
+            <PerformanceChart points={series} unit={data?.chart?.unit || 'day'} formatValue={selected.formatValue} />
+          )}
+        </div>
+
+        <div className="mt-6 border-t border-white/10 pt-5">
+          {preview.length === 0 ? (
+            <p className="py-4 text-center text-sm text-zinc-500">No {selected.title.toLowerCase()} records in this range.</p>
+          ) : (
+            <ul className="divide-y divide-white/5">
+              {preview.map((row) => (
+                <li key={row.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-white">{row.name || `${row.count || 1} delivered`}</p>
+                    <p className="text-xs text-zinc-500">
+                      {row.className || row.type || row.method || row.recipients || 'Record'}
+                      {row.outstanding != null ? ` · ${formatMoney(row.outstanding)} outstanding` : ''}
+                      {row.amount != null ? ` · ${formatMoney(row.amount)}` : ''}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs text-zinc-500">{formatTime(row.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+export default SchoolAnalyticsChart;

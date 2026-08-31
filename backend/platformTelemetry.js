@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { supabase } from './supabaseClient.js';
+import { isSuccessfulFeeStatus, roundMoney } from './feePayments.js';
 
 const MEMORY_CAP = 8000;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -69,12 +70,12 @@ function startOfMonth(date = new Date()) {
   return d;
 }
 
-function normalizeAnalyticsRange(value) {
+export function normalizeAnalyticsRange(value) {
   const key = String(value || '1w').toLowerCase();
   return ANALYTICS_RANGES.has(key) ? key : '1w';
 }
 
-function startOfUnit(date, unit) {
+export function startOfUnit(date, unit) {
   if (unit === 'hour') return startOfHour(date);
   if (unit === 'day') return startOfDay(date);
   if (unit === 'week') return startOfWeek(date);
@@ -90,7 +91,7 @@ function addTimeUnit(date, unit) {
   return d;
 }
 
-function analyticsRangeWindow(range, now = new Date()) {
+export function analyticsRangeWindow(range, now = new Date()) {
   if (range === '1d') {
     const start = startOfHour(now);
     start.setHours(start.getHours() - 23);
@@ -123,7 +124,7 @@ function formatBucketLabel(date, unit) {
   return date.toLocaleDateString('en-GB', { month: 'short' });
 }
 
-function enumerateBuckets(start, now, unit) {
+export function enumerateBuckets(start, now, unit) {
   const buckets = [];
   let cursor = startOfUnit(start, unit);
   const end = now.getTime();
@@ -469,6 +470,31 @@ function eventLabel(event) {
   }
 }
 
+export function describePlatformError(event) {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const reason = String(meta.reason || '').toLowerCase();
+  const message = String(meta.message || '').trim();
+
+  if (event?.event_type === 'login_failed') {
+    if (reason === 'wrong_password') return 'Wrong password';
+    if (reason === 'unknown_email') return 'Email not found';
+    if (reason === 'system_failure') return 'System failure during login';
+    if (reason === 'rate_limited') return 'Too many login attempts';
+    return message || 'Login attempt failed';
+  }
+
+  if (event?.event_type === 'payment_failed') {
+    if (message) return message;
+    if (reason === 'abandoned') return 'Payment abandoned before completion';
+    if (reason === 'provider_declined') return 'Payment declined by provider';
+    if (reason === 'transfer_failed') return 'Withdrawal or transfer failed';
+    if (reason === 'system_failure') return 'System failure while processing payment';
+    return 'Payment attempt failed';
+  }
+
+  return eventLabel(event);
+}
+
 async function safeCount(table, filters = {}) {
   if (!supabase) return 0;
   try {
@@ -483,19 +509,46 @@ async function safeCount(table, filters = {}) {
   }
 }
 
-async function feesCollectedToday(dayStartIso) {
-  if (!supabase) return 0;
+async function loadFeePaymentsSince(sinceIso, limit = 8000) {
+  if (!supabase) return [];
   try {
     const { data, error } = await supabase
       .from('fee_payments')
-      .select('amount')
-      .gte('created_at', dayStartIso)
-      .limit(5000);
-    if (error) return 0;
-    return (data || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+      .select('id, school_id, amount, status, payer_name, payment_method, channel, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return [];
+    return data || [];
   } catch {
-    return 0;
+    return [];
   }
+}
+
+function successfulFeeAmount(row) {
+  if (!isSuccessfulFeeStatus(row?.status)) return 0;
+  return Number(row?.amount) || 0;
+}
+
+function buildFeeSeries(payments, range, now) {
+  const { start, unit } = analyticsRangeWindow(range, now);
+  const buckets = enumerateBuckets(start, now, unit);
+  const known = new Set(buckets.map((bucket) => bucket.t));
+  const amounts = new Map();
+  for (const row of payments || []) {
+    const amount = successfulFeeAmount(row);
+    if (!amount) continue;
+    const at = new Date(row.created_at);
+    if (Number.isNaN(at.getTime()) || at < start) continue;
+    const key = startOfUnit(at, unit).toISOString();
+    if (!known.has(key)) continue;
+    amounts.set(key, (amounts.get(key) || 0) + amount);
+  }
+  return buckets.map((bucket) => ({
+    t: bucket.t,
+    label: bucket.label,
+    value: roundMoney(amounts.get(bucket.t) || 0),
+  }));
 }
 
 async function newSchoolsSince(sinceIso, limit = 100) {
@@ -538,15 +591,31 @@ export async function getPlatformAnalytics(options = {}) {
     return sum + (Number.isFinite(count) && count > 0 ? count : 1);
   }, 0);
 
-  const [totalStudents, smsFromMessages, feesToday, recentSchools] = await Promise.all([
+  const [totalStudents, smsFromMessages, feePayments, recentSchools] = await Promise.all([
     safeCount('students'),
     safeCount('messages', {
       gte: { column: 'created_at', value: dayStart.toISOString() },
       eq: { column: 'delivery_channel', value: 'sms' },
     }),
-    feesCollectedToday(dayStart.toISOString()),
+    loadFeePaymentsSince(loadSince.toISOString()),
     newSchoolsSince(rangeStart.toISOString(), range === '6m' || range === '1y' ? 500 : 100),
   ]);
+
+  const feesInRange = feePayments.filter((row) => new Date(row.created_at) >= rangeStart);
+  const feesToday = feesInRange
+    .filter((row) => new Date(row.created_at) >= dayStart)
+    .reduce((sum, row) => sum + successfulFeeAmount(row), 0);
+  const feesPaidInRange = feesInRange.reduce((sum, row) => sum + successfulFeeAmount(row), 0);
+  const feesPreview = feesInRange
+    .filter((row) => successfulFeeAmount(row) > 0)
+    .slice(0, 20)
+    .map((row) => ({
+      id: row.id,
+      amount: roundMoney(successfulFeeAmount(row)),
+      payerName: row.payer_name || 'Parent payment',
+      method: row.channel || row.payment_method || 'Paystack',
+      createdAt: row.created_at,
+    }));
 
   const signupEvents = inRange('signup', rangeStart);
   const newUsers = [];
@@ -608,6 +677,7 @@ export async function getPlatformAnalytics(options = {}) {
   });
 
   const chart = buildPerformanceSeries({ events, newUsers, range, now });
+  chart.series.fees = buildFeeSeries(feePayments, range, now);
 
   return {
     generatedAt: now.toISOString(),
@@ -642,6 +712,8 @@ export async function getPlatformAnalytics(options = {}) {
           id: event.id,
           type: event.event_type,
           label: eventLabel(event),
+          description: describePlatformError(event),
+          reason: event.meta?.reason || null,
           email: event.email,
           schoolName: event.school_name,
           createdAt: event.created_at,
@@ -650,8 +722,10 @@ export async function getPlatformAnalytics(options = {}) {
     dataStats: {
       totalStudents,
       feesCollectedToday: feesToday,
+      feesPaidInRange,
       smsSentToday: Math.max(smsFromEvents, smsFromMessages),
     },
+    feesPreview,
     keyEvents,
     newUsers: newUsers.slice(0, 30),
     chart,

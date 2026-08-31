@@ -8,6 +8,7 @@ import { DASHBOARD_CACHE_MS, cachedGet, peekCache } from '../utils/requestCache'
 import { schoolLocalDate, schoolLocalDateLabel } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import useLiteMode from '../hooks/useLiteMode';
+import SchoolAnalyticsChart from '../components/SchoolAnalyticsChart';
 import {
   Users,
   UserCog,
@@ -83,7 +84,7 @@ const Dashboard = () => {
       value: stats.totalStaff,
       icon: Briefcase,
       accent: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/25',
-      link: '/staff#list',
+      link: '/staff?type=staff#list',
       feature: 'staff',
     },
     {
@@ -91,7 +92,7 @@ const Dashboard = () => {
       value: stats.totalNonStaff,
       icon: UserCog,
       accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',
-      link: '/non-staff#list',
+      link: '/staff?type=non-staff#list',
       feature: 'non-staff',
     },
     {
@@ -243,6 +244,8 @@ const Dashboard = () => {
             })}
           </div>
         </section>
+
+        <SchoolAnalyticsChart />
 
         {includesPlanFeature('attendance') && (
           <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-7">

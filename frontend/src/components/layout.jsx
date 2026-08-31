@@ -33,13 +33,21 @@ import useLiteMode from '../hooks/useLiteMode';
 import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
 import { cachedGet } from '../utils/requestCache';
 
-/** True when pathname is exactly href, or a nested path under href (segment-safe). */
-const isNavActive = (pathname, href) => {
+/** True when the current location matches a nav href, including staff/non-staff query filters. */
+const isNavActive = (location, href) => {
   if (!href) return false;
-  if (pathname === href) return true;
-  // Avoid `/super-admin` matching every platform page
-  if (href === '/super-admin' || href === '/') return false;
-  return pathname.startsWith(`${href}/`);
+  const [path, query] = href.split('?');
+  const wantedType = query ? new URLSearchParams(query).get('type') : null;
+  const currentType = new URLSearchParams(location.search).get('type');
+
+  if (path === '/staff') {
+    if (wantedType === 'non-staff') return location.pathname === '/staff' && currentType === 'non-staff';
+    return location.pathname === '/staff' && currentType !== 'non-staff';
+  }
+
+  if (location.pathname === path) return true;
+  if (path === '/super-admin' || path === '/') return false;
+  return location.pathname.startsWith(`${path}/`);
 };
 
 const Layout = ({ children }) => {
@@ -95,7 +103,7 @@ const Layout = ({ children }) => {
         { name: 'Staffs', href: '/staff', icon: Briefcase, featureKey: 'staff' },
         { name: 'Setup', href: '/classes', icon: BookOpen, featureKey: 'classes' },
         { name: 'Attendance', href: '/attendance', icon: Calendar, featureKey: 'attendance' },
-        { name: 'Non-Staffs', href: '/non-staff', icon: UserCog, featureKey: 'non-staff' },
+        { name: 'Non-Staffs', href: '/staff?type=non-staff', icon: UserCog, featureKey: 'non-staff' },
         { name: 'Scanner', href: '/scanner', icon: QrCode, featureKey: 'scanner' },
         { name: 'Add Student', href: '/add-student', icon: UserPlus, featureKey: 'add-student' },
       ],
@@ -229,7 +237,7 @@ const Layout = ({ children }) => {
               </h2>
               <div className="mt-2 space-y-1">
                 {section.items.map((item) => {
-                  const active = isNavActive(location.pathname, item.href);
+                  const active = isNavActive(location, item.href);
                   const isLocked =
                     !isSuperAdmin &&
                     Boolean(item.featureKey || item.featureKeys) &&

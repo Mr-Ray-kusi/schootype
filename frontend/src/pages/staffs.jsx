@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
+import { useAuth } from '../contexts/authcontext';
+import NonStaff from './nonstaffs';
 import {
   Search,
   Plus,
@@ -20,7 +23,31 @@ import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.
 import { downloadPersonPack, downloadPeoplePacks, staffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
 
+const formatSalary = (value) => {
+  if (value == null || value === '') return '—';
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '—';
+  return `GHS ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
 const Staff = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { includesPlanFeature } = useAuth();
+  const canStaff = includesPlanFeature('staff');
+  const canNonStaff = includesPlanFeature('non-staff');
+  const requestedType = searchParams.get('type');
+  const peopleType =
+    requestedType === 'non-staff' && canNonStaff
+      ? 'non-staff'
+      : requestedType === 'staff' && canStaff
+        ? 'staff'
+        : canStaff
+          ? 'staff'
+          : 'non-staff';
+
+  const setPeopleType = (next) => {
+    setSearchParams(next === 'non-staff' ? { type: 'non-staff' } : { type: 'staff' }, { replace: true });
+  };
   const [staff, setStaff] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -42,6 +69,7 @@ const Staff = () => {
     secretCode: '',
     subjects: '',
     classNames: '',
+    salary: '',
   });
 
   useEffect(() => {
@@ -121,7 +149,7 @@ const Staff = () => {
   const generateSecretCode = () => generateStrongPassword(16);
 
   const resetForm = () => {
-    setFormData({ name: '', role: '', secretCode: generateStrongPassword(16), subjects: '', classNames: '' });
+    setFormData({ name: '', role: '', secretCode: generateStrongPassword(16), subjects: '', classNames: '', salary: '' });
     setPhoto(null);
     setPhotoPreview(null);
     setEditingStaff(null);
@@ -192,6 +220,7 @@ const Staff = () => {
       secretCode: staffMember.secretCode || staffMember.secret_code || generateSecretCode(),
       subjects: staffMember.subjects || '',
       classNames: staffMember.classNames || staffMember.class_names || '',
+      salary: staffMember.salary ?? '',
     });
     setPhoto(null);
     setPhotoPreview(staffMember.photo_url || null);
@@ -225,6 +254,39 @@ const Staff = () => {
 
   const roles = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
 
+  const peopleFilter =
+    canStaff && canNonStaff ? (
+      <div className="inline-flex rounded-full border border-slate-600 bg-slate-900 p-1">
+        <button
+          type="button"
+          onClick={() => setPeopleType('staff')}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+            peopleType === 'staff' ? 'bg-primary-600 text-white' : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          Staff
+        </button>
+        <button
+          type="button"
+          onClick={() => setPeopleType('non-staff')}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+            peopleType === 'non-staff' ? 'bg-purple-600 text-white' : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          Non-staff
+        </button>
+      </div>
+    ) : null;
+
+  if (peopleType === 'non-staff') {
+    return (
+      <div className="space-y-6">
+        {peopleFilter}
+        <NonStaff hideHeader />
+      </div>
+    );
+  }
+
   if (loading && staff.length === 0) {
     return (
       <>
@@ -236,6 +298,7 @@ const Staff = () => {
   return (
     <>
 <div className="space-y-6">
+        {peopleFilter}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Staff Management</h1>
@@ -332,6 +395,7 @@ const Staff = () => {
           accent="emerald"
           fields={[
             { group: 'Assignment', label: 'Role', value: viewingStaff?.role },
+            { group: 'Assignment', label: 'Salary', value: formatSalary(viewingStaff?.salary) },
             { group: 'Assignment', label: 'Subjects', value: viewingStaff?.subjects },
             {
               group: 'Assignment',
@@ -364,6 +428,7 @@ const Staff = () => {
             columns={[
               { key: 'name', header: 'Staff' },
               { key: 'role', header: 'Role' },
+              { key: 'salary', header: 'Salary', render: (row) => formatSalary(row.salary) },
               { key: 'subjects', header: 'Subjects' },
               {
                 key: 'classNames',
@@ -429,7 +494,20 @@ const Staff = () => {
                         {role}
                       </option>
                     ))}
-                  </select>
+                    </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">Salary (GHS)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.salary}
+                    onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    placeholder="e.g., 2500"
+                  />
                 </div>
 
                 <div>

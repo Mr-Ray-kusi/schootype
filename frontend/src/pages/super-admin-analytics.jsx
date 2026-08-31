@@ -181,6 +181,15 @@ const SuperAdminAnalytics = () => {
         unit: 'errors',
         formatValue: (value) => `${Number(value || 0).toLocaleString()} errors`,
       },
+      {
+        id: 'fees',
+        title: 'Fees paid',
+        value: stats.feesPaidInRange || 0,
+        subtitle: `${formatMoney(stats.feesCollectedToday)} collected today`,
+        icon: DollarSign,
+        unit: 'GHS',
+        formatValue: (value) => formatMoney(value),
+      },
     ],
     [
       activeUsers.length,
@@ -197,6 +206,8 @@ const SuperAdminAnalytics = () => {
       errors.failedLoginsToday,
       errors.failedPaymentsToday,
       errors.recent,
+      stats.feesCollectedToday,
+      stats.feesPaidInRange,
       keyEvents.length,
       newUsers.length,
       rangeLabel,
@@ -239,9 +250,9 @@ const SuperAdminAnalytics = () => {
           color="bg-indigo-500"
         />
         <StatCard
-          title="Fees collected today"
-          value={formatMoney(stats.feesCollectedToday)}
-          subtitle="Parent fee payments recorded today"
+          title="Fees paid"
+          value={formatMoney(stats.feesPaidInRange ?? stats.feesCollectedToday)}
+          subtitle={`${formatMoney(stats.feesCollectedToday)} collected today`}
           icon={DollarSign}
           color="bg-emerald-600"
         />
@@ -465,12 +476,33 @@ const SuperAdminAnalytics = () => {
             ) : (
               <ul className="divide-y divide-white/5">
                 {errors.recent.map((event) => (
-                  <li key={event.id} className="flex items-center justify-between gap-3 py-3">
-                    <div>
+                  <li key={event.id} className="flex items-start justify-between gap-3 py-3">
+                    <div className="min-w-0">
                       <p className="font-medium text-white">{event.label}</p>
-                      <p className="text-sm text-zinc-300">{event.schoolName || event.email || 'Unknown'}</p>
+                      <p className="text-sm text-amber-200">{event.description || 'Attempt failed'}</p>
+                      <p className="truncate text-sm text-zinc-300">{event.schoolName || event.email || 'Unknown'}</p>
                     </div>
-                    <span className="text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
+                    <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            ))}
+
+          {selectedPanel === 'fees' &&
+            ((data?.feesPreview || []).length === 0 ? (
+              <EmptyRow text="No fees paid in this range." />
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {data.feesPreview.map((row) => (
+                  <li key={row.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">{row.payerName}</p>
+                      <p className="text-xs capitalize text-zinc-500">{row.method || 'Payment'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-emerald-300">{formatMoney(row.amount)}</p>
+                      <p className="text-xs text-zinc-500">{relativeTime(row.createdAt)}</p>
+                    </div>
                   </li>
                 ))}
               </ul>

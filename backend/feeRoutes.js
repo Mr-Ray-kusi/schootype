@@ -39,6 +39,21 @@ import {
   getFeePeriodByKey,
   formatPeriodLabel,
 } from './academicTerms.js';
+import { recordPlatformEvent } from './platformTelemetry.js';
+
+const noteFeePaymentFailed = ({ schoolId, email, reason, message, reference }) => {
+  recordPlatformEvent({
+    eventType: 'payment_failed',
+    schoolId: schoolId || null,
+    email: email || null,
+    path: '/fees',
+    meta: {
+      reason: reason || 'provider_declined',
+      message: message || 'Payment attempt failed',
+      reference: reference || null,
+    },
+  }).catch(() => {});
+};
 
 function handlePaystackError(res, err) {
   const status = err.status || 500;
@@ -208,6 +223,12 @@ async function resolveFeePayment(reference) {
   }
 
   if (charge && isPaystackFailedStatus(chargeStatus)) {
+    noteFeePaymentFailed({
+      schoolId: charge.metadata?.school_id,
+      reason: 'provider_declined',
+      message: charge.display_text || charge.gateway_response || 'Payment declined by provider',
+      reference: charge.reference,
+    });
     return {
       status: 'failed',
       payload: charge,
@@ -242,6 +263,12 @@ async function resolveFeePayment(reference) {
       return { status: 'success', payload: verified, needs_code: false, display_text: null };
     }
     if (isPaystackFailedStatus(txStatus)) {
+      noteFeePaymentFailed({
+        schoolId: verified?.metadata?.school_id,
+        reason: txStatus === 'abandoned' ? 'abandoned' : 'provider_declined',
+        message: verified?.gateway_response || 'Payment attempt failed',
+        reference: verified?.reference || reference,
+      });
       return {
         status: 'failed',
         payload: verified,
@@ -584,6 +611,13 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       }
 
       if (isPaystackFailedStatus(submittedStatus)) {
+        noteFeePaymentFailed({
+          schoolId: req.user?.schoolId,
+          email: req.user?.email,
+          reason: 'provider_declined',
+          message: submitted?.display_text || submitted?.gateway_response || 'That code was not accepted.',
+          reference: submittedRef,
+        });
         return res.json({
           mode: 'momo',
           reference: submittedRef,
