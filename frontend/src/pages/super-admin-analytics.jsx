@@ -231,9 +231,6 @@ const SuperAdminAnalytics = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-white">Platform analytics</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Live usage for GES / municipality oversight — who is signed in, what they use, and where the system is slow.
-        </p>
         {data?.tableReady === false && (
           <p className="mt-2 text-xs text-amber-300">
             Event table is not in the database yet. Run <code>database/migrations.sql</code> in Supabase so history is stored.

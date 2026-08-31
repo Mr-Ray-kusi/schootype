@@ -161,6 +161,9 @@ ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'success';
 ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GHS';
 ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS payer_class TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS recorded_by_role TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS recorded_by_staff_id UUID;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS recorded_by_name TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fee_payments_reference
   ON fee_payments (payment_reference)

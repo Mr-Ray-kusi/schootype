@@ -52,6 +52,21 @@ export function isSuccessfulFeeStatus(status) {
   return value === 'success' || value === 'paid';
 }
 
+export function describeFeeRecorder(payment) {
+  const role = String(payment?.recorded_by_role || '').toLowerCase();
+  const name = String(payment?.recorded_by_name || '').trim();
+  if (role === 'accountant') return name ? `Accountant · ${name}` : 'Accountant';
+  if (role === 'admin') return name || 'School admin';
+  if (role === 'parent' || role === 'system') return 'Paid online';
+  if (isManualFeePayment(payment)) return name || 'School admin';
+  return 'Paid online';
+}
+
+export function studentRecordedByLabel(payments) {
+  const labels = [...new Set((payments || []).map((row) => describeFeeRecorder(row)))];
+  return labels.length ? labels.join(' · ') : '—';
+}
+
 export function isManualFeePayment(row) {
   const method = String(row?.payment_method || '').toLowerCase();
   const channel = String(row?.channel || '').toLowerCase();
@@ -175,10 +190,23 @@ export async function recordFeePayment(row) {
     status: row.status || 'success',
     channel: row.channel || null,
     currency: row.currency || 'GHS',
+    recorded_by_role: row.recorded_by_role || null,
+    recorded_by_staff_id: row.recorded_by_staff_id || null,
+    recorded_by_name: row.recorded_by_name || null,
     created_at: row.created_at || new Date().toISOString(),
   };
 
-  const optional = ['payment_reference', 'status', 'channel', 'currency', 'payer_id', 'payer_class'];
+  const optional = [
+    'payment_reference',
+    'status',
+    'channel',
+    'currency',
+    'payer_id',
+    'payer_class',
+    'recorded_by_role',
+    'recorded_by_staff_id',
+    'recorded_by_name',
+  ];
   let attempt = { ...payload };
   for (let i = 0; i <= optional.length; i++) {
     const { data, error } = await supabase.from('fee_payments').insert([attempt]).select().maybeSingle();
@@ -423,6 +451,8 @@ export async function settleSchoolFeeFromPaystack(data = {}) {
     status: 'success',
     channel: data.channel || null,
     currency: data.currency || 'GHS',
+    recorded_by_role: 'parent',
+    recorded_by_name: 'Paid online',
   });
 
   if (metadata.student_id) {

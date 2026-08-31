@@ -14,7 +14,14 @@ const METHODS = [
   { id: 'bank', label: 'Bank' },
 ];
 
-const RecordFeePaymentModal = ({ students, month, onClose, onSaved }) => {
+const RecordFeePaymentModal = ({
+  students,
+  month,
+  onClose,
+  onSaved,
+  requestConfig,
+  submitUrl = '/api/fees/manual',
+}) => {
   const [studentId, setStudentId] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
@@ -38,13 +45,17 @@ const RecordFeePaymentModal = ({ students, month, onClose, onSaved }) => {
     }
     setSaving(true);
     try {
-      const { data } = await axios.post('/api/fees/manual', {
-        studentId,
-        amount: Number(amount),
-        method,
-        reference: reference.trim() || undefined,
-        month,
-      });
+      const { data } = await axios.post(
+        submitUrl,
+        {
+          studentId,
+          amount: Number(amount),
+          method,
+          reference: reference.trim() || undefined,
+          month,
+        },
+        requestConfig
+      );
       toast.success(
         data.fully_paid
           ? `${data.student?.name || 'Student'} is now fully paid.`

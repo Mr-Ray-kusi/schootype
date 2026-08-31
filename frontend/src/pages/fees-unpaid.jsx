@@ -134,7 +134,7 @@ const FeesUnpaid = () => {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-3xl border border-slate-700">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
                 <th className="px-4 py-3">Student</th>
@@ -142,6 +142,7 @@ const FeesUnpaid = () => {
                 <th className="px-4 py-3">Fee</th>
                 <th className="px-4 py-3">Paid</th>
                 <th className="px-4 py-3">Outstanding</th>
+                <th className="px-4 py-3">Recorded by</th>
                 <th className="px-4 py-3">Pay link</th>
               </tr>
             </thead>
@@ -157,6 +158,7 @@ const FeesUnpaid = () => {
                   <td className="px-4 py-3">{formatGhs(row.fee_amount)}</td>
                   <td className="px-4 py-3">{formatGhs(row.paid_amount || 0)}</td>
                   <td className="px-4 py-3 font-medium text-amber-300">{formatGhs(row.outstanding || row.fee_amount)}</td>
+                  <td className="px-4 py-3 text-slate-300">{row.recorded_by || '—'}</td>
                   <td className="px-4 py-3">
                     {row.pay_path ? (
                       <button
@@ -237,6 +239,7 @@ const FeesUnpaid = () => {
         <FeePaymentReceiptModal
           student={selected}
           month={data?.month}
+          periodLabel={data?.period_label || data?.term_name}
           schoolName={school?.name}
           onClose={() => setSelectedId(null)}
           onChanged={() => {

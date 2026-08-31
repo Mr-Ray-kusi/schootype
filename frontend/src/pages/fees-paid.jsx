@@ -101,7 +101,7 @@ const FeesPaid = () => {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-3xl border border-slate-700">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
                 <th className="px-4 py-3">Student</th>
@@ -109,6 +109,7 @@ const FeesPaid = () => {
                 <th className="px-4 py-3">Fee</th>
                 <th className="px-4 py-3">Paid</th>
                 <th className="px-4 py-3">Outstanding</th>
+                <th className="px-4 py-3">Recorded by</th>
                 <th className="px-4 py-3">Channel</th>
                 <th className="px-4 py-3">Link</th>
               </tr>
@@ -129,6 +130,7 @@ const FeesPaid = () => {
                     <td className={`px-4 py-3 font-medium ${outstanding >= 0.01 ? 'text-amber-300' : 'text-emerald-300'}`}>
                       {outstanding >= 0.01 ? formatGhs(outstanding) : 'None'}
                     </td>
+                    <td className="px-4 py-3 text-slate-300">{row.recorded_by || '—'}</td>
                     <td className="px-4 py-3 capitalize">{row.payment?.channel || row.payment?.payment_method || 'Paystack'}</td>
                     <td className="px-4 py-3">
                       {row.pay_path ? (
@@ -170,6 +172,7 @@ const FeesPaid = () => {
         <FeePaymentReceiptModal
           student={selected}
           month={data?.month}
+          periodLabel={data?.period_label || data?.term_name}
           schoolName={school?.name}
           onClose={() => setSelectedId(null)}
           onChanged={() => {

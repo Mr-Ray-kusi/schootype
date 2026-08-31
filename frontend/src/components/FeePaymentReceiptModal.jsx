@@ -1,7 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Lock, Pencil } from 'lucide-react';
+import { Download, Lock, Pencil, Printer } from 'lucide-react';
+import {
+  downloadFeeReceiptPdf,
+  printFeeReceipt,
+  receiptOptionsFromStudent,
+} from '../utils/feeReceiptPdf';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -60,7 +65,16 @@ const manualChannel = (row) => {
   return 'cash';
 };
 
-const FeePaymentReceiptModal = ({ student, month, schoolName, onClose, onChanged }) => {
+const FeePaymentReceiptModal = ({
+  student,
+  month,
+  periodLabel,
+  schoolName,
+  onClose,
+  onChanged,
+  requestConfig,
+  patchUrl,
+}) => {
   const [editingId, setEditingId] = useState(null);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
@@ -90,11 +104,18 @@ const FeePaymentReceiptModal = ({ student, month, schoolName, onClose, onChanged
     }
     setSaving(true);
     try {
-      const { data } = await axios.patch(`/api/fees/manual/${encodeURIComponent(editingId)}`, {
-        amount: Number(amount),
-        method,
-        reference: reference.trim(),
-      });
+      const url = patchUrl
+        ? patchUrl(editingId)
+        : `/api/fees/manual/${encodeURIComponent(editingId)}`;
+      const { data } = await axios.patch(
+        url,
+        {
+          amount: Number(amount),
+          method,
+          reference: reference.trim(),
+        },
+        requestConfig
+      );
       toast.success(
         data.fully_paid
           ? 'Payment updated. This student is now fully paid.'
@@ -111,6 +132,11 @@ const FeePaymentReceiptModal = ({ student, month, schoolName, onClose, onChanged
 
   if (!student) return null;
   const outstanding = Number(student.outstanding) || 0;
+  const receiptOptions = receiptOptionsFromStudent(student, {
+    schoolName,
+    month,
+    periodLabel,
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
@@ -122,8 +148,11 @@ const FeePaymentReceiptModal = ({ student, month, schoolName, onClose, onChanged
             <p className="mt-1 text-sm text-slate-400">
               {schoolName || 'School'}
               {student.class ? ` · ${student.class}` : ''}
-              {month ? ` · ${month}` : ''}
+              {periodLabel || month ? ` · ${periodLabel || month}` : ''}
             </p>
+            {student.recorded_by ? (
+              <p className="mt-1 text-xs text-slate-500">Recorded by {student.recorded_by}</p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -131,6 +160,24 @@ const FeePaymentReceiptModal = ({ student, month, schoolName, onClose, onChanged
             className="rounded-full border border-slate-600 px-4 py-2 text-slate-200 hover:bg-slate-800"
           >
             Close
+          </button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => printFeeReceipt(receiptOptions)}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:bg-slate-800"
+          >
+            <Printer className="h-4 w-4" />
+            Print receipt
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadFeeReceiptPdf(receiptOptions)}
+            className="inline-flex items-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400"
+          >
+            <Download className="h-4 w-4" />
+            Download PDF
           </button>
         </div>
 
@@ -166,6 +213,11 @@ const FeePaymentReceiptModal = ({ student, month, schoolName, onClose, onChanged
                   <p className="text-sm font-semibold text-white">{formatGhs(row.amount)}</p>
                 </div>
                 <p className="mt-2 text-xs text-slate-400">Ref: {displayReference(row.payment_reference)}</p>
+                {row.recorded_by_label || row.recorded_by ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Recorded by {row.recorded_by_label || row.recorded_by}
+                  </p>
+                ) : null}
                 {row.manual ? (
                   editingId === row.id ? (
                     <form onSubmit={saveEdit} className="mt-4 space-y-3 border-t border-slate-800 pt-3">

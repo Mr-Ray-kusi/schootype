@@ -57,6 +57,9 @@ ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS payment_reference TEXT;
 ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'success';
 ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GHS';
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS recorded_by_role TEXT;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS recorded_by_staff_id UUID;
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS recorded_by_name TEXT;
 
 -- Report card uploads
 CREATE TABLE IF NOT EXISTS report_cards (

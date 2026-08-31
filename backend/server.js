@@ -58,7 +58,7 @@ import {
 } from './authSecurity.js';
 import { initSchoolWalletStore, creditInternalFunds, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
-import { registerFeeRoutes } from './feeRoutes.js';
+import { registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
@@ -4602,6 +4602,8 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
     res.status(500).json({ error: error.message || 'Failed to save score' });
   }
 });
+
+registerStaffFeeRoutes(app, { authenticateStaffPortal });
 
 // ============ REPORT CARDS (admin view of teacher-entered scores) ============
 

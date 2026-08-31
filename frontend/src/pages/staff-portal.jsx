@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
+import AccountantFees from '../components/AccountantFees';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const TERMS = ['Term 1', 'Term 2', 'Term 3'];
@@ -358,11 +359,12 @@ const StaffPortal = () => {
   }
 
   const isTeacher = String(staff.role).toLowerCase() === 'teacher';
+  const isAccountant = String(staff.role).toLowerCase() === 'accountant';
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-slate-800 bg-slate-900/80 px-4 py-4">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+        <div className={`mx-auto flex items-center justify-between gap-3 ${isAccountant ? 'max-w-6xl' : 'max-w-5xl'}`}>
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
             <h1 className="text-xl font-bold">{staff.name}</h1>
@@ -379,8 +381,10 @@ const StaffPortal = () => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-6 px-4 py-8">
-        {!isTeacher ? (
+      <main className={`mx-auto space-y-6 px-4 py-8 ${isAccountant ? 'max-w-6xl' : 'max-w-5xl'}`}>
+        {isAccountant ? (
+          <AccountantFees schoolName={schoolName} authHeaders={authHeaders} />
+        ) : !isTeacher ? (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">
             <p className="text-lg font-semibold">Signed in as {staff.role}</p>
             <p className="mt-2 text-sm text-slate-400">

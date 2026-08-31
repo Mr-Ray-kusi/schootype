@@ -31,6 +31,8 @@ import {
   isSuccessfulFeeStatus,
   isManualFeePayment,
   creditCashedFeeToWallet,
+  describeFeeRecorder,
+  studentRecordedByLabel,
 } from './feePayments.js';
 import {
   listAcademicTerms,
@@ -311,6 +313,269 @@ function normalizeManualMethod(method) {
   return '';
 }
 
+function accraYear() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Accra', year: 'numeric' }).format(new Date());
+}
+
+function annotatePayments(payments) {
+  return (payments || []).map((payment) => ({
+    ...payment,
+    manual: isManualFeePayment(payment),
+    recorded_by_label: describeFeeRecorder(payment),
+  }));
+}
+
+export async function getFeeOverviewPayload(schoolId, query = {}) {
+  const scope = String(query.scope || '').toLowerCase() === 'year' ? 'year' : 'term';
+  const period = query.month
+    ? await getFeePeriodByKey(schoolId, String(query.month))
+    : await resolveFeePeriod(schoolId);
+  const month = period.key;
+  const year = accraYear();
+
+  const [{ data: students, error: studentError }, { data: classes }, termPayRes, yearPayRes] = await Promise.all([
+    supabase
+      .from('students')
+      .select('id, name, class, roll_number, barcode, monthly_fee, fee_status')
+      .eq('school_id', schoolId)
+      .order('name', { ascending: true }),
+    supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
+    supabase
+      .from('fee_payments')
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('payment_month', month)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('fee_payments')
+      .select('*')
+      .eq('school_id', schoolId)
+      .gte('created_at', `${year}-01-01`)
+      .order('created_at', { ascending: false })
+      .limit(8000),
+  ]);
+  if (studentError) throw studentError;
+
+  const payments = termPayRes.data || [];
+  const yearPayments = yearPayRes.data || [];
+  const classFeeByName = new Map((classes || []).map((row) => [row.name, Number(row.fee_amount) || 0]));
+  const paymentsByStudent = new Map();
+  for (const payment of payments) {
+    if (!payment.payer_id || !isSuccessfulFeeStatus(payment.status)) continue;
+    const list = paymentsByStudent.get(payment.payer_id) || [];
+    list.push(payment);
+    paymentsByStudent.set(payment.payer_id, list);
+  }
+
+  const rows = (students || []).map((student) => {
+    const amount = resolveStudentFeeAmount(student, classFeeByName.get(student.class) || 0);
+    const studentPayments = annotatePayments(paymentsByStudent.get(student.id) || []);
+    const balance = buildFeeBalance({ feeAmount: amount, payments: studentPayments });
+    return {
+      ...student,
+      fee_amount: balance.fee_amount,
+      paid_amount: balance.paid_amount,
+      outstanding: balance.outstanding,
+      payment_month: month,
+      paid: balance.paid_amount > 0,
+      fully_paid: balance.fully_paid,
+      payment: studentPayments[0] || null,
+      payments: studentPayments,
+      recorded_by: studentRecordedByLabel(studentPayments),
+      pay_path: student.barcode ? `/pay/${encodeURIComponent(student.barcode)}` : null,
+    };
+  });
+
+  const billed = rows.filter((row) => row.fee_amount > 0 || row.paid_amount > 0);
+  const paid = billed.filter((row) => row.paid_amount > 0);
+  const unpaid = billed.filter((row) => row.outstanding >= 0.01);
+  const paidAmount = paid.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.outstanding || 0), 0);
+
+  const classesChart = [...classFeeByName.keys()]
+    .concat(billed.map((row) => row.class || 'Unassigned'))
+    .filter((name, index, list) => name && list.indexOf(name) === index)
+    .map((className) => {
+      const inClass = billed.filter((row) => (row.class || 'Unassigned') === className);
+      return {
+        className,
+        students: inClass.length,
+        paid_amount: roundMoney(inClass.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0)),
+        outstanding: roundMoney(inClass.reduce((sum, row) => sum + Number(row.outstanding || 0), 0)),
+      };
+    })
+    .filter((row) => row.students > 0);
+
+  const yearLedger = annotatePayments(yearPayments.filter((row) => isSuccessfulFeeStatus(row.status))).map((row) => ({
+    id: row.id,
+    student_name: row.payer_name,
+    class_name: row.payer_class,
+    amount: Number(row.amount) || 0,
+    channel: row.channel || row.payment_method,
+    recorded_by: row.recorded_by_label,
+    reference: row.payment_reference,
+    payment_month: row.payment_month,
+    created_at: row.created_at,
+    manual: row.manual,
+  }));
+
+  return {
+    month,
+    term_name: period.name,
+    term_starts_on: period.starts_on,
+    term_ends_on: period.ends_on,
+    period_label: formatPeriodLabel(period),
+    year,
+    scope,
+    terms: await listAcademicTerms(schoolId),
+    totals: {
+      billed: billed.length,
+      paid: paid.length,
+      unpaid: unpaid.length,
+      paid_amount: roundMoney(paidAmount),
+      unpaid_amount: roundMoney(unpaidAmount),
+      year_collected: roundMoney(yearLedger.reduce((sum, row) => sum + Number(row.amount || 0), 0)),
+    },
+    chart: { classes: classesChart },
+    paid,
+    unpaid,
+    students: rows,
+    classes: (classes || []).map((row) => row.name).filter(Boolean),
+    payments: annotatePayments(payments),
+    year_ledger: yearLedger,
+    pay_error: termPayRes.error?.message || yearPayRes.error?.message || null,
+  };
+}
+
+export async function recordManualSchoolFee({ schoolId, studentId, amount, method, reference, month, operator }) {
+  const period = month ? await getFeePeriodByKey(schoolId, String(month)) : await resolveFeePeriod(schoolId);
+  const periodKey = period.key;
+  const note = String(reference || '').trim();
+  const payMethod = normalizeManualMethod(method);
+  const payAmount = roundMoney(amount);
+  if (!studentId) {
+    const err = new Error('Select a student.');
+    err.status = 400;
+    throw err;
+  }
+  if (!payMethod) {
+    const err = new Error('Select cash, MoMo, or bank.');
+    err.status = 400;
+    throw err;
+  }
+  if (!(payAmount >= 0.01)) {
+    const err = new Error('Enter an amount of at least GHS 0.01.');
+    err.status = 400;
+    throw err;
+  }
+
+  const { data: student, error } = await supabase
+    .from('students')
+    .select('*')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (error || !student) {
+    const err = new Error('Student not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const payment = await recordFeePayment({
+    school_id: schoolId,
+    payer_type: 'student',
+    payer_id: student.id,
+    payer_name: student.name,
+    payer_class: student.class || null,
+    amount: payAmount,
+    payment_method: 'manual',
+    payment_month: periodKey,
+    payment_reference: note ? `manual:${note}` : `manual_${student.id.slice(0, 8)}_${Date.now()}`,
+    status: 'success',
+    channel: payMethod,
+    currency: 'GHS',
+    recorded_by_role: operator?.role || 'admin',
+    recorded_by_staff_id: operator?.staffId || null,
+    recorded_by_name: operator?.name || 'School admin',
+  });
+
+  const balance = await refreshStudentFeeStatus({
+    schoolId,
+    studentId: student.id,
+    month: periodKey,
+  });
+
+  await creditCashedFeeToWallet({
+    schoolId,
+    amount: payAmount,
+    reference: `feecash_${payment?.payment_reference || payment?.id || Date.now()}`,
+    studentName: student.name,
+    periodLabel: period.name || periodKey,
+  });
+
+  return {
+    payment: { ...payment, manual: true, recorded_by_label: describeFeeRecorder(payment) },
+    student: {
+      id: student.id,
+      name: student.name,
+      class: student.class || null,
+    },
+    month: periodKey,
+    fee_amount: balance?.fee_amount || 0,
+    paid_amount: balance?.paid_amount || payAmount,
+    outstanding: balance?.outstanding || 0,
+    fully_paid: Boolean(balance?.fully_paid),
+  };
+}
+
+async function receiptDetailsForPayment(reference) {
+  const resolved = await resolveFeePayment(reference);
+  const payload = resolved.payload || {};
+  const meta = payload.metadata || {};
+  const schoolId = meta.school_id;
+  const studentId = meta.student_id;
+  const base = {
+    status: resolved.status,
+    reference: payload.reference || reference,
+    amount: fromMinorUnits(payload.amount),
+    currency: payload.currency || 'GHS',
+    channel: payload.channel || null,
+    student_name: meta.payer_name || null,
+    class_name: meta.payer_class || null,
+    payment_month: meta.payment_month || null,
+    needs_code: resolved.needs_code,
+    display_text: resolved.display_text,
+    recorded_by: 'Paid online',
+  };
+  if (!schoolId || !studentId) return base;
+
+  const [{ data: student }, { data: school }] = await Promise.all([
+    supabase.from('students').select('*').eq('id', studentId).eq('school_id', schoolId).maybeSingle(),
+    supabase.from('schools').select('id, name, logo_url').eq('id', schoolId).maybeSingle(),
+  ]);
+  if (!student) return { ...base, school_name: school?.name || null };
+  const classFee = await getClassFeeAmount(schoolId, student.class);
+  const period = await resolveFeePeriod(schoolId);
+  const feeAmount = resolveStudentFeeAmount(student, classFee);
+  const balance = await loadFeeBalance(student, feeAmount, period.key);
+  return {
+    ...base,
+    school_name: school?.name || null,
+    school_logo_url: school?.logo_url || null,
+    student_name: student.name,
+    class_name: student.class || meta.payer_class || null,
+    roll_number: student.roll_number || null,
+    term_name: period.name,
+    period_label: formatPeriodLabel(period),
+    payment_month: period.key,
+    fee_amount: balance.fee_amount,
+    paid_amount: balance.paid_amount,
+    outstanding: balance.outstanding,
+    fully_paid: balance.fully_paid,
+    payments: annotatePayments(balance.payments),
+  };
+}
+
 async function startFeePayment({
   student,
   school,
@@ -480,21 +745,8 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.get('/api/public/fees/verify/:reference', async (req, res) => {
     try {
-      const reference = req.params.reference;
-      const resolved = await resolveFeePayment(reference);
-      const payload = resolved.payload || {};
-      const meta = payload.metadata || {};
-      res.json({
-        status: resolved.status,
-        reference: payload.reference || reference,
-        amount: fromMinorUnits(payload.amount),
-        currency: payload.currency || 'GHS',
-        channel: payload.channel || null,
-        student_name: meta.payer_name || null,
-        payment_month: meta.payment_month || null,
-        needs_code: resolved.needs_code,
-        display_text: resolved.display_text,
-      });
+      const details = await receiptDetailsForPayment(req.params.reference);
+      res.json(details);
     } catch (err) {
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
       console.error('Fee verify error:', err);
@@ -715,86 +967,8 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.get('/api/fees/overview', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
-      const schoolId = req.user.schoolId;
-      const period = req.query.month
-        ? await getFeePeriodByKey(schoolId, String(req.query.month))
-        : await resolveFeePeriod(schoolId);
-      const month = period.key;
-      const [{ data: students, error: studentError }, { data: classes }, { data: payments, error: payError }] =
-        await Promise.all([
-          supabase
-            .from('students')
-            .select('id, name, class, roll_number, barcode, monthly_fee, fee_status')
-            .eq('school_id', schoolId)
-            .order('name', { ascending: true }),
-          supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
-          supabase
-            .from('fee_payments')
-            .select('*')
-            .eq('school_id', schoolId)
-            .eq('payment_month', month)
-            .order('created_at', { ascending: false }),
-        ]);
-      if (studentError) throw studentError;
-
-      const classFeeByName = new Map(
-        (classes || []).map((row) => [row.name, Number(row.fee_amount) || 0])
-      );
-      const paymentsByStudent = new Map();
-      for (const payment of payments || []) {
-        if (!payment.payer_id || !isSuccessfulFeeStatus(payment.status)) continue;
-        const list = paymentsByStudent.get(payment.payer_id) || [];
-        list.push(payment);
-        paymentsByStudent.set(payment.payer_id, list);
-      }
-
-      const rows = (students || []).map((student) => {
-        const amount = resolveStudentFeeAmount(student, classFeeByName.get(student.class) || 0);
-        const studentPayments = paymentsByStudent.get(student.id) || [];
-        const balance = buildFeeBalance({ feeAmount: amount, payments: studentPayments });
-        return {
-          ...student,
-          fee_amount: balance.fee_amount,
-          paid_amount: balance.paid_amount,
-          outstanding: balance.outstanding,
-          payment_month: month,
-          paid: balance.paid_amount > 0,
-          fully_paid: balance.fully_paid,
-          payment: studentPayments[0] || null,
-          payments: studentPayments.map((payment) => ({
-            ...payment,
-            manual: isManualFeePayment(payment),
-          })),
-          pay_path: student.barcode ? `/pay/${encodeURIComponent(student.barcode)}` : null,
-        };
-      });
-
-      const billed = rows.filter((row) => row.fee_amount > 0 || row.paid_amount > 0);
-      const paid = billed.filter((row) => row.paid_amount > 0);
-      const unpaid = billed.filter((row) => row.outstanding >= 0.01);
-      const paidAmount = paid.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
-      const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.outstanding || 0), 0);
-
-      res.json({
-        month,
-        term_name: period.name,
-        term_starts_on: period.starts_on,
-        term_ends_on: period.ends_on,
-        period_label: formatPeriodLabel(period),
-        terms: await listAcademicTerms(schoolId),
-        totals: {
-          billed: billed.length,
-          paid: paid.length,
-          unpaid: unpaid.length,
-          paid_amount: roundMoney(paidAmount),
-          unpaid_amount: roundMoney(unpaidAmount),
-        },
-        paid,
-        unpaid,
-        students: rows,
-        payments: payments || [],
-        pay_error: payError?.message || null,
-      });
+      const payload = await getFeeOverviewPayload(req.user.schoolId, req.query);
+      res.json(payload);
     } catch (err) {
       console.error('Fee overview error:', err);
       res.status(500).json({ error: err.message || 'Failed to load fees' });
@@ -803,70 +977,21 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.post('/api/fees/manual', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
-      const schoolId = req.user.schoolId;
-      const studentId = String(req.body?.studentId || '').trim();
-      const amount = roundMoney(req.body?.amount);
-      const method = normalizeManualMethod(req.body?.method);
-      const period = req.body?.month
-        ? await getFeePeriodByKey(schoolId, String(req.body.month))
-        : await resolveFeePeriod(schoolId);
-      const month = period.key;
-      const note = String(req.body?.reference || req.body?.note || '').trim();
-      if (!studentId) return res.status(400).json({ error: 'Select a student.' });
-      if (!method) return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
-      if (!(amount >= 0.01)) return res.status(400).json({ error: 'Enter an amount of at least GHS 0.01.' });
-
-      const { data: student, error } = await supabase
-        .from('students')
-        .select('*')
-        .eq('id', studentId)
-        .eq('school_id', schoolId)
-        .maybeSingle();
-      if (error || !student) return res.status(404).json({ error: 'Student not found' });
-
-      const payment = await recordFeePayment({
-        school_id: schoolId,
-        payer_type: 'student',
-        payer_id: student.id,
-        payer_name: student.name,
-        payer_class: student.class || null,
-        amount,
-        payment_method: 'manual',
-        payment_month: month,
-        payment_reference: note ? `manual:${note}` : `manual_${student.id.slice(0, 8)}_${Date.now()}`,
-        status: 'success',
-        channel: method,
-        currency: 'GHS',
-      });
-
-      const balance = await refreshStudentFeeStatus({
-        schoolId,
-        studentId: student.id,
-        month,
-      });
-
-      await creditCashedFeeToWallet({
-        schoolId,
-        amount,
-        reference: `feecash_${payment?.payment_reference || payment?.id || Date.now()}`,
-        studentName: student.name,
-        periodLabel: period.name || month,
-      });
-
-      res.json({
-        payment,
-        student: {
-          id: student.id,
-          name: student.name,
-          class: student.class || null,
+      const result = await recordManualSchoolFee({
+        schoolId: req.user.schoolId,
+        studentId: String(req.body?.studentId || '').trim(),
+        amount: req.body?.amount,
+        method: req.body?.method,
+        reference: req.body?.reference || req.body?.note,
+        month: req.body?.month,
+        operator: {
+          role: 'admin',
+          name: req.user.email || 'School admin',
         },
-        month,
-        fee_amount: balance?.fee_amount || 0,
-        paid_amount: balance?.paid_amount || amount,
-        outstanding: balance?.outstanding || 0,
-        fully_paid: Boolean(balance?.fully_paid),
       });
+      res.json(result);
     } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
       console.error('Manual fee record error:', err);
       res.status(500).json({ error: err.message || 'Failed to record this payment' });
     }
@@ -975,4 +1100,146 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       res.status(500).json({ error: 'Failed to start fee payment' });
     }
   });
+}
+
+export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
+  const requireAccountant = (req, res, next) => {
+    if (String(req.staffPortal?.role || '').toLowerCase() !== 'accountant') {
+      return res.status(403).json({ error: 'Only accountants can manage fees here' });
+    }
+    next();
+  };
+
+  app.get(
+    '/api/staff-portal/session/fees/overview',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const payload = await getFeeOverviewPayload(req.staffPortal.schoolId, req.query);
+        res.json(payload);
+      } catch (err) {
+        console.error('Accountant fee overview error:', err);
+        res.status(500).json({ error: err.message || 'Failed to load fees' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/staff-portal/session/fees/manual',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const result = await recordManualSchoolFee({
+          schoolId: req.staffPortal.schoolId,
+          studentId: String(req.body?.studentId || '').trim(),
+          amount: req.body?.amount,
+          method: req.body?.method,
+          reference: req.body?.reference || req.body?.note,
+          month: req.body?.month,
+          operator: {
+            role: 'accountant',
+            staffId: req.staffPortal.staffId,
+            name: req.staffPortal.staffName || 'Accountant',
+          },
+        });
+        res.json(result);
+      } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        console.error('Accountant fee record error:', err);
+        res.status(500).json({ error: err.message || 'Failed to record this payment' });
+      }
+    }
+  );
+
+  app.patch(
+    '/api/staff-portal/session/fees/manual/:paymentId',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const schoolId = req.staffPortal.schoolId;
+        const paymentId = String(req.params.paymentId || '').trim();
+        const amount = req.body?.amount == null ? undefined : roundMoney(req.body.amount);
+        const method = req.body?.method == null ? undefined : normalizeManualMethod(req.body.method);
+        if (amount != null && !(amount >= 0.01)) {
+          return res.status(400).json({ error: 'Enter an amount of at least GHS 0.01.' });
+        }
+        if (req.body?.method != null && !method) {
+          return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
+        }
+
+        const updated = await updateManualFeePayment({
+          schoolId,
+          paymentId,
+          amount,
+          method,
+          reference: req.body?.reference,
+        });
+        const payment = updated.payment || updated;
+        const previousAmount = Number(updated.previousAmount) || Number(payment.amount) || 0;
+        const balance = await refreshStudentFeeStatus({
+          schoolId,
+          studentId: payment.payer_id,
+          month: payment.payment_month,
+        });
+        const nextAmount = Number(payment.amount) || 0;
+        if (nextAmount > previousAmount + 0.009) {
+          const period = await getFeePeriodByKey(schoolId, payment.payment_month);
+          await creditCashedFeeToWallet({
+            schoolId,
+            amount: roundMoney(nextAmount - previousAmount),
+            reference: `feecash_adj_${payment.id}_${Date.now()}`,
+            studentName: payment.payer_name,
+            periodLabel: period.name || payment.payment_month,
+          });
+        }
+
+        res.json({
+          payment: { ...payment, manual: true, recorded_by_label: describeFeeRecorder(payment) },
+          month: payment.payment_month,
+          fee_amount: balance?.fee_amount || 0,
+          paid_amount: balance?.paid_amount || 0,
+          outstanding: balance?.outstanding || 0,
+          fully_paid: Boolean(balance?.fully_paid),
+        });
+      } catch (err) {
+        if (err.status === 403 || err.status === 404 || err.status === 400) {
+          return res.status(err.status).json({ error: err.message, code: err.code || undefined });
+        }
+        console.error('Accountant fee update error:', err);
+        res.status(500).json({ error: err.message || 'Failed to update this payment' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/staff-portal/session/fees/reminder',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const message = String(req.body?.message || '').trim();
+        if (!message) return res.status(400).json({ error: 'Enter a reminder message.' });
+        const { error } = await supabase.from('messages').insert([
+          {
+            school_id: req.staffPortal.schoolId,
+            sender_name: req.staffPortal.staffName || 'Accountant',
+            sender_role: 'Accountant',
+            send_mode: 'Group',
+            recipients: 'Parents',
+            message,
+            delivery_channel: 'email',
+            created_at: new Date(),
+          },
+        ]);
+        if (error) throw error;
+        res.json({ ok: true });
+      } catch (err) {
+        console.error('Accountant fee reminder error:', err);
+        res.status(500).json({ error: err.message || 'Failed to save the reminder' });
+      }
+    }
+  );
 }
