@@ -265,7 +265,7 @@ const SuperAdminAnalytics = () => {
         />
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap gap-1.5">
         {panels.map((panel) => {
           const Icon = panel.icon;
           const active = selectedPanel === panel.id;
@@ -275,15 +275,14 @@ const SuperAdminAnalytics = () => {
               type="button"
               onClick={() => setSelectedPanel(panel.id)}
               aria-pressed={active}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
                 active
                   ? 'border-transparent bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20'
                   : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:border-white/20 hover:text-white'
               }`}
             >
-              <Icon className="h-4 w-4" />
-              <span className="font-medium">{panel.title}</span>
-              <span className={active ? 'text-white/80' : 'text-zinc-500'}>{panel.value}</span>
+              <Icon className="h-3.5 w-3.5" />
+              {panel.title}
             </button>
           );
         })}

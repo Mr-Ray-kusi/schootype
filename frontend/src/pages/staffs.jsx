@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import PersonRecordTable from '../components/PersonRecordTable';
@@ -7,7 +6,6 @@ import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { useAuth } from '../contexts/authcontext';
-import NonStaff from './nonstaffs';
 import {
   Search,
   Plus,
@@ -19,9 +17,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
-import { downloadPersonPack, downloadPeoplePacks, staffPack } from '../utils/personPackExport';
+import { fetchAllPages, fetchRecord } from '../utils/listApi.js';
+import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
+
+const PAGE_SIZE = 50;
+const NON_STAFF_ROLES = ['Cleaner', 'Security Guard', 'Bus Driver', 'Cook', 'Maintenance', 'Gardener', 'Assistant'];
+const STAFF_ROLES = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
 
 const formatSalary = (value) => {
   if (value == null || value === '') return '—';
@@ -30,46 +32,50 @@ const formatSalary = (value) => {
   return `GHS ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const asStaffRow = (item) => ({
+  ...item,
+  kind: 'staff',
+  secretCode: item.secretCode || item.secret_code || null,
+  subjects: item.subjects || '',
+  classNames: item.classNames || item.class_names || '',
+});
+
+const asNonStaffRow = (item) => ({
+  ...item,
+  kind: 'non-staff',
+});
+
 const Staff = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
   const { includesPlanFeature } = useAuth();
   const canStaff = includesPlanFeature('staff');
   const canNonStaff = includesPlanFeature('non-staff');
-  const requestedType = searchParams.get('type');
-  const peopleType =
-    requestedType === 'non-staff' && canNonStaff
-      ? 'non-staff'
-      : requestedType === 'staff' && canStaff
-        ? 'staff'
-        : canStaff
-          ? 'staff'
-          : 'non-staff';
-
-  const setPeopleType = (next) => {
-    setSearchParams(next === 'non-staff' ? { type: 'non-staff' } : { type: 'staff' }, { replace: true });
-  };
-  const [staff, setStaff] = useState([]);
-  const [total, setTotal] = useState(0);
+  const [people, setPeople] = useState([]);
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [downloadingAll, setDownloadingAll] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [viewingStaff, setViewingStaff] = useState(null);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [showNonStaffModal, setShowNonStaffModal] = useState(false);
+  const [viewingPerson, setViewingPerson] = useState(null);
   const [editingStaff, setEditingStaff] = useState(null);
+  const [editingNonStaff, setEditingNonStaff] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [portalToken, setPortalToken] = useState(null);
   const [portalPath, setPortalPath] = useState('');
   const [portalLoading, setPortalLoading] = useState(true);
-  const [formData, setFormData] = useState({
+  const [staffForm, setStaffForm] = useState({
     name: '',
     role: '',
     secretCode: '',
     subjects: '',
     classNames: '',
     salary: '',
+  });
+  const [nonStaffForm, setNonStaffForm] = useState({
+    name: '',
+    role: '',
   });
 
   useEffect(() => {
@@ -86,8 +92,8 @@ const Staff = () => {
   }, []);
 
   useEffect(() => {
-    fetchStaff();
-  }, [page, debouncedSearch]);
+    fetchPeople();
+  }, [debouncedSearch, canStaff, canNonStaff]);
 
   const portalUrl = portalPath
     ? `${window.location.origin}${portalPath}`
@@ -96,6 +102,10 @@ const Staff = () => {
       : '';
 
   const fetchPortalLink = async () => {
+    if (!canStaff) {
+      setPortalLoading(false);
+      return;
+    }
     try {
       const response = await axios.get('/api/staff-portal/link');
       setPortalToken(response.data.token);
@@ -107,19 +117,10 @@ const Staff = () => {
     }
   };
 
-  const fetchStaff = async () => {
-    const cacheKey = `staff:${page}:${debouncedSearch}`;
-    const apply = (data) => {
-      const parsed = parseListResponse(data);
-      setStaff(
-        parsed.items.map((item) => ({
-          ...item,
-          secretCode: item.secretCode || item.secret_code || null,
-          subjects: item.subjects || '',
-          classNames: item.classNames || item.class_names || '',
-        }))
-      );
-      setTotal(parsed.total);
+  const fetchPeople = async () => {
+    const cacheKey = `staff-combined:${debouncedSearch}`;
+    const apply = (merged) => {
+      setPeople(merged);
     };
     const cached = peekCache(cacheKey);
     if (cached) {
@@ -130,10 +131,18 @@ const Staff = () => {
       const data = await staleGet(
         cacheKey,
         async () => {
-          const response = await axios.get('/api/staff', {
-            params: { page, limit: 50, q: debouncedSearch || undefined },
-          });
-          return response.data;
+          const [staffItems, nonStaffItems] = await Promise.all([
+            canStaff
+              ? fetchAllPages(axios, '/api/staff', { q: debouncedSearch || undefined })
+              : Promise.resolve([]),
+            canNonStaff
+              ? fetchAllPages(axios, '/api/non-staff', { q: debouncedSearch || undefined })
+              : Promise.resolve([]),
+          ]);
+          return [
+            ...staffItems.map(asStaffRow),
+            ...nonStaffItems.map(asNonStaffRow),
+          ].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
         },
         45000,
         apply
@@ -148,19 +157,33 @@ const Staff = () => {
 
   const generateSecretCode = () => generateStrongPassword(16);
 
-  const resetForm = () => {
-    setFormData({ name: '', role: '', secretCode: generateStrongPassword(16), subjects: '', classNames: '', salary: '' });
+  const resetStaffForm = () => {
+    setStaffForm({
+      name: '',
+      role: '',
+      secretCode: generateStrongPassword(16),
+      subjects: '',
+      classNames: '',
+      salary: '',
+    });
     setPhoto(null);
     setPhotoPreview(null);
     setEditingStaff(null);
   };
 
-  const handleSubmit = async (e) => {
+  const resetNonStaffForm = () => {
+    setNonStaffForm({ name: '', role: '' });
+    setPhoto(null);
+    setPhotoPreview(null);
+    setEditingNonStaff(null);
+  };
+
+  const handleStaffSubmit = async (e) => {
     e.preventDefault();
     try {
       const payload = {
-        ...formData,
-        secretCode: formData.secretCode || generateSecretCode(),
+        ...staffForm,
+        secretCode: staffForm.secretCode || generateSecretCode(),
         photo,
       };
 
@@ -171,15 +194,15 @@ const Staff = () => {
         await axios.post('/api/staff', payload);
         toast.success('Staff added — attendance QR code generated');
       }
-      setShowModal(false);
-      resetForm();
+      setShowStaffModal(false);
+      resetStaffForm();
       invalidateCache('staff');
       invalidateCache('dashboard');
-      fetchStaff();
-      } catch (error) {
+      fetchPeople();
+    } catch (error) {
       if (error.offlineQueued) {
-        setShowModal(false);
-        resetForm();
+        setShowStaffModal(false);
+        resetStaffForm();
         return;
       }
       console.error('Error saving staff:', error);
@@ -187,44 +210,88 @@ const Staff = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this staff member?')) {
-      try {
-        await axios.delete(`/api/staff/${id}`);
-        invalidateCache('staff');
-        invalidateCache('dashboard');
-        fetchStaff();
-      } catch (error) {
-        console.error('Error deleting staff:', error);
+  const handleNonStaffSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = { ...nonStaffForm, photo };
+      if (editingNonStaff) {
+        await axios.put(`/api/non-staff/${editingNonStaff.id}`, payload);
+        toast.success('Non-staff updated');
+      } else {
+        await axios.post('/api/non-staff', payload);
+        toast.success('Non-staff added — attendance QR code generated');
       }
+      setShowNonStaffModal(false);
+      resetNonStaffForm();
+      invalidateCache('non-staff');
+      invalidateCache('staff');
+      invalidateCache('dashboard');
+      fetchPeople();
+    } catch (error) {
+      if (error.offlineQueued) {
+        setShowNonStaffModal(false);
+        resetNonStaffForm();
+        return;
+      }
+      console.error('Error saving non-staff:', error);
+      toast.error(error.response?.data?.error || 'Failed to save non-staff');
     }
   };
 
-  const openStaff = async (staffMember) => {
-    setViewingStaff(staffMember);
-    const full = await fetchRecord(axios, `/api/staff/${staffMember.id}`, staffMember);
-    setViewingStaff({
-      ...full,
-      secretCode: full.secretCode || full.secret_code || null,
-      subjects: full.subjects || '',
-      classNames: full.classNames || full.class_names || '',
-    });
+  const handleDelete = async (person) => {
+    const isStaff = person.kind === 'staff';
+    const confirmed = window.confirm(
+      isStaff ? 'Are you sure you want to delete this staff member?' : 'Are you sure you want to delete this person?'
+    );
+    if (!confirmed) return;
+    try {
+      if (isStaff) {
+        await axios.delete(`/api/staff/${person.id}`);
+        invalidateCache('staff');
+      } else {
+        await axios.delete(`/api/non-staff/${person.id}`);
+        invalidateCache('non-staff');
+        invalidateCache('staff');
+      }
+      invalidateCache('dashboard');
+      fetchPeople();
+    } catch (error) {
+      console.error('Error deleting person:', error);
+    }
   };
 
-  const handleEdit = (staffMember) => {
-    setViewingStaff(null);
-    setEditingStaff(staffMember);
-    setFormData({
-      name: staffMember.name,
-      role: staffMember.role || '',
-      secretCode: staffMember.secretCode || staffMember.secret_code || generateSecretCode(),
-      subjects: staffMember.subjects || '',
-      classNames: staffMember.classNames || staffMember.class_names || '',
-      salary: staffMember.salary ?? '',
-    });
+  const openPerson = async (person) => {
+    setViewingPerson(person);
+    const url = person.kind === 'staff' ? `/api/staff/${person.id}` : `/api/non-staff/${person.id}`;
+    const full = await fetchRecord(axios, url, person);
+    setViewingPerson(
+      person.kind === 'staff' ? asStaffRow({ ...person, ...full }) : asNonStaffRow({ ...person, ...full })
+    );
+  };
+
+  const handleEdit = (person) => {
+    setViewingPerson(null);
     setPhoto(null);
-    setPhotoPreview(staffMember.photo_url || null);
-    setShowModal(true);
+    setPhotoPreview(person.photo_url || null);
+    if (person.kind === 'staff') {
+      setEditingStaff(person);
+      setStaffForm({
+        name: person.name,
+        role: person.role || '',
+        secretCode: person.secretCode || person.secret_code || generateSecretCode(),
+        subjects: person.subjects || '',
+        classNames: person.classNames || person.class_names || '',
+        salary: person.salary ?? '',
+      });
+      setShowStaffModal(true);
+      return;
+    }
+    setEditingNonStaff(person);
+    setNonStaffForm({
+      name: person.name,
+      role: person.role || '',
+    });
+    setShowNonStaffModal(true);
   };
 
   const copyPortalLink = async () => {
@@ -252,42 +319,10 @@ const Staff = () => {
     }
   };
 
-  const roles = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
+  const pagedPeople = people.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const viewingStaff = viewingPerson?.kind === 'staff' ? viewingPerson : null;
 
-  const peopleFilter =
-    canStaff && canNonStaff ? (
-      <div className="inline-flex rounded-full border border-slate-600 bg-slate-900 p-1">
-        <button
-          type="button"
-          onClick={() => setPeopleType('staff')}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium ${
-            peopleType === 'staff' ? 'bg-primary-600 text-white' : 'text-slate-300 hover:text-white'
-          }`}
-        >
-          Staff
-        </button>
-        <button
-          type="button"
-          onClick={() => setPeopleType('non-staff')}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium ${
-            peopleType === 'non-staff' ? 'bg-purple-600 text-white' : 'text-slate-300 hover:text-white'
-          }`}
-        >
-          Non-staff
-        </button>
-      </div>
-    ) : null;
-
-  if (peopleType === 'non-staff') {
-    return (
-      <div className="space-y-6">
-        {peopleFilter}
-        <NonStaff hideHeader />
-      </div>
-    );
-  }
-
-  if (loading && staff.length === 0) {
+  if (loading && people.length === 0) {
     return (
       <>
         <div className="text-center py-12 text-slate-300">Loading staff...</div>
@@ -297,12 +332,11 @@ const Staff = () => {
 
   return (
     <>
-<div className="space-y-6">
-        {peopleFilter}
+      <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white">Staff Management</h1>
-            <p className="mt-1 text-sm text-slate-400">{total} staff</p>
+            <h1 className="text-3xl font-bold text-white">Staff</h1>
+            <p className="mt-1 text-sm text-slate-400">{people.length} people</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -310,77 +344,111 @@ const Staff = () => {
               onClick={async () => {
                 setDownloadingAll(true);
                 try {
-                  const all = await fetchAllPages(axios, '/api/staff', {
-                    q: debouncedSearch || undefined,
-                    includePhotos: 1,
-                  });
-                  await downloadPeoplePacks(
-                    all.map((member) => staffPack(member, buildPersonIdUrl(member.barcode))),
-                    'all-staff.zip'
+                  const packs = people.map((person) =>
+                    person.kind === 'staff'
+                      ? staffPack(person, buildPersonIdUrl(person.barcode))
+                      : nonStaffPack(person, buildPersonIdUrl(person.barcode))
                   );
+                  const withPhotos = await Promise.all([
+                    canStaff
+                      ? fetchAllPages(axios, '/api/staff', {
+                          q: debouncedSearch || undefined,
+                          includePhotos: 1,
+                        })
+                      : Promise.resolve([]),
+                    canNonStaff
+                      ? fetchAllPages(axios, '/api/non-staff', {
+                          q: debouncedSearch || undefined,
+                          includePhotos: 1,
+                        })
+                      : Promise.resolve([]),
+                  ]);
+                  const photoPacks = [
+                    ...withPhotos[0].map((member) => staffPack(asStaffRow(member), buildPersonIdUrl(member.barcode))),
+                    ...withPhotos[1].map((person) =>
+                      nonStaffPack(asNonStaffRow(person), buildPersonIdUrl(person.barcode))
+                    ),
+                  ];
+                  await downloadPeoplePacks(photoPacks.length ? photoPacks : packs, 'all-staff.zip');
                 } catch {
                   toast.error('Failed to download staff packs');
                 } finally {
                   setDownloadingAll(false);
                 }
               }}
-              disabled={downloadingAll || total === 0}
+              disabled={downloadingAll || people.length === 0}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
             >
               <Download className="h-4 w-4" />
               {downloadingAll ? 'Preparing…' : 'Download all'}
             </button>
-          <button
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Add Staff
-          </button>
+            {canStaff && (
+              <button
+                onClick={() => {
+                  resetStaffForm();
+                  setShowStaffModal(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Add Staff
+              </button>
+            )}
+            {canNonStaff && (
+              <button
+                onClick={() => {
+                  resetNonStaffForm();
+                  setShowNonStaffModal(true);
+                }}
+                className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+              >
+                <Plus className="w-5 h-5" />
+                Add Non-staff
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-600 bg-slate-800/80 p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Link2 className="h-4 w-4 text-sky-400" />
-                Staff portal link
-              </p>
+        {canStaff && (
+          <div className="rounded-2xl border border-slate-600 bg-slate-800/80 p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Link2 className="h-4 w-4 text-sky-400" />
+                  Staff portal link
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={copyPortalLink}
+                  disabled={!portalUrl}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700 disabled:opacity-50"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={regeneratePortalLink}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Regenerate
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={copyPortalLink}
-                disabled={!portalUrl}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700 disabled:opacity-50"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                Copy
-              </button>
-              <button
-                type="button"
-                onClick={regeneratePortalLink}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Regenerate
-              </button>
-            </div>
+            <p className="mt-3 break-all rounded-xl border border-slate-600 bg-slate-950/50 px-3 py-2 text-xs text-sky-200">
+              {portalLoading ? 'Loading link…' : portalUrl || 'Could not load portal link'}
+            </p>
           </div>
-          <p className="mt-3 break-all rounded-xl border border-slate-600 bg-slate-950/50 px-3 py-2 text-xs text-sky-200">
-            {portalLoading ? 'Loading link…' : portalUrl || 'Could not load portal link'}
-          </p>
-        </div>
+        )}
 
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search staff by name or role..."
+            placeholder="Search by name or role..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-slate-500 rounded-lg focus:ring-2 focus:ring-primary-500 text-slate-50"
@@ -388,73 +456,105 @@ const Staff = () => {
         </div>
 
         <PersonDetailModal
-          open={Boolean(viewingStaff)}
-          name={viewingStaff?.name}
-          badge={viewingStaff?.role || 'Staff'}
-          photoUrl={viewingStaff?.photo_url}
-          accent="emerald"
-          fields={[
-            { group: 'Assignment', label: 'Role', value: viewingStaff?.role },
-            { group: 'Assignment', label: 'Salary', value: formatSalary(viewingStaff?.salary) },
-            { group: 'Assignment', label: 'Subjects', value: viewingStaff?.subjects },
-            {
-              group: 'Assignment',
-              label: 'Classes',
-              value: viewingStaff?.classNames || viewingStaff?.class_names,
-            },
-            {
-              group: 'Access',
-              label: 'Access code',
-              value: viewingStaff?.secretCode || viewingStaff?.secret_code,
-            },
-          ]}
-          onClose={() => setViewingStaff(null)}
-          onEdit={() => handleEdit(viewingStaff)}
+          open={Boolean(viewingPerson)}
+          name={viewingPerson?.name}
+          badge={viewingPerson?.role || (viewingStaff ? 'Staff' : 'Non-staff')}
+          photoUrl={viewingPerson?.photo_url}
+          accent={viewingStaff ? 'emerald' : 'violet'}
+          fields={
+            viewingStaff
+              ? [
+                  { group: 'Assignment', label: 'Type', value: 'Staff' },
+                  { group: 'Assignment', label: 'Role', value: viewingStaff.role },
+                  { group: 'Assignment', label: 'Salary', value: formatSalary(viewingStaff.salary) },
+                  { group: 'Assignment', label: 'Subjects', value: viewingStaff.subjects },
+                  {
+                    group: 'Assignment',
+                    label: 'Classes',
+                    value: viewingStaff.classNames || viewingStaff.class_names,
+                  },
+                  {
+                    group: 'Access',
+                    label: 'Access code',
+                    value: viewingStaff.secretCode || viewingStaff.secret_code,
+                  },
+                ]
+              : [
+                  { group: 'Assignment', label: 'Type', value: 'Non-staff' },
+                  { group: 'Assignment', label: 'Role', value: viewingPerson?.role },
+                ]
+          }
+          onClose={() => setViewingPerson(null)}
+          onEdit={() => handleEdit(viewingPerson)}
           onDelete={() => {
-            setViewingStaff(null);
-            handleDelete(viewingStaff.id);
+            const person = viewingPerson;
+            setViewingPerson(null);
+            handleDelete(person);
           }}
           onDownload={async () => {
-            const full = await fetchRecord(axios, `/api/staff/${viewingStaff.id}`, viewingStaff);
-            downloadPersonPack(staffPack(full, buildPersonIdUrl(full.barcode)));
+            if (!viewingPerson) return;
+            const url =
+              viewingPerson.kind === 'staff'
+                ? `/api/staff/${viewingPerson.id}`
+                : `/api/non-staff/${viewingPerson.id}`;
+            const full = await fetchRecord(axios, url, viewingPerson);
+            if (viewingPerson.kind === 'staff') {
+              downloadPersonPack(staffPack(asStaffRow(full), buildPersonIdUrl(full.barcode)));
+            } else {
+              downloadPersonPack(nonStaffPack(full, buildPersonIdUrl(full.barcode)));
+            }
           }}
         />
 
         <div id="list-section">
           <PersonRecordTable
-            rows={staff}
-            minWidth="640px"
-            onSelect={openStaff}
+            rows={pagedPeople}
+            minWidth="720px"
+            onSelect={openPerson}
             columns={[
-              { key: 'name', header: 'Staff' },
+              { key: 'name', header: 'Name' },
+              {
+                key: 'kind',
+                header: 'Type',
+                render: (row) => (row.kind === 'staff' ? 'Staff' : 'Non-staff'),
+              },
               { key: 'role', header: 'Role' },
-              { key: 'salary', header: 'Salary', render: (row) => formatSalary(row.salary) },
-              { key: 'subjects', header: 'Subjects' },
+              {
+                key: 'salary',
+                header: 'Salary',
+                render: (row) => (row.kind === 'staff' ? formatSalary(row.salary) : '—'),
+              },
+              {
+                key: 'subjects',
+                header: 'Subjects',
+                render: (row) => (row.kind === 'staff' ? row.subjects || '—' : '—'),
+              },
               {
                 key: 'classNames',
                 header: 'Classes',
-                render: (row) => row.classNames || row.class_names || '—',
+                render: (row) =>
+                  row.kind === 'staff' ? row.classNames || row.class_names || '—' : '—',
               },
             ]}
           />
         </div>
 
-        <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />
+        <PaginationBar page={page} total={people.length} limit={PAGE_SIZE} onPageChange={setPage} />
 
-        {staff.length === 0 && (
+        {people.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
             <User className="mx-auto mb-3 h-12 w-12 text-slate-500" />
-            <p className="text-slate-300">No staff members found.</p>
+            <p className="text-slate-300">No staff found.</p>
           </div>
         )}
 
-        {showModal && (
+        {showStaffModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
               <h2 className="text-xl font-bold text-white mb-4">
                 {editingStaff ? 'Edit Staff' : 'Add New Staff'}
               </h2>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleStaffSubmit} className="space-y-4">
                 <PhotoCaptureInput
                   preview={photoPreview}
                   onChange={(dataUrl) => {
@@ -472,8 +572,8 @@ const Staff = () => {
                   <label className="block text-sm font-medium text-slate-200 mb-2">Full Name *</label>
                   <input
                     type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    value={staffForm.name}
+                    onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                     required
                     placeholder="e.g., John Doe"
@@ -483,18 +583,18 @@ const Staff = () => {
                 <div>
                   <label className="block text-sm font-medium text-slate-200 mb-2">Role *</label>
                   <select
-                    value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                    value={staffForm.role}
+                    onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                     required
                   >
                     <option value="">Select a role</option>
-                    {roles.map((role) => (
+                    {STAFF_ROLES.map((role) => (
                       <option key={role} value={role}>
                         {role}
                       </option>
                     ))}
-                    </select>
+                  </select>
                 </div>
 
                 <div>
@@ -503,8 +603,8 @@ const Staff = () => {
                     type="number"
                     min="0"
                     step="0.01"
-                    value={formData.salary}
-                    onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
+                    value={staffForm.salary}
+                    onChange={(e) => setStaffForm({ ...staffForm, salary: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                     placeholder="e.g., 2500"
                   />
@@ -515,13 +615,13 @@ const Staff = () => {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      value={formData.secretCode}
+                      value={staffForm.secretCode}
                       readOnly
                       className="w-full rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 font-mono text-slate-50"
                     />
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, secretCode: generateStrongPassword(16) })}
+                      onClick={() => setStaffForm({ ...staffForm, secretCode: generateStrongPassword(16) })}
                       className="shrink-0 rounded-lg border border-slate-500 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700"
                     >
                       New
@@ -532,7 +632,7 @@ const Staff = () => {
                   </p>
                 </div>
 
-                {formData.role === 'Teacher' && (
+                {staffForm.role === 'Teacher' && (
                   <>
                     <div>
                       <label className="block text-sm font-medium text-slate-200 mb-2">
@@ -540,8 +640,8 @@ const Staff = () => {
                       </label>
                       <input
                         type="text"
-                        value={formData.subjects}
-                        onChange={(e) => setFormData({ ...formData, subjects: e.target.value })}
+                        value={staffForm.subjects}
+                        onChange={(e) => setStaffForm({ ...staffForm, subjects: e.target.value })}
                         className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                         placeholder="Mathematics, English"
                       />
@@ -553,8 +653,8 @@ const Staff = () => {
                       </label>
                       <input
                         type="text"
-                        value={formData.classNames}
-                        onChange={(e) => setFormData({ ...formData, classNames: e.target.value })}
+                        value={staffForm.classNames}
+                        onChange={(e) => setStaffForm({ ...staffForm, classNames: e.target.value })}
                         className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                         placeholder="Match class names from Setup"
                       />
@@ -581,8 +681,86 @@ const Staff = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setShowModal(false);
-                      resetForm();
+                      setShowStaffModal(false);
+                      resetStaffForm();
+                    }}
+                    className="flex-1 bg-slate-600 text-slate-100 py-2 rounded-lg hover:bg-slate-500"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {showNonStaffModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <h2 className="text-xl font-bold text-white mb-4">
+                {editingNonStaff ? 'Edit Non-staff' : 'Add Non-staff'}
+              </h2>
+              <form onSubmit={handleNonStaffSubmit} className="space-y-4">
+                <PhotoCaptureInput
+                  preview={photoPreview}
+                  onChange={(dataUrl) => {
+                    setPhoto(dataUrl);
+                    setPhotoPreview(dataUrl);
+                  }}
+                  onClear={() => {
+                    setPhoto(null);
+                    setPhotoPreview(null);
+                  }}
+                  label="Profile Photo"
+                />
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">Full Name *</label>
+                  <input
+                    type="text"
+                    value={nonStaffForm.name}
+                    onChange={(e) => setNonStaffForm({ ...nonStaffForm, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    required
+                    placeholder="e.g., Jane Smith"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">Role *</label>
+                  <select
+                    value={nonStaffForm.role}
+                    onChange={(e) => setNonStaffForm({ ...nonStaffForm, role: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    required
+                  >
+                    <option value="">Select a role</option>
+                    {NON_STAFF_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {!editingNonStaff && (
+                  <p className="text-xs text-slate-400 bg-slate-900/50 border border-slate-600 rounded-lg p-3">
+                    A unique attendance QR code is generated automatically when you save.
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700"
+                  >
+                    {editingNonStaff ? 'Update' : 'Add'} Person
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNonStaffModal(false);
+                      resetNonStaffForm();
                     }}
                     className="flex-1 bg-slate-600 text-slate-100 py-2 rounded-lg hover:bg-slate-500"
                   >
@@ -594,7 +772,7 @@ const Staff = () => {
           </div>
         )}
       </div>
-</>
+    </>
   );
 };
 

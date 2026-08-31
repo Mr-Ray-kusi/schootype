@@ -18,7 +18,7 @@ const PersonRecordTable = ({ columns, rows, onSelect, minWidth = '720px' }) => {
         <tbody>
           {rows.map((row) => (
             <tr
-              key={row.id}
+              key={`${row.kind || 'person'}:${row.id}`}
               onClick={() => onSelect?.(row)}
               className="cursor-pointer border-t border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800/80"
             >

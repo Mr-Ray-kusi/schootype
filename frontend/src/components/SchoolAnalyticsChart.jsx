@@ -1,6 +1,13 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import axios from 'axios';
-import { CalendarCheck, DollarSign, MessageSquare, Receipt } from 'lucide-react';
+import {
+  CalendarCheck,
+  DollarSign,
+  MessageSquare,
+  Receipt,
+  ShieldAlert,
+  UserCheck,
+} from 'lucide-react';
 import PerformanceChart, { percentChange } from './PerformanceChart';
 import { useLivePoll } from '../hooks/useLivePoll';
 
@@ -79,17 +86,10 @@ const SchoolAnalyticsChart = () => {
       },
       {
         id: 'feesUnpaid',
-        title: 'Fees unpaid',
+        title: 'Unpaid fees',
         value: totals.feesUnpaidNow || 0,
         icon: Receipt,
         formatValue: (value) => formatMoney(value),
-      },
-      {
-        id: 'smsSent',
-        title: 'SMS sent',
-        value: totals.smsSentInRange || 0,
-        icon: MessageSquare,
-        formatValue: (value) => `${Number(value || 0).toLocaleString()} sent`,
       },
       {
         id: 'smsDelivered',
@@ -97,6 +97,27 @@ const SchoolAnalyticsChart = () => {
         value: totals.smsDeliveredInRange || 0,
         icon: MessageSquare,
         formatValue: (value) => `${Number(value || 0).toLocaleString()} delivered`,
+      },
+      {
+        id: 'smsFailed',
+        title: 'SMS failed',
+        value: totals.smsFailedInRange || 0,
+        icon: MessageSquare,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} failed`,
+      },
+      {
+        id: 'failedLogin',
+        title: 'Failed login',
+        value: totals.failedLoginInRange || 0,
+        icon: ShieldAlert,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} failed`,
+      },
+      {
+        id: 'activeStaff',
+        title: 'Active Staff login',
+        value: totals.activeStaffInRange || 0,
+        icon: UserCheck,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} Staff`,
       },
     ],
     [totals]
@@ -154,7 +175,7 @@ const SchoolAnalyticsChart = () => {
           </div>
         </div>
 
-        <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-5 flex flex-wrap gap-1.5">
           {panels.map((panel) => {
             const Icon = panel.icon;
             const active = selectedPanel === panel.id;
@@ -163,14 +184,14 @@ const SchoolAnalyticsChart = () => {
                 key={panel.id}
                 type="button"
                 onClick={() => setSelectedPanel(panel.id)}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
                   active
                     ? 'border-transparent bg-gradient-to-r from-sky-500 to-violet-500 text-white'
                     : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:text-white'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                <span className="font-medium">{panel.title}</span>
+                <Icon className="h-3.5 w-3.5" />
+                {panel.title}
               </button>
             );
           })}
@@ -186,18 +207,16 @@ const SchoolAnalyticsChart = () => {
 
         <div className="mt-6 border-t border-white/10 pt-5">
           {preview.length === 0 ? (
-            <p className="py-4 text-center text-sm text-zinc-500">No {selected.title.toLowerCase()} records in this range.</p>
+            <p className="py-4 text-center text-sm text-zinc-500">
+              No {selected.title.toLowerCase()} records in this range.
+            </p>
           ) : (
             <ul className="divide-y divide-white/5">
               {preview.map((row) => (
-                <li key={row.id} className="flex items-center justify-between gap-3 py-3">
+                <li key={row.id} className="flex items-start justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-white">{row.name || `${row.count || 1} delivered`}</p>
-                    <p className="text-xs text-zinc-500">
-                      {row.className || row.type || row.method || row.recipients || 'Record'}
-                      {row.outstanding != null ? ` · ${formatMoney(row.outstanding)} outstanding` : ''}
-                      {row.amount != null ? ` · ${formatMoney(row.amount)}` : ''}
-                    </p>
+                    <p className="truncate font-medium text-white">{row.title || row.name || 'Record'}</p>
+                    <p className="text-sm text-amber-200/90">{row.description || '—'}</p>
                   </div>
                   <span className="shrink-0 text-xs text-zinc-500">{formatTime(row.createdAt)}</span>
                 </li>

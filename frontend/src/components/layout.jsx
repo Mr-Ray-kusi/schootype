@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Users,
   Briefcase,
-  UserCog,
   Calendar,
   QrCode,
   UserPlus,
@@ -33,18 +32,10 @@ import useLiteMode from '../hooks/useLiteMode';
 import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
 import { cachedGet } from '../utils/requestCache';
 
-/** True when the current location matches a nav href, including staff/non-staff query filters. */
+/** True when the current location matches a nav href. */
 const isNavActive = (location, href) => {
   if (!href) return false;
-  const [path, query] = href.split('?');
-  const wantedType = query ? new URLSearchParams(query).get('type') : null;
-  const currentType = new URLSearchParams(location.search).get('type');
-
-  if (path === '/staff') {
-    if (wantedType === 'non-staff') return location.pathname === '/staff' && currentType === 'non-staff';
-    return location.pathname === '/staff' && currentType !== 'non-staff';
-  }
-
+  const path = href.split('?')[0];
   if (location.pathname === path) return true;
   if (path === '/super-admin' || path === '/') return false;
   return location.pathname.startsWith(`${path}/`);
@@ -100,10 +91,9 @@ const Layout = ({ children }) => {
       title: 'Academic',
       items: [
         { name: 'Students', href: '/students', icon: Users, featureKey: 'students' },
-        { name: 'Staffs', href: '/staff', icon: Briefcase, featureKey: 'staff' },
+        { name: 'Staff', href: '/staff', icon: Briefcase, featureKeys: ['staff', 'non-staff'] },
         { name: 'Setup', href: '/classes', icon: BookOpen, featureKey: 'classes' },
         { name: 'Attendance', href: '/attendance', icon: Calendar, featureKey: 'attendance' },
-        { name: 'Non-Staffs', href: '/staff?type=non-staff', icon: UserCog, featureKey: 'non-staff' },
         { name: 'Scanner', href: '/scanner', icon: QrCode, featureKey: 'scanner' },
         { name: 'Add Student', href: '/add-student', icon: UserPlus, featureKey: 'add-student' },
       ],

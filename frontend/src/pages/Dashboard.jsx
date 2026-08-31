@@ -7,21 +7,18 @@ import { useAuth } from '../contexts/authcontext';
 import { DASHBOARD_CACHE_MS, cachedGet, peekCache } from '../utils/requestCache';
 import { schoolLocalDate, schoolLocalDateLabel } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
-import useLiteMode from '../hooks/useLiteMode';
 import SchoolAnalyticsChart from '../components/SchoolAnalyticsChart';
 import {
   Users,
   UserCog,
   Briefcase,
   MessageSquare,
-  Calendar,
   Lock,
   ArrowUpRight,
 } from 'lucide-react';
 
 const Dashboard = () => {
-  const { school, includesPlanFeature, isPlanApproved, hasFeature } = useAuth();
-  const { liteMode } = useLiteMode();
+  const { school, includesPlanFeature, isPlanApproved } = useAuth();
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalStaff: 0,
@@ -29,14 +26,12 @@ const Dashboard = () => {
     unreadMessages: 0,
     todayAttendance: 0,
   });
-  const [attendanceSummary, setAttendanceSummary] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(schoolLocalDate());
+  const selectedDate = schoolLocalDate();
 
   const applyDashboardPayload = (payload) => {
     if (!payload || typeof payload !== 'object') return;
     setStats(payload);
-    setAttendanceSummary(payload.attendance || null);
   };
 
   const fetchDashboardData = useCallback(async (date, { silent = false } = {}) => {
@@ -84,7 +79,7 @@ const Dashboard = () => {
       value: stats.totalStaff,
       icon: Briefcase,
       accent: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/25',
-      link: '/staff?type=staff#list',
+      link: '/staff#list',
       feature: 'staff',
     },
     {
@@ -92,7 +87,7 @@ const Dashboard = () => {
       value: stats.totalNonStaff,
       icon: UserCog,
       accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',
-      link: '/staff?type=non-staff#list',
+      link: '/staff#list',
       feature: 'non-staff',
     },
     {
@@ -108,33 +103,7 @@ const Dashboard = () => {
     return includesPlanFeature(stat.feature);
   });
 
-  const attendanceRows = attendanceSummary
-    ? [
-        {
-          name: 'Students',
-          present: attendanceSummary.students.present,
-          total: attendanceSummary.students.total,
-          percentage: attendanceSummary.students.percentage,
-          color: 'bg-sky-500',
-        },
-        {
-          name: 'Staff',
-          present: attendanceSummary.staff.present,
-          total: attendanceSummary.staff.total,
-          percentage: attendanceSummary.staff.percentage,
-          color: 'bg-emerald-500',
-        },
-        {
-          name: 'Non-staff',
-          present: attendanceSummary.nonStaff.present,
-          total: attendanceSummary.nonStaff.total,
-          percentage: attendanceSummary.nonStaff.percentage,
-          color: 'bg-amber-500',
-        },
-      ]
-    : [];
-
-  if (loading && !stats.totalStudents && !attendanceSummary) {
+  if (loading && !stats.totalStudents) {
     return (
       <>
         <div className="flex h-64 items-center justify-center text-slate-400">Loading dashboard…</div>
@@ -144,7 +113,7 @@ const Dashboard = () => {
 
   return (
     <>
-<div className="relative space-y-8">
+      <div className="relative space-y-8">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-64"
@@ -246,93 +215,8 @@ const Dashboard = () => {
         </section>
 
         <SchoolAnalyticsChart />
-
-        {includesPlanFeature('attendance') && (
-          <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-7">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Attendance
-                </h2>
-              </div>
-              {isPlanApproved && (
-                <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2">
-                  <Calendar className="h-4 w-4 text-sky-400" />
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="bg-transparent text-sm text-slate-100 outline-none"
-                  />
-                </div>
-              )}
-            </div>
-
-            {!isPlanApproved ? (
-              <div className="mt-8 flex items-center gap-2 text-sm text-slate-400">
-                <Lock className="h-4 w-4" />
-                Attendance unlocks after your plan is approved.
-              </div>
-            ) : !attendanceSummary ? (
-              <p className="mt-8 text-sm text-slate-400">No attendance summary for this day.</p>
-            ) : liteMode ? (
-              <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                {attendanceRows.map((row) => (
-                  <div key={row.name} className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
-                    <p className="text-sm text-slate-400">{row.name}</p>
-                    <p className="mt-2 font-display text-2xl font-bold text-white">
-                      {row.present} / {row.total}
-                    </p>
-                  </div>
-                ))}
-                {hasFeature('attendance') && (
-                  <Link
-                    to="/attendance"
-                    className="inline-flex items-center gap-1.5 pt-2 text-sm font-medium text-sky-400 hover:text-sky-300 sm:col-span-3"
-                  >
-                    Open attendance
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
-                )}
-              </div>
-            ) : (
-              <div className="mt-8 space-y-5">
-                {attendanceRows.map((row) => (
-                  <div key={row.name}>
-                    <div className="mb-2 flex items-end justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-white">{row.name}</p>
-                        <p className="text-xs text-slate-500">
-                          {row.present} present · {row.total} total
-                        </p>
-                      </div>
-                      <p className="font-display text-xl font-bold tabular-nums text-white">
-                        {row.percentage}%
-                      </p>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-                      <div
-                        className={`h-full rounded-full ${row.color} transition-all duration-500`}
-                        style={{ width: `${Math.min(100, Math.max(0, row.percentage || 0))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                {hasFeature('attendance') && (
-                  <Link
-                    to="/attendance"
-                    className="inline-flex items-center gap-1.5 pt-2 text-sm font-medium text-sky-400 hover:text-sky-300"
-                  >
-                    Open attendance
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
-                )}
-              </div>
-            )}
-          </section>
-        )}
       </div>
-</>
+    </>
   );
 };
 

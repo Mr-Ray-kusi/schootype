@@ -7,7 +7,7 @@ const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const SLOW_PAGE_MS = 3000;
 const FETCH_LIMIT = 20000;
 const ANALYTICS_RANGES = new Set(['1d', '1w', '1m', '6m', '1y']);
-const SERIES_ACTIVE_TYPES = new Set(['heartbeat', 'page_view', 'login']);
+const SERIES_ACTIVE_TYPES = new Set(['heartbeat', 'page_view', 'login', 'staff_login']);
 const SERIES_KEY_TYPES = new Set([
   'login',
   'login_failed',
@@ -15,6 +15,9 @@ const SERIES_KEY_TYPES = new Set([
   'payment_failed',
   'payment_success',
   'sms_sent',
+  'sms_failed',
+  'staff_login',
+  'staff_activity',
   'page_slow',
 ]);
 
@@ -26,6 +29,9 @@ const SERVER_EVENT_TYPES = new Set([
   'payment_failed',
   'payment_success',
   'sms_sent',
+  'sms_failed',
+  'staff_login',
+  'staff_activity',
 ]);
 
 const memoryEvents = [];
@@ -228,6 +234,7 @@ export function pageLabel(path) {
   if (p.startsWith('/fees-paid') || p.startsWith('/fees-unpaid') || p.startsWith('/fees')) return 'Fees';
   if (p.startsWith('/report-cards')) return 'Reports';
   if (p.startsWith('/students') || p.startsWith('/add-student')) return 'Students';
+  if (p.includes('staff-portal')) return 'Staff portal';
   if (p.startsWith('/staff')) return 'Staff';
   if (p.startsWith('/non-staff')) return 'Non-staff';
   if (p.startsWith('/scanner')) return 'Scanner';
@@ -403,7 +410,13 @@ function uniqueActiveUsers(events, now = Date.now()) {
   const cutoff = now - ACTIVE_WINDOW_MS;
   const byPerson = new Map();
   for (const event of events) {
-    if (event.event_type !== 'heartbeat' && event.event_type !== 'page_view' && event.event_type !== 'login') {
+    if (
+      event.event_type !== 'heartbeat' &&
+      event.event_type !== 'page_view' &&
+      event.event_type !== 'login' &&
+      event.event_type !== 'staff_login' &&
+      event.event_type !== 'staff_activity'
+    ) {
       continue;
     }
     const at = new Date(event.created_at).getTime();
@@ -461,6 +474,12 @@ function eventLabel(event) {
       return 'Payment succeeded';
     case 'sms_sent':
       return 'SMS sent';
+    case 'sms_failed':
+      return 'SMS failed';
+    case 'staff_login':
+      return 'Staff signed in';
+    case 'staff_activity':
+      return event?.meta?.activity || 'Staff activity';
     case 'page_slow':
       return 'Slow page';
     case 'page_view':
@@ -476,11 +495,20 @@ export function describePlatformError(event) {
   const message = String(meta.message || '').trim();
 
   if (event?.event_type === 'login_failed') {
-    if (reason === 'wrong_password') return 'Wrong password';
+    if (reason === 'wrong_password') {
+      return meta.source === 'staff_portal' ? 'Invalid access code or role' : 'Wrong password';
+    }
     if (reason === 'unknown_email') return 'Email not found';
     if (reason === 'system_failure') return 'System failure during login';
     if (reason === 'rate_limited') return 'Too many login attempts';
+    if (reason === 'invalid_code') return 'Invalid access code or role';
+    if (meta.source === 'staff_portal') return message || 'Staff portal login failed';
     return message || 'Login attempt failed';
+  }
+
+  if (event?.event_type === 'sms_failed') {
+    const sample = Array.isArray(meta.errors) ? meta.errors.find(Boolean) : null;
+    return message || sample || 'SMS could not be delivered';
   }
 
   if (event?.event_type === 'payment_failed') {
@@ -643,7 +671,18 @@ export async function getPlatformAnalytics(options = {}) {
     });
   }
 
-  const keyTypes = new Set(['login', 'login_failed', 'signup', 'payment_failed', 'payment_success', 'sms_sent', 'page_slow']);
+  const keyTypes = new Set([
+    'login',
+    'login_failed',
+    'signup',
+    'payment_failed',
+    'payment_success',
+    'sms_sent',
+    'sms_failed',
+    'staff_login',
+    'staff_activity',
+    'page_slow',
+  ]);
   const keyEventsAll = events.filter(
     (event) => keyTypes.has(event.event_type) && new Date(event.created_at) >= rangeStart
   );

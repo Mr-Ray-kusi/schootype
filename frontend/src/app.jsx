@@ -138,7 +138,7 @@ function App() {
                   </Route>
                   <Route element={<PlanFeatureRoute features={['staff', 'non-staff']} />}>
                     <Route path="/staff" element={<Staff />} />
-                    <Route path="/non-staff" element={<Navigate to="/staff?type=non-staff" replace />} />
+                    <Route path="/non-staff" element={<Navigate to="/staff" replace />} />
                   </Route>
                   <Route element={<PlanFeatureRoute feature="attendance" />}>
                     <Route path="/attendance" element={<Attendance />} />

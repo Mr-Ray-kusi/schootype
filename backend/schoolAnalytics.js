@@ -3,10 +3,14 @@ import { resolveFeePeriod } from './academicTerms.js';
 import { isSuccessfulFeeStatus, resolveStudentFeeAmount, roundMoney } from './feePayments.js';
 import {
   analyticsRangeWindow,
+  describePlatformError,
   enumerateBuckets,
   normalizeAnalyticsRange,
+  pageLabel,
   startOfUnit,
 } from './platformTelemetry.js';
+
+const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 
 const safeQuery = async (fn, fallback) => {
   try {
@@ -27,6 +31,57 @@ const bump = (map, key, amount = 1) => {
   map.set(key, (map.get(key) || 0) + amount);
 };
 
+const capitalize = (value) => {
+  const text = String(value || '').replace(/-/g, ' ').trim();
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+const isStaffPortalEvent = (event) => {
+  const role = String(event?.role || '').toLowerCase();
+  if (role === 'staff_portal') return true;
+  return String(event?.meta?.source || '').toLowerCase() === 'staff_portal';
+};
+
+const staffPersonKey = (event) =>
+  String(event?.meta?.staffId || event?.email || event?.id || '').trim() || event?.id;
+
+const staffDisplayName = (event) =>
+  event?.meta?.staffName || event?.email || 'Staff';
+
+const describeAttendance = (row) => {
+  const type = capitalize(row.user_type || 'person') || 'Person';
+  const label = row.user_label ? ` · ${row.user_label}` : '';
+  const status = String(row.status || '').toLowerCase();
+  if (status === 'late') return `${type}${label} marked late`;
+  if (status === 'early') return `${type}${label} marked early`;
+  if (status === 'present') return `${type}${label} marked present`;
+  if (status === 'absent') return `${type}${label} marked absent`;
+  return `${type}${label} attendance recorded`;
+};
+
+const describeStaffActivity = (event) => {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  if (meta.activity) return String(meta.activity);
+  if (event?.event_type === 'staff_login') {
+    return meta.staffRole ? `Signed in via staff portal as ${meta.staffRole}` : 'Signed in via staff portal';
+  }
+  if (event?.event_type === 'staff_activity') {
+    return 'Recorded work in the staff portal';
+  }
+  const page = pageLabel(event?.path);
+  if (event?.event_type === 'heartbeat') return `Active in ${page}`;
+  if (event?.event_type === 'page_view') return `Opened ${page}`;
+  return describePlatformError(event);
+};
+
+const previewRow = ({ id, title, description, createdAt }) => ({
+  id,
+  title,
+  description,
+  createdAt,
+});
+
 export async function getSchoolAnalytics(schoolId, options = {}) {
   const now = new Date();
   const range = normalizeAnalyticsRange(options.range);
@@ -37,14 +92,23 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
 
   const [attendanceRes, paymentsRes, messagesRes, studentsRes, classesRes, eventsRes] = await Promise.all([
     safeQuery(
-      () =>
-        supabase
+      async () => {
+        const first = await supabase
+          .from('attendance')
+          .select('id, date, timestamp, user_name, user_type, user_label, status')
+          .eq('school_id', schoolId)
+          .gte('date', sinceIso.slice(0, 10))
+          .order('timestamp', { ascending: false })
+          .limit(8000);
+        if (!first.error) return first;
+        return supabase
           .from('attendance')
           .select('id, date, timestamp, user_name, user_type')
           .eq('school_id', schoolId)
           .gte('date', sinceIso.slice(0, 10))
           .order('timestamp', { ascending: false })
-          .limit(8000),
+          .limit(8000);
+      },
       { data: [] }
     ),
     safeQuery(
@@ -80,11 +144,11 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       () =>
         supabase
           .from('platform_events')
-          .select('id, event_type, meta, created_at')
+          .select('id, event_type, meta, created_at, email, role, path')
           .eq('school_id', schoolId)
-          .eq('event_type', 'sms_sent')
           .gte('created_at', sinceIso)
-          .limit(4000),
+          .order('created_at', { ascending: false })
+          .limit(8000),
       { data: [] }
     ),
   ]);
@@ -94,52 +158,75 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
   const messages = messagesRes.data || [];
   const students = studentsRes.data || [];
   const classes = classesRes.data || [];
-  const smsEvents = eventsRes.data || [];
+  const events = eventsRes.data || [];
 
   const attendanceMap = new Map();
   const feesPaidMap = new Map();
-  const smsSentMap = new Map();
   const smsDeliveredMap = new Map();
+  const smsFailedMap = new Map();
+  const failedLoginMap = new Map();
+  const activeStaffMap = new Map();
+
+  const inWindow = (value) => {
+    const at = new Date(value);
+    if (Number.isNaN(at.getTime()) || at < start) return null;
+    const key = startOfUnit(at, unit).toISOString();
+    if (!known.has(key)) return null;
+    return { at, key };
+  };
 
   for (const row of attendance) {
-    const at = new Date(row.timestamp || `${row.date}T12:00:00`);
-    if (Number.isNaN(at.getTime()) || at < start) continue;
-    const key = startOfUnit(at, unit).toISOString();
-    if (!known.has(key)) continue;
-    bump(attendanceMap, key);
+    const window = inWindow(row.timestamp || `${row.date}T12:00:00`);
+    if (!window) continue;
+    bump(attendanceMap, window.key);
   }
 
   const successfulPayments = payments.filter((row) => isSuccessfulFeeStatus(row.status));
   for (const row of successfulPayments) {
-    const at = new Date(row.created_at);
-    if (Number.isNaN(at.getTime()) || at < start) continue;
-    const key = startOfUnit(at, unit).toISOString();
-    if (!known.has(key)) continue;
-    bump(feesPaidMap, key, Number(row.amount) || 0);
+    const window = inWindow(row.created_at);
+    if (!window) continue;
+    bump(feesPaidMap, window.key, Number(row.amount) || 0);
   }
 
   const smsMessages = messages.filter((row) => String(row.delivery_channel || 'sms') !== 'email');
-  for (const row of smsMessages) {
-    const at = new Date(row.created_at);
-    if (Number.isNaN(at.getTime()) || at < start) continue;
-    const key = startOfUnit(at, unit).toISOString();
-    if (!known.has(key)) continue;
-    bump(smsSentMap, key);
-  }
+  const smsSentEvents = events.filter((event) => event.event_type === 'sms_sent');
+  const smsFailedEvents = events.filter((event) => event.event_type === 'sms_failed');
+  const failedLoginEvents = events.filter((event) => event.event_type === 'login_failed');
+  const staffPortalEvents = events.filter(isStaffPortalEvent);
 
-  for (const event of smsEvents) {
-    const at = new Date(event.created_at);
-    if (Number.isNaN(at.getTime()) || at < start) continue;
-    const key = startOfUnit(at, unit).toISOString();
-    if (!known.has(key)) continue;
+  for (const event of smsSentEvents) {
+    const window = inWindow(event.created_at);
+    if (!window) continue;
     const delivered = Number(event.meta?.delivered ?? event.meta?.count);
-    bump(smsDeliveredMap, key, Number.isFinite(delivered) && delivered > 0 ? delivered : 1);
+    bump(smsDeliveredMap, window.key, Number.isFinite(delivered) && delivered > 0 ? delivered : 1);
   }
 
   if (![...smsDeliveredMap.values()].some((value) => value > 0)) {
-    for (const [key, value] of smsSentMap.entries()) {
-      smsDeliveredMap.set(key, value);
+    for (const row of smsMessages) {
+      const window = inWindow(row.created_at);
+      if (!window) continue;
+      bump(smsDeliveredMap, window.key);
     }
+  }
+
+  for (const event of smsFailedEvents) {
+    const window = inWindow(event.created_at);
+    if (!window) continue;
+    const failed = Number(event.meta?.failed);
+    bump(smsFailedMap, window.key, Number.isFinite(failed) && failed > 0 ? failed : 1);
+  }
+
+  for (const event of failedLoginEvents) {
+    const window = inWindow(event.created_at);
+    if (!window) continue;
+    bump(failedLoginMap, window.key);
+  }
+
+  for (const event of staffPortalEvents) {
+    const window = inWindow(event.created_at);
+    if (!window) continue;
+    if (!activeStaffMap.has(window.key)) activeStaffMap.set(window.key, new Set());
+    activeStaffMap.get(window.key).add(staffPersonKey(event));
   }
 
   const classFeeByName = new Map((classes || []).map((row) => [row.name, Number(row.fee_amount) || 0]));
@@ -191,6 +278,33 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
     .sort((a, b) => b.outstanding - a.outstanding)
     .slice(0, 12);
 
+  const latestByStaff = new Map();
+  for (const event of staffPortalEvents) {
+    const key = staffPersonKey(event);
+    const existing = latestByStaff.get(key);
+    if (!existing || new Date(event.created_at) > new Date(existing.created_at)) {
+      latestByStaff.set(key, event);
+    }
+  }
+
+  const nowMs = now.getTime();
+  const activeStaffPreview = [...latestByStaff.values()]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 12)
+    .map((event) => {
+      const at = new Date(event.created_at).getTime();
+      const activeNow = Number.isFinite(at) && nowMs - at <= ACTIVE_WINDOW_MS;
+      return previewRow({
+        id: event.id,
+        title: staffDisplayName(event),
+        description: `${activeNow ? 'Active now' : 'Last seen'} · ${describeStaffActivity(event)}`,
+        createdAt: event.created_at,
+      });
+    });
+
+  const smsFailedInRange = [...smsFailedMap.values()].reduce((sum, value) => sum + value, 0);
+  const smsDeliveredInRange = [...smsDeliveredMap.values()].reduce((sum, value) => sum + value, 0);
+
   return {
     generatedAt: now.toISOString(),
     range,
@@ -200,8 +314,10 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       attendanceInRange,
       feesPaidInRange: roundMoney(feesPaidInRange),
       feesUnpaidNow: roundMoney(feesUnpaidNow),
-      smsSentInRange: smsMessages.length,
-      smsDeliveredInRange: [...smsDeliveredMap.values()].reduce((sum, value) => sum + value, 0),
+      smsDeliveredInRange,
+      smsFailedInRange,
+      failedLoginInRange: failedLoginEvents.length,
+      activeStaffInRange: latestByStaff.size,
     },
     chart: {
       range,
@@ -210,39 +326,89 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
         attendance: toPoints(buckets, attendanceMap),
         feesPaid: toPoints(buckets, feesPaidMap).map((point) => ({ ...point, value: roundMoney(point.value) })),
         feesUnpaid: toPoints(buckets, unpaidMap),
-        smsSent: toPoints(buckets, smsSentMap),
         smsDelivered: toPoints(buckets, smsDeliveredMap),
+        smsFailed: toPoints(buckets, smsFailedMap),
+        failedLogin: toPoints(buckets, failedLoginMap),
+        activeStaff: buckets.map((bucket) => ({
+          t: bucket.t,
+          label: bucket.label,
+          value: activeStaffMap.get(bucket.t)?.size || 0,
+        })),
       },
     },
     previews: {
-      attendance: attendance.slice(0, 12).map((row) => ({
-        id: row.id,
-        name: row.user_name || 'Marked',
-        type: row.user_type,
-        createdAt: row.timestamp || row.date,
-      })),
+      attendance: attendance.slice(0, 12).map((row) =>
+        previewRow({
+          id: row.id,
+          title: row.user_name || 'Attendance marked',
+          description: describeAttendance(row),
+          createdAt: row.timestamp || row.date,
+        })
+      ),
       feesPaid: successfulPayments
         .filter((row) => new Date(row.created_at) >= start)
         .slice(0, 12)
-        .map((row) => ({
+        .map((row) =>
+          previewRow({
+            id: row.id,
+            title: row.payer_name || 'Fee payment',
+            description: `${row.channel || row.payment_method || 'Paystack'} · ${new Intl.NumberFormat('en-GH', {
+              style: 'currency',
+              currency: 'GHS',
+              maximumFractionDigits: 2,
+            }).format(Number(row.amount) || 0)}`,
+            createdAt: row.created_at,
+          })
+        ),
+      feesUnpaid: unpaidStudents.map((row) =>
+        previewRow({
           id: row.id,
-          name: row.payer_name || 'Fee payment',
-          amount: roundMoney(row.amount),
-          method: row.channel || row.payment_method || 'Paystack',
+          title: row.name || 'Student',
+          description: `${row.className || 'Unassigned class'} · ${new Intl.NumberFormat('en-GH', {
+            style: 'currency',
+            currency: 'GHS',
+            maximumFractionDigits: 2,
+          }).format(row.outstanding)} outstanding`,
+          createdAt: null,
+        })
+      ),
+      smsDelivered: (smsSentEvents.length ? smsSentEvents : smsMessages).slice(0, 12).map((row) => {
+        if (row.event_type === 'sms_sent') {
+          const delivered = Number(row.meta?.delivered ?? row.meta?.count) || 1;
+          const failed = Number(row.meta?.failed) || 0;
+          return previewRow({
+            id: row.id,
+            title: 'SMS delivered',
+            description: failed
+              ? `${delivered} delivered · ${failed} failed`
+              : `${delivered} message${delivered === 1 ? '' : 's'} delivered`,
+            createdAt: row.created_at,
+          });
+        }
+        return previewRow({
+          id: row.id,
+          title: row.sender_name || 'SMS',
+          description: `Sent to ${row.recipients || 'recipients'}`,
           createdAt: row.created_at,
-        })),
-      feesUnpaid: unpaidStudents,
-      smsSent: smsMessages.slice(0, 12).map((row) => ({
-        id: row.id,
-        name: row.sender_name || 'SMS',
-        recipients: row.recipients,
-        createdAt: row.created_at,
-      })),
-      smsDelivered: smsEvents.slice(0, 12).map((row) => ({
-        id: row.id,
-        count: Number(row.meta?.delivered ?? row.meta?.count) || 1,
-        createdAt: row.created_at,
-      })),
+        });
+      }),
+      smsFailed: smsFailedEvents.slice(0, 12).map((row) =>
+        previewRow({
+          id: row.id,
+          title: 'SMS failed',
+          description: describePlatformError(row),
+          createdAt: row.created_at,
+        })
+      ),
+      failedLogin: failedLoginEvents.slice(0, 12).map((row) =>
+        previewRow({
+          id: row.id,
+          title: row.role === 'staff_portal' || row.meta?.source === 'staff_portal' ? 'Staff portal login failed' : 'Failed login',
+          description: describePlatformError(row),
+          createdAt: row.created_at,
+        })
+      ),
+      activeStaff: activeStaffPreview,
     },
   };
 }

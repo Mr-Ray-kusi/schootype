@@ -195,6 +195,39 @@ const StaffPortal = () => {
     loadTeacherData(selectedSubject, selectedClass);
   }, [staff, selectedSubject, selectedClass, loadTeacherData]);
 
+  useEffect(() => {
+    if (!sessionToken || !staff) return undefined;
+    const headers = { Authorization: `Bearer ${sessionToken}` };
+    const send = (events) => {
+      axios
+        .post('/api/staff-portal/session/telemetry', { events, schoolName }, { headers })
+        .catch(() => {});
+    };
+    const isTeacher = String(staff.role).toLowerCase() === 'teacher';
+    const activity =
+      isTeacher && selectedSubject && selectedClass
+        ? `Entering ${selectedSubject} scores for ${selectedClass}`
+        : `Signed in as ${staff.role}`;
+    send([
+      {
+        type: 'page_view',
+        path: '/staff-portal',
+        meta: { activity, staffName: staff.name },
+      },
+    ]);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      send([
+        {
+          type: 'heartbeat',
+          path: '/staff-portal',
+          meta: { activity, staffName: staff.name },
+        },
+      ]);
+    }, 45000);
+    return () => clearInterval(id);
+  }, [sessionToken, staff, schoolName, selectedSubject, selectedClass]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!token && !schoolSlug) return;

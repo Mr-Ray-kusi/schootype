@@ -4183,7 +4183,17 @@ async function findStaffPortalSchoolBySlug(schoolSlug) {
 async function issueStaffPortalSession(req, res, resolved) {
   const clientIp = getClientIp(req);
   const hitCheck = await checkAuthHitAllowed('staff_login', clientIp);
-  if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
+  if (!hitCheck.allowed) {
+    recordPlatformEvent({
+      eventType: 'login_failed',
+      schoolId: resolved.schoolId,
+      schoolName: resolved.schoolName,
+      role: 'staff_portal',
+      path: '/staff-portal',
+      meta: { reason: 'rate_limited', source: 'staff_portal' },
+    }).catch(() => {});
+    return sendAuthRateLimited(res, hitCheck);
+  }
   await recordAuthHit('staff_login', clientIp);
 
   const accessCode = String(req.body.accessCode || req.body.secretCode || '').trim();
@@ -4205,6 +4215,18 @@ async function issueStaffPortalSession(req, res, resolved) {
     null;
 
   if (!staff) {
+    recordPlatformEvent({
+      eventType: 'login_failed',
+      schoolId: resolved.schoolId,
+      schoolName: resolved.schoolName,
+      role: 'staff_portal',
+      path: '/staff-portal',
+      meta: {
+        reason: 'wrong_password',
+        source: 'staff_portal',
+        attemptedRole: role,
+      },
+    }).catch(() => {});
     return res.status(401).json({ error: 'Invalid access code or role' });
   }
 
@@ -4213,12 +4235,28 @@ async function issueStaffPortalSession(req, res, resolved) {
       purpose: 'staff_portal',
       schoolId: resolved.schoolId,
       staffId: staff.id,
+      staffName: staff.name,
       role: staff.role,
       portalToken: resolved.token || req.params.token,
     },
     JWT_SECRET,
     { expiresIn: '12h' }
   );
+
+  recordPlatformEvent({
+    eventType: 'staff_login',
+    schoolId: resolved.schoolId,
+    schoolName: resolved.schoolName,
+    email: staff.name,
+    role: 'staff_portal',
+    path: '/staff-portal',
+    meta: {
+      staffId: staff.id,
+      staffName: staff.name,
+      staffRole: staff.role,
+      source: 'staff_portal',
+    },
+  }).catch(() => {});
 
   res.json({
     sessionToken,
@@ -4269,6 +4307,36 @@ app.post('/api/staff-portal/:token/login', async (req, res) => {
   } catch (error) {
     console.error('Staff portal login error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/staff-portal/session/telemetry', authenticateStaffPortal, async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const events = Array.isArray(payload.events) ? payload.events : [payload];
+    await recordClientEvents(
+      {
+        schoolId: req.staffPortal.schoolId,
+        email: req.staffPortal.staffName || req.staffPortal.staffId,
+        role: 'staff_portal',
+      },
+      events.map((event) => ({
+        ...event,
+        schoolName: event.schoolName || payload.schoolName || null,
+        path: event.path || '/staff-portal',
+        meta: {
+          ...(event.meta && typeof event.meta === 'object' ? event.meta : {}),
+          staffId: req.staffPortal.staffId,
+          staffName: req.staffPortal.staffName || event.meta?.staffName || null,
+          staffRole: req.staffPortal.role,
+          source: 'staff_portal',
+        },
+      }))
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.warn('Staff portal telemetry error:', error.message || error);
+    res.json({ ok: false });
   }
 });
 
@@ -4424,7 +4492,7 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
 
     const { data: student, error: studentError } = await supabase
       .from('students')
-      .select('id, class, school_id')
+      .select('id, name, class, school_id')
       .eq('id', studentId)
       .eq('school_id', req.staffPortal.schoolId)
       .maybeSingle();
@@ -4506,6 +4574,26 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
     }
 
     bumpSchoolCaches(req.staffPortal.schoolId);
+    recordPlatformEvent({
+      eventType: 'staff_activity',
+      schoolId: req.staffPortal.schoolId,
+      email: staff.name,
+      role: 'staff_portal',
+      path: '/staff-portal',
+      meta: {
+        staffId: staff.id,
+        staffName: staff.name,
+        staffRole: staff.role,
+        source: 'staff_portal',
+        activity: `Saved ${subject} score for ${student.name || 'a student'}${
+          className || studentClass ? ` · ${className || studentClass}` : ''
+        } (${term})`,
+        studentId,
+        subject,
+        className: className || studentClass,
+        term,
+      },
+    }).catch(() => {});
     res.json(saved);
   } catch (error) {
     console.error('Staff portal score save error:', error);
@@ -4884,6 +4972,23 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
         }
 
         if (smsDelivery.sent === 0 && smsDelivery.failed > 0) {
+          recordPlatformEvent({
+            eventType: 'sms_failed',
+            schoolId: req.user.schoolId,
+            schoolName: schoolAccount.name,
+            email: req.user.email,
+            role: req.user.role,
+            path: '/messages',
+            meta: {
+              failed: smsDelivery.failed,
+              reason: 'delivery_failed',
+              errors: smsDelivery.results
+                .filter((r) => !r.ok)
+                .slice(0, 3)
+                .map((r) => r.error)
+                .filter(Boolean),
+            },
+          }).catch(() => {});
           return res.status(502).json({
             error: 'SMS provider could not deliver to any recipient. Units were refunded where possible.',
             code: 'SMS_DELIVERY_FAILED',
@@ -4917,6 +5022,18 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
           console.error('SMS full refund failed:', refundErr.message || refundErr);
         }
         const status = sendErr.status || 502;
+        recordPlatformEvent({
+          eventType: 'sms_failed',
+          schoolId: req.user.schoolId,
+          schoolName: schoolAccount.name,
+          email: req.user.email,
+          role: req.user.role,
+          path: '/messages',
+          meta: {
+            reason: 'provider_error',
+            message: sendErr.message || 'SMS delivery failed',
+          },
+        }).catch(() => {});
         return res.status(status).json({
           error: sendErr.message || 'SMS delivery failed',
           code: sendErr.code || 'SMS_DELIVERY_FAILED',
@@ -4967,6 +5084,26 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
           count: smsDelivery.sent,
           delivered: smsDelivery.sent,
           failed: smsDelivery.failed || 0,
+        },
+      }).catch(() => {});
+    }
+
+    if (channel === 'sms' && smsDelivery?.failed > 0 && smsDelivery?.sent > 0) {
+      recordPlatformEvent({
+        eventType: 'sms_failed',
+        schoolId: req.user.schoolId,
+        schoolName: schoolAccount.name,
+        email: req.user.email,
+        role: req.user.role,
+        path: '/messages',
+        meta: {
+          failed: smsDelivery.failed,
+          reason: 'partial_delivery',
+          errors: (smsDelivery.results || [])
+            .filter((r) => !r.ok)
+            .slice(0, 3)
+            .map((r) => r.error)
+            .filter(Boolean),
         },
       }).catch(() => {});
     }
