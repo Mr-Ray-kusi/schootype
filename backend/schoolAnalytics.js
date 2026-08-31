@@ -75,6 +75,38 @@ const describeStaffActivity = (event) => {
   return describePlatformError(event);
 };
 
+const isFeePaymentFailure = (event) => {
+  if (event?.event_type !== 'payment_failed') return false;
+  const path = String(event?.path || '');
+  if (path.startsWith('/school-wallet')) return false;
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  if (meta.kind === 'wallet' || meta.kind === 'deposit') return false;
+  return (
+    meta.kind === 'school_fee' ||
+    meta.reason === 'student_not_found' ||
+    path.includes('/fees') ||
+    path.includes('/pay')
+  );
+};
+
+const describeFeeFailure = (event) => {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const reason = describePlatformError(event);
+  const code = String(meta.student_code || '').trim();
+  if (meta.reason === 'student_not_found') return reason;
+  const parts = [reason];
+  if (code) parts.push(`Student ID: ${code}`);
+  if (meta.student_class) parts.push(meta.student_class);
+  return parts.filter(Boolean).join(' · ');
+};
+
+const feeFailureTitle = (event) => {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  if (meta.student_name) return meta.student_name;
+  if (meta.reason === 'student_not_found') return 'Unknown student ID';
+  return 'Failed fee payment';
+};
+
 const previewRow = ({ id, title, description, createdAt }) => ({
   id,
   title,
@@ -162,6 +194,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
 
   const attendanceMap = new Map();
   const feesPaidMap = new Map();
+  const feesFailedMap = new Map();
   const smsDeliveredMap = new Map();
   const smsFailedMap = new Map();
   const failedLoginMap = new Map();
@@ -192,6 +225,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
   const smsSentEvents = events.filter((event) => event.event_type === 'sms_sent');
   const smsFailedEvents = events.filter((event) => event.event_type === 'sms_failed');
   const failedLoginEvents = events.filter((event) => event.event_type === 'login_failed');
+  const feeFailedEvents = events.filter(isFeePaymentFailure);
   const staffPortalEvents = events.filter(isStaffPortalEvent);
 
   for (const event of smsSentEvents) {
@@ -220,6 +254,12 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
     const window = inWindow(event.created_at);
     if (!window) continue;
     bump(failedLoginMap, window.key);
+  }
+
+  for (const event of feeFailedEvents) {
+    const window = inWindow(event.created_at);
+    if (!window) continue;
+    bump(feesFailedMap, window.key);
   }
 
   for (const event of staffPortalEvents) {
@@ -314,6 +354,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       attendanceInRange,
       feesPaidInRange: roundMoney(feesPaidInRange),
       feesUnpaidNow: roundMoney(feesUnpaidNow),
+      feesFailedInRange: feeFailedEvents.length,
       smsDeliveredInRange,
       smsFailedInRange,
       failedLoginInRange: failedLoginEvents.length,
@@ -326,6 +367,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
         attendance: toPoints(buckets, attendanceMap),
         feesPaid: toPoints(buckets, feesPaidMap).map((point) => ({ ...point, value: roundMoney(point.value) })),
         feesUnpaid: toPoints(buckets, unpaidMap),
+        feesFailed: toPoints(buckets, feesFailedMap),
         smsDelivered: toPoints(buckets, smsDeliveredMap),
         smsFailed: toPoints(buckets, smsFailedMap),
         failedLogin: toPoints(buckets, failedLoginMap),
@@ -370,6 +412,14 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
             maximumFractionDigits: 2,
           }).format(row.outstanding)} outstanding`,
           createdAt: null,
+        })
+      ),
+      feesFailed: feeFailedEvents.slice(0, 12).map((row) =>
+        previewRow({
+          id: row.id,
+          title: feeFailureTitle(row),
+          description: describeFeeFailure(row),
+          createdAt: row.created_at,
         })
       ),
       smsDelivered: (smsSentEvents.length ? smsSentEvents : smsMessages).slice(0, 12).map((row) => {

@@ -64,7 +64,7 @@ const FeesReceipt = () => {
       outstanding: result.outstanding,
       payments: result.payments || [],
       reference,
-      recordedBy: result.recorded_by || 'Paid online',
+      recordedBy: result.recorded_by || 'Online',
     });
   };
 

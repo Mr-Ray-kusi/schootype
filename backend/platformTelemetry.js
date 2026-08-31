@@ -512,6 +512,10 @@ export function describePlatformError(event) {
   }
 
   if (event?.event_type === 'payment_failed') {
+    if (reason === 'student_not_found') {
+      const code = String(meta.student_code || '').trim();
+      return code ? `Student ID entered: ${code} — no matching student` : 'Student ID was not found';
+    }
     if (message) return message;
     if (reason === 'abandoned') return 'Payment abandoned before completion';
     if (reason === 'provider_declined') return 'Payment declined by provider';

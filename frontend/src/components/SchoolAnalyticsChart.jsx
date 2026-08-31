@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   CalendarCheck,
+  CreditCard,
   DollarSign,
   MessageSquare,
   Receipt,
@@ -90,6 +91,13 @@ const SchoolAnalyticsChart = () => {
         value: totals.feesUnpaidNow || 0,
         icon: Receipt,
         formatValue: (value) => formatMoney(value),
+      },
+      {
+        id: 'feesFailed',
+        title: 'Failed fee payments',
+        value: totals.feesFailedInRange || 0,
+        icon: CreditCard,
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} failed`,
       },
       {
         id: 'smsDelivered',

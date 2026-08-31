@@ -55,11 +55,14 @@ export function isSuccessfulFeeStatus(status) {
 export function describeFeeRecorder(payment) {
   const role = String(payment?.recorded_by_role || '').toLowerCase();
   const name = String(payment?.recorded_by_name || '').trim();
-  if (role === 'accountant') return name ? `Accountant · ${name}` : 'Accountant';
-  if (role === 'admin') return name || 'School admin';
-  if (role === 'parent' || role === 'system') return 'Paid online';
-  if (isManualFeePayment(payment)) return name || 'School admin';
-  return 'Paid online';
+  if (role === 'accountant') {
+    const accountantName = name && !/^accountant$/i.test(name) ? name : '';
+    return accountantName ? `Accountant · ${accountantName}` : 'Accountant';
+  }
+  if (role === 'admin') return 'Admin';
+  if (role === 'parent' || role === 'system') return 'Online';
+  if (isManualFeePayment(payment)) return 'Admin';
+  return 'Online';
 }
 
 export function studentRecordedByLabel(payments) {
@@ -452,7 +455,7 @@ export async function settleSchoolFeeFromPaystack(data = {}) {
     channel: data.channel || null,
     currency: data.currency || 'GHS',
     recorded_by_role: 'parent',
-    recorded_by_name: 'Paid online',
+    recorded_by_name: 'Online',
   });
 
   if (metadata.student_id) {

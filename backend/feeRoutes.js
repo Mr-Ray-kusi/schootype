@@ -43,18 +43,66 @@ import {
 } from './academicTerms.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
 
-const noteFeePaymentFailed = ({ schoolId, email, reason, message, reference }) => {
+const notedFeeFailureRefs = new Set();
+
+function studentFromPaystackMeta(meta) {
+  if (!meta || typeof meta !== 'object') return null;
+  if (!meta.student_id && !meta.payer_name && !meta.school_id) return null;
+  return {
+    id: meta.student_id || null,
+    name: meta.payer_name || null,
+    class: meta.payer_class || null,
+    school_id: meta.school_id || null,
+    barcode: meta.barcode || null,
+    roll_number: meta.roll_number || null,
+  };
+}
+
+const noteFeePaymentFailed = ({
+  schoolId,
+  email,
+  reason,
+  message,
+  reference,
+  student,
+  studentCode,
+} = {}) => {
+  const ref = String(reference || '').trim();
+  if (ref) {
+    if (notedFeeFailureRefs.has(ref)) return;
+    notedFeeFailureRefs.add(ref);
+    if (notedFeeFailureRefs.size > 3000) notedFeeFailureRefs.clear();
+  }
+  const code = String(
+    studentCode || student?.barcode || student?.roll_number || student?.id || ''
+  ).trim();
   recordPlatformEvent({
     eventType: 'payment_failed',
-    schoolId: schoolId || null,
+    schoolId: schoolId || student?.school_id || null,
     email: email || null,
     path: '/fees',
     meta: {
+      kind: 'school_fee',
       reason: reason || 'provider_declined',
       message: message || 'Payment attempt failed',
-      reference: reference || null,
+      reference: ref || null,
+      student_id: student?.id || null,
+      student_name: student?.name || null,
+      student_class: student?.class || null,
+      student_code: code || null,
     },
   }).catch(() => {});
+};
+
+const noteUnknownStudentId = ({ schoolId, studentCode }) => {
+  const code = String(studentCode || '').trim();
+  if (!code) return;
+  noteFeePaymentFailed({
+    schoolId,
+    reason: 'student_not_found',
+    message: `Student ID entered: ${code}`,
+    studentCode: code,
+  });
 };
 
 function handlePaystackError(res, err) {
@@ -225,11 +273,13 @@ async function resolveFeePayment(reference) {
   }
 
   if (charge && isPaystackFailedStatus(chargeStatus)) {
+    const meta = charge.metadata || {};
     noteFeePaymentFailed({
-      schoolId: charge.metadata?.school_id,
+      schoolId: meta.school_id,
       reason: 'provider_declined',
       message: charge.display_text || charge.gateway_response || 'Payment declined by provider',
       reference: charge.reference,
+      student: studentFromPaystackMeta(meta),
     });
     return {
       status: 'failed',
@@ -265,11 +315,13 @@ async function resolveFeePayment(reference) {
       return { status: 'success', payload: verified, needs_code: false, display_text: null };
     }
     if (isPaystackFailedStatus(txStatus)) {
+      const meta = verified?.metadata || {};
       noteFeePaymentFailed({
-        schoolId: verified?.metadata?.school_id,
+        schoolId: meta.school_id,
         reason: txStatus === 'abandoned' ? 'abandoned' : 'provider_declined',
         message: verified?.gateway_response || 'Payment attempt failed',
         reference: verified?.reference || reference,
+        student: studentFromPaystackMeta(meta),
       });
       return {
         status: 'failed',
@@ -545,7 +597,7 @@ async function receiptDetailsForPayment(reference) {
     payment_month: meta.payment_month || null,
     needs_code: resolved.needs_code,
     display_text: resolved.display_text,
-    recorded_by: 'Paid online',
+    recorded_by: 'Online',
   };
   if (!schoolId || !studentId) return base;
 
@@ -611,6 +663,8 @@ async function startFeePayment({
     student_id: student.id,
     payer_name: student.name,
     payer_class: student.class || null,
+    barcode: student.barcode || null,
+    roll_number: student.roll_number || null,
     payment_month: month,
     term_name: termName || month,
     amount_major: payAmount,
@@ -783,7 +837,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         return res.status(400).json({ error: 'Select a school and enter the student ID.' });
       }
       const ctx = await loadStudentFeeBySchool(schoolId, studentId);
-      if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      if (!ctx) {
+        noteUnknownStudentId({ schoolId, studentCode: studentId });
+        return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      }
       res.json(publicStudentSummary(ctx.student, ctx.school, ctx.amount, ctx.month, ctx.balance, ctx.period));
     } catch (err) {
       console.error('Public fee lookup error:', err);
@@ -799,7 +856,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       const amount = Number(req.body?.amount);
       if (!method) return res.status(400).json({ error: 'Select MoMo or bank.' });
       const ctx = await loadStudentFeeBySchool(schoolId, studentId);
-      if (!ctx) return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      if (!ctx) {
+        noteUnknownStudentId({ schoolId, studentCode: studentId });
+        return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
+      }
       throwIfFullyPaid(ctx);
       const payment = await startFeePayment({
         student: ctx.student,
@@ -817,7 +877,15 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (err.code === 'FULLY_PAID' || err.status === 409) {
         return res.status(409).json({ error: err.message, code: 'FULLY_PAID' });
       }
-      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      if (err.code?.startsWith('PAYSTACK') || err.status) {
+        noteFeePaymentFailed({
+          schoolId: String(req.body?.schoolId || '').trim(),
+          reason: 'provider_declined',
+          message: err.message || 'Could not start fee payment',
+          studentCode: String(req.body?.studentId || '').trim(),
+        });
+        return handlePaystackError(res, err);
+      }
       console.error('Public fee pay error:', err);
       res.status(500).json({ error: 'Failed to start fee payment' });
     }
@@ -864,11 +932,12 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
       if (isPaystackFailedStatus(submittedStatus)) {
         noteFeePaymentFailed({
-          schoolId: req.user?.schoolId,
+          schoolId: submitted?.metadata?.school_id || req.user?.schoolId,
           email: req.user?.email,
           reason: 'provider_declined',
           message: submitted?.display_text || submitted?.gateway_response || 'That code was not accepted.',
           reference: submittedRef,
+          student: studentFromPaystackMeta(submitted?.metadata),
         });
         return res.json({
           mode: 'momo',
@@ -923,7 +992,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.get('/api/public/fees/:barcode', async (req, res) => {
     try {
       const ctx = await loadStudentFeeContext(req.params.barcode);
-      if (!ctx) return res.status(404).json({ error: 'Student not found' });
+      if (!ctx) {
+        noteUnknownStudentId({ studentCode: req.params.barcode });
+        return res.status(404).json({ error: 'Student not found' });
+      }
       const { student, school, amount, month, balance, period } = ctx;
       res.json(publicStudentSummary(student, school, amount, month, balance, period));
     } catch (err) {
@@ -935,7 +1007,10 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.post('/api/public/fees/:barcode/checkout', async (req, res) => {
     try {
       const ctx = await loadStudentFeeContext(req.params.barcode);
-      if (!ctx) return res.status(404).json({ error: 'Student not found' });
+      if (!ctx) {
+        noteUnknownStudentId({ studentCode: req.params.barcode });
+        return res.status(404).json({ error: 'Student not found' });
+      }
       const { student, school, amount, month, period } = ctx;
       throwIfFullyPaid(ctx);
       const requested = Number(req.body?.amount);
@@ -959,7 +1034,14 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (err.code === 'FULLY_PAID' || err.status === 409) {
         return res.status(409).json({ error: err.message, code: 'FULLY_PAID' });
       }
-      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      if (err.code?.startsWith('PAYSTACK') || err.status) {
+        noteFeePaymentFailed({
+          reason: 'provider_declined',
+          message: err.message || 'Could not start fee payment',
+          studentCode: req.params.barcode,
+        });
+        return handlePaystackError(res, err);
+      }
       console.error('Fee checkout error:', err);
       res.status(500).json({ error: 'Failed to start fee payment' });
     }
