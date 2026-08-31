@@ -8,6 +8,7 @@ import {
   normalizeAnalyticsRange,
   pageLabel,
   startOfUnit,
+  listPlatformEventsSince,
 } from './platformTelemetry.js';
 
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -75,11 +76,49 @@ const describeStaffActivity = (event) => {
   return describePlatformError(event);
 };
 
+const eventMeta = (event) => {
+  const raw = event?.meta;
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+};
+
+const eventMatchesSchool = (event, schoolId, students = []) => {
+  const sid = String(schoolId || '');
+  if (!sid) return false;
+  if (event?.school_id && String(event.school_id) === sid) return true;
+  const meta = eventMeta(event);
+  if (meta.school_id && String(meta.school_id) === sid) return true;
+  if (event?.event_type !== 'payment_failed') return false;
+  const ids = new Set((students || []).map((row) => String(row.id)));
+  const codes = new Set(
+    (students || [])
+      .flatMap((row) => [row.barcode, row.roll_number])
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase())
+  );
+  if (meta.student_id && ids.has(String(meta.student_id))) return true;
+  const code = String(meta.student_code || '').trim().toLowerCase();
+  if (code && codes.has(code)) return true;
+  const names = new Set(
+    (students || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const studentName = String(meta.student_name || '').trim().toLowerCase();
+  return Boolean(studentName && names.has(studentName));
+};
+
 const isFeePaymentFailure = (event) => {
   if (event?.event_type !== 'payment_failed') return false;
   const path = String(event?.path || '');
   if (path.startsWith('/school-wallet')) return false;
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const meta = eventMeta(event);
   if (meta.kind === 'wallet' || meta.kind === 'deposit') return false;
   return (
     meta.kind === 'school_fee' ||
@@ -90,8 +129,8 @@ const isFeePaymentFailure = (event) => {
 };
 
 const describeFeeFailure = (event) => {
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
-  const reason = describePlatformError(event);
+  const meta = eventMeta(event);
+  const reason = describePlatformError({ ...event, meta });
   const code = String(meta.student_code || '').trim();
   if (meta.reason === 'student_not_found') return reason;
   const parts = [reason];
@@ -101,10 +140,15 @@ const describeFeeFailure = (event) => {
 };
 
 const feeFailureTitle = (event) => {
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const meta = eventMeta(event);
   if (meta.student_name) return meta.student_name;
   if (meta.reason === 'student_not_found') return 'Unknown student ID';
   return 'Failed fee payment';
+};
+
+const isFailedFeeStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  return value === 'failed' || value === 'abandoned' || value === 'declined';
 };
 
 const previewRow = ({ id, title, description, createdAt }) => ({
@@ -147,7 +191,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       () =>
         supabase
           .from('fee_payments')
-          .select('id, amount, status, payer_id, payer_name, payment_method, channel, payment_month, created_at')
+          .select('id, amount, status, payer_id, payer_name, payment_method, channel, payment_month, payment_reference, created_at')
           .eq('school_id', schoolId)
           .order('created_at', { ascending: false })
           .limit(8000),
@@ -165,24 +209,21 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       { data: [] }
     ),
     safeQuery(
-      () => supabase.from('students').select('id, name, class, monthly_fee').eq('school_id', schoolId),
+      async () => {
+        const first = await supabase
+          .from('students')
+          .select('id, name, class, monthly_fee, barcode, roll_number')
+          .eq('school_id', schoolId);
+        if (!first.error) return first;
+        return supabase.from('students').select('id, name, class, monthly_fee').eq('school_id', schoolId);
+      },
       { data: [] }
     ),
     safeQuery(
       () => supabase.from('classes').select('name, fee_amount').eq('school_id', schoolId),
       { data: [] }
     ),
-    safeQuery(
-      () =>
-        supabase
-          .from('platform_events')
-          .select('id, event_type, meta, created_at, email, role, path')
-          .eq('school_id', schoolId)
-          .gte('created_at', sinceIso)
-          .order('created_at', { ascending: false })
-          .limit(8000),
-      { data: [] }
-    ),
+    safeQuery(async () => ({ data: await listPlatformEventsSince(start) }), { data: [] }),
   ]);
 
   const attendance = attendanceRes.data || [];
@@ -190,7 +231,13 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
   const messages = messagesRes.data || [];
   const students = studentsRes.data || [];
   const classes = classesRes.data || [];
-  const events = eventsRes.data || [];
+  const events = (eventsRes.data || []).filter((event) => {
+    if (eventMatchesSchool(event, schoolId, students)) return true;
+    if (!isFeePaymentFailure(event)) return false;
+    const meta = eventMeta(event);
+    if (event.school_id || meta.school_id) return false;
+    return !String(meta.student_name || '').trim();
+  });
 
   const attendanceMap = new Map();
   const feesPaidMap = new Map();
@@ -225,7 +272,32 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
   const smsSentEvents = events.filter((event) => event.event_type === 'sms_sent');
   const smsFailedEvents = events.filter((event) => event.event_type === 'sms_failed');
   const failedLoginEvents = events.filter((event) => event.event_type === 'login_failed');
-  const feeFailedEvents = events.filter(isFeePaymentFailure);
+  const feeFailedFromEvents = events.filter(isFeePaymentFailure);
+  const seenFailureKeys = new Set(
+    feeFailedFromEvents.map((event) => String(eventMeta(event).reference || event.id))
+  );
+  const feeFailedFromPayments = payments
+    .filter((row) => isFailedFeeStatus(row.status))
+    .filter((row) => !seenFailureKeys.has(String(row.payment_reference || row.id)))
+    .map((row) => ({
+      id: row.id,
+      event_type: 'payment_failed',
+      created_at: row.created_at,
+      path: '/fees',
+      school_id: schoolId,
+      meta: {
+        kind: 'school_fee',
+        reason: 'provider_declined',
+        message: `Payment ${row.status}`,
+        student_name: row.payer_name,
+        student_id: row.payer_id,
+        student_code: row.payer_id,
+        reference: row.payment_reference,
+      },
+    }));
+  const feeFailedEvents = [...feeFailedFromEvents, ...feeFailedFromPayments].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
   const staffPortalEvents = events.filter(isStaffPortalEvent);
 
   for (const event of smsSentEvents) {

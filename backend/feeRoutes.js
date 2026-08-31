@@ -33,6 +33,7 @@ import {
   creditCashedFeeToWallet,
   describeFeeRecorder,
   studentRecordedByLabel,
+  parsePaystackMetadata,
 } from './feePayments.js';
 import {
   listAcademicTerms,
@@ -45,9 +46,9 @@ import { recordPlatformEvent } from './platformTelemetry.js';
 
 const notedFeeFailureRefs = new Set();
 
-function studentFromPaystackMeta(meta) {
-  if (!meta || typeof meta !== 'object') return null;
-  if (!meta.student_id && !meta.payer_name && !meta.school_id) return null;
+function studentFromPaystackMeta(raw) {
+  const meta = parsePaystackMetadata(raw);
+  if (!meta.student_id && !meta.payer_name && !meta.school_id && !meta.barcode) return null;
   return {
     id: meta.student_id || null,
     name: meta.payer_name || null,
@@ -58,6 +59,25 @@ function studentFromPaystackMeta(meta) {
   };
 }
 
+async function resolveFailedFeeSchoolId({ schoolId, student, meta, studentCode }) {
+  const parsed = parsePaystackMetadata(meta);
+  const direct = String(schoolId || student?.school_id || parsed.school_id || '').trim();
+  if (direct) return direct;
+  const studentId = student?.id || parsed.student_id;
+  const code = String(studentCode || student?.barcode || parsed.barcode || parsed.roll_number || '').trim();
+  if (studentId) {
+    const { data } = await supabase.from('students').select('school_id').eq('id', studentId).maybeSingle();
+    if (data?.school_id) return data.school_id;
+  }
+  if (code) {
+    const byBarcode = await supabase.from('students').select('school_id').eq('barcode', code).maybeSingle();
+    if (byBarcode.data?.school_id) return byBarcode.data.school_id;
+    const byRoll = await supabase.from('students').select('school_id').eq('roll_number', code).limit(2);
+    if (byRoll.data?.length === 1) return byRoll.data[0].school_id;
+  }
+  return null;
+}
+
 const noteFeePaymentFailed = ({
   schoolId,
   email,
@@ -66,6 +86,9 @@ const noteFeePaymentFailed = ({
   reference,
   student,
   studentCode,
+  amount,
+  channel,
+  meta,
 } = {}) => {
   const ref = String(reference || '').trim();
   if (ref) {
@@ -73,25 +96,37 @@ const noteFeePaymentFailed = ({
     notedFeeFailureRefs.add(ref);
     if (notedFeeFailureRefs.size > 3000) notedFeeFailureRefs.clear();
   }
+  const parsed = parsePaystackMetadata(meta);
   const code = String(
-    studentCode || student?.barcode || student?.roll_number || student?.id || ''
+    studentCode || student?.barcode || student?.roll_number || parsed.barcode || parsed.roll_number || ''
   ).trim();
-  recordPlatformEvent({
-    eventType: 'payment_failed',
-    schoolId: schoolId || student?.school_id || null,
-    email: email || null,
-    path: '/fees',
-    meta: {
-      kind: 'school_fee',
-      reason: reason || 'provider_declined',
-      message: message || 'Payment attempt failed',
-      reference: ref || null,
-      student_id: student?.id || null,
-      student_name: student?.name || null,
-      student_class: student?.class || null,
-      student_code: code || null,
-    },
-  }).catch(() => {});
+  Promise.resolve()
+    .then(async () => {
+      const resolvedSchoolId = await resolveFailedFeeSchoolId({
+        schoolId,
+        student,
+        meta: parsed,
+        studentCode: code,
+      });
+      await recordPlatformEvent({
+        eventType: 'payment_failed',
+        schoolId: resolvedSchoolId,
+        email: email || null,
+        path: '/fees',
+        meta: {
+          kind: 'school_fee',
+          school_id: resolvedSchoolId,
+          reason: reason || 'provider_declined',
+          message: message || 'Payment attempt failed',
+          reference: ref || null,
+          student_id: student?.id || parsed.student_id || null,
+          student_name: student?.name || parsed.payer_name || null,
+          student_class: student?.class || parsed.payer_class || null,
+          student_code: code || null,
+        },
+      });
+    })
+    .catch(() => {});
 };
 
 const noteUnknownStudentId = ({ schoolId, studentCode }) => {
@@ -273,13 +308,16 @@ async function resolveFeePayment(reference) {
   }
 
   if (charge && isPaystackFailedStatus(chargeStatus)) {
-    const meta = charge.metadata || {};
+    const meta = parsePaystackMetadata(charge.metadata);
     noteFeePaymentFailed({
       schoolId: meta.school_id,
       reason: 'provider_declined',
       message: charge.display_text || charge.gateway_response || 'Payment declined by provider',
       reference: charge.reference,
       student: studentFromPaystackMeta(meta),
+      amount: fromMinorUnits(charge.amount) || meta.amount_major,
+      channel: charge.channel,
+      meta,
     });
     return {
       status: 'failed',
@@ -315,13 +353,16 @@ async function resolveFeePayment(reference) {
       return { status: 'success', payload: verified, needs_code: false, display_text: null };
     }
     if (isPaystackFailedStatus(txStatus)) {
-      const meta = verified?.metadata || {};
+      const meta = parsePaystackMetadata(verified?.metadata);
       noteFeePaymentFailed({
         schoolId: meta.school_id,
         reason: txStatus === 'abandoned' ? 'abandoned' : 'provider_declined',
         message: verified?.gateway_response || 'Payment attempt failed',
         reference: verified?.reference || reference,
         student: studentFromPaystackMeta(meta),
+        amount: fromMinorUnits(verified?.amount) || meta.amount_major,
+        channel: verified?.channel,
+        meta,
       });
       return {
         status: 'failed',
@@ -931,13 +972,17 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       }
 
       if (isPaystackFailedStatus(submittedStatus)) {
+        const meta = parsePaystackMetadata(submitted?.metadata);
         noteFeePaymentFailed({
-          schoolId: submitted?.metadata?.school_id || req.user?.schoolId,
+          schoolId: meta.school_id || req.user?.schoolId,
           email: req.user?.email,
           reason: 'provider_declined',
           message: submitted?.display_text || submitted?.gateway_response || 'That code was not accepted.',
           reference: submittedRef,
-          student: studentFromPaystackMeta(submitted?.metadata),
+          student: studentFromPaystackMeta(meta),
+          amount: fromMinorUnits(submitted?.amount) || meta.amount_major,
+          channel: submitted?.channel,
+          meta,
         });
         return res.json({
           mode: 'momo',

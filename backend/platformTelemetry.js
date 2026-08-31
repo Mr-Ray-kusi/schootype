@@ -263,7 +263,7 @@ function toRow(input) {
   const duration = Number(input.durationMs ?? input.duration_ms);
   return {
     id: input.id || randomUUID(),
-    school_id: input.schoolId || input.school_id || null,
+    school_id: String(input.schoolId || input.school_id || '').trim() || null,
     school_name: trimText(input.schoolName || input.school_name, 120),
     email: trimText(input.email, 160)?.toLowerCase() || null,
     role: trimText(input.role, 40),
@@ -360,6 +360,10 @@ function isSchoolUsageEvent(event) {
   const path = String(event?.path || '');
   if (path.startsWith('/super-admin')) return false;
   return true;
+}
+
+export async function listPlatformEventsSince(since) {
+  return loadEventsSince(since instanceof Date ? since : new Date(since));
 }
 
 async function loadEventsSince(since) {
