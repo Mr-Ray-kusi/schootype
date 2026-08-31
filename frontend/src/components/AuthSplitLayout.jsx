@@ -130,7 +130,7 @@ export default function AuthSplitLayout({ mode = 'login', children }) {
           <div className={`order-1 ${isSignup ? 'md:order-2' : 'md:order-1'}`}>
             <div className="flex h-full flex-col justify-center px-6 py-8 sm:px-10 md:px-12">{children}</div>
           </div>
-          <div className={`order-2 ${isSignup ? 'md:order-1' : 'md:order-2'}`}>
+          <div className={`hidden md:block ${isSignup ? 'md:order-1' : 'md:order-2'}`}>
             <PromoPanel mode={mode} />
           </div>
         </div>
