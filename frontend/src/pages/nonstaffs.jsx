@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
-import PersonCard, { PersonGrid } from '../components/PersonCard';
+import PersonRecordTable from '../components/PersonRecordTable';
+import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
-import { Search, Plus, User, Wrench, Download } from 'lucide-react';
+import { Search, Plus, User, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
@@ -19,6 +20,7 @@ const NonStaff = () => {
   const [loading, setLoading] = useState(true);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [viewingPerson, setViewingPerson] = useState(null);
   const [editingNonStaff, setEditingNonStaff] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -120,7 +122,14 @@ const NonStaff = () => {
     }
   };
 
+  const openPerson = async (person) => {
+    setViewingPerson(person);
+    const full = await fetchRecord(axios, `/api/non-staff/${person.id}`, person);
+    setViewingPerson(full);
+  };
+
   const handleEdit = (person) => {
+    setViewingPerson(null);
     setEditingNonStaff(person);
     setFormData({
       name: person.name,
@@ -199,33 +208,35 @@ const NonStaff = () => {
           />
         </div>
 
+        <PersonDetailModal
+          open={Boolean(viewingPerson)}
+          name={viewingPerson?.name}
+          badge={viewingPerson?.role || 'Support staff'}
+          photoUrl={viewingPerson?.photo_url}
+          qrValue={viewingPerson ? buildPersonIdUrl(viewingPerson.barcode) : ''}
+          fields={[{ label: 'Role', value: viewingPerson?.role }]}
+          onClose={() => setViewingPerson(null)}
+          onEdit={() => handleEdit(viewingPerson)}
+          onDelete={() => {
+            setViewingPerson(null);
+            handleDelete(viewingPerson.id);
+          }}
+          onDownload={async () => {
+            const full = await fetchRecord(axios, `/api/non-staff/${viewingPerson.id}`, viewingPerson);
+            downloadPersonPack(nonStaffPack(full, buildPersonIdUrl(full.barcode)));
+          }}
+        />
+
         <div id="list-section">
-          <PersonGrid>
-            {nonStaff.map((person) => (
-              <PersonCard
-                key={person.id}
-                name={person.name}
-                badge={person.role || 'Support Staff'}
-                photoUrl={person.photo_url}
-                qrValue={buildPersonIdUrl(person.barcode)}
-                accent="purple"
-                downloadLabel="Download pack"
-                onEdit={() => handleEdit(person)}
-                onDelete={() => handleDelete(person.id)}
-                onDownloadPack={async () => {
-                  const full = await fetchRecord(axios, `/api/non-staff/${person.id}`, person);
-                  downloadPersonPack(nonStaffPack(full, buildPersonIdUrl(full.barcode)));
-                }}
-                details={[
-                  {
-                    key: 'role',
-                    icon: <Wrench className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                    text: person.role || 'Support staff',
-                  },
-                ]}
-              />
-            ))}
-          </PersonGrid>
+          <PersonRecordTable
+            rows={nonStaff}
+            minWidth="480px"
+            onSelect={openPerson}
+            columns={[
+              { key: 'name', header: 'Name' },
+              { key: 'role', header: 'Role' },
+            ]}
+          />
         </div>
         <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />
 

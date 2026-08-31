@@ -25,13 +25,13 @@ export function extractAttendanceCode(raw) {
 
   try {
     const url = new URL(value);
-    const match = url.pathname.match(/\/id\/([^/]+)\/?$/);
+    const match = url.pathname.match(/\/(?:id|pay)\/([^/]+)\/?$/);
     if (match?.[1]) return decodeURIComponent(match[1]);
   } catch {
     // not a full URL — try path fragment
   }
 
-  const pathMatch = value.match(/\/id\/([^/?#\s]+)/);
+  const pathMatch = value.match(/\/(?:id|pay)\/([^/?#\s]+)/);
   if (pathMatch?.[1]) {
     try {
       return decodeURIComponent(pathMatch[1]);

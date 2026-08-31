@@ -3,6 +3,7 @@ import axios from 'axios';
 import QRCode from 'react-qr-code';
 import { QrCode, CheckCircle, XCircle, Scan, Link2, Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
 import { extractAttendanceCode } from '../utils/studentIdQr';
+import { invalidateCache } from '../utils/requestCache';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 
@@ -51,6 +52,8 @@ const Scanner = () => {
 
     try {
       const response = await axios.post('/api/attendance/mark', { qrCode: valueToSubmit });
+      invalidateCache('dashboard');
+      invalidateCache('attendance');
       setResult(response.data);
       setScanCode('');
     } catch (err) {

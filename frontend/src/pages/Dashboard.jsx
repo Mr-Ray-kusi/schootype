@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import PlanPendingBanner from '../components/PlanPendingBanner';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
-import { format } from 'date-fns';
 import { useAuth } from '../contexts/authcontext';
-import { DASHBOARD_CACHE_MS, peekCache, staleGet } from '../utils/requestCache';
+import { DASHBOARD_CACHE_MS, cachedGet, peekCache } from '../utils/requestCache';
+import { schoolLocalDate, schoolLocalDateLabel } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import useLiteMode from '../hooks/useLiteMode';
 import {
@@ -30,7 +30,7 @@ const Dashboard = () => {
   });
   const [attendanceSummary, setAttendanceSummary] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDate, setSelectedDate] = useState(schoolLocalDate());
 
   const applyDashboardPayload = (payload) => {
     if (!payload || typeof payload !== 'object') return;
@@ -48,11 +48,10 @@ const Dashboard = () => {
           setLoading(false);
         }
       }
-      const statsData = await staleGet(
+      const statsData = await cachedGet(
         cacheKey,
         async () => (await axios.get(`/api/dashboard/stats?date=${date}`)).data,
-        DASHBOARD_CACHE_MS,
-        applyDashboardPayload
+        silent ? 0 : DASHBOARD_CACHE_MS
       );
       applyDashboardPayload(statsData);
     } catch (error) {
@@ -68,7 +67,7 @@ const Dashboard = () => {
 
   useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 60000, !loading);
 
-  const todayLabel = format(new Date(), 'EEEE, d MMMM yyyy');
+  const todayLabel = schoolLocalDateLabel();
 
   const statCards = [
     {

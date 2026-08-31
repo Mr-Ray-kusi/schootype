@@ -4,7 +4,7 @@ import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import AuthSplitLayout, { AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
+import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 
 const REMEMBER_KEY = 'schootype_remember_email';
@@ -96,12 +96,7 @@ const Login = () => {
 
   return (
     <AuthSplitLayout mode="login">
-      <div>
-        <h1 className="text-[2rem] font-bold leading-tight text-white">Schooltype</h1>
-        <p className="mt-2 text-sm text-neutral-400">
-          Sign in to the school console to manage attendance, fees and reports
-        </p>
-      </div>
+      <AuthBrandMark />
 
       {needsVerification && (
         <div className="mt-6 rounded-xl border border-[#ff5722]/30 bg-[#ff5722]/10 px-4 py-3 text-sm text-orange-100">

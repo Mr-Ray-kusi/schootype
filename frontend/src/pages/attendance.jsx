@@ -4,6 +4,7 @@ import { AlertTriangle, Clock, Printer, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { schoolLocalDate } from '../utils/schoolDate';
 import useLiteMode from '../hooks/useLiteMode';
 
 const fieldClass =
@@ -38,7 +39,7 @@ const getPunctuality = (record) =>
 
 const Attendance = () => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDate, setSelectedDate] = useState(schoolLocalDate());
   const [selectedType, setSelectedType] = useState('all');
   const [selectedClass, setSelectedClass] = useState('all');
   const [loading, setLoading] = useState(true);

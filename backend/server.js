@@ -2173,6 +2173,61 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
 
 const ATTENDANCE_TIMEZONE = process.env.ATTENDANCE_TIMEZONE || 'Africa/Accra';
 
+const schoolLocalDate = (date = new Date()) => {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: ATTENDANCE_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {
+    // fall back to UTC
+  }
+  return date.toISOString().split('T')[0];
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const findPersonByAttendanceCode = async (schoolId, attendanceCode) => {
+  if (!attendanceCode) return null;
+
+  const fields = ['barcode', 'qr_code'];
+  if (UUID_RE.test(attendanceCode)) fields.push('id');
+
+  const lookups = [
+    { table: 'students', type: 'student', columns: 'id, name, class' },
+    { table: 'staffs', type: 'staff', columns: 'id, name, role' },
+    { table: 'nonstaffs', type: 'non-staff', columns: 'id, name, role' },
+  ];
+
+  for (const lookup of lookups) {
+    for (const field of fields) {
+      const { data, error } = await supabase
+        .from(lookup.table)
+        .select(lookup.columns)
+        .eq('school_id', schoolId)
+        .eq(field, attendanceCode)
+        .maybeSingle();
+
+      if (error || !data) continue;
+
+      return {
+        userId: data.id,
+        userName: data.name,
+        userLabel: data.class || data.role || null,
+        userType: lookup.type,
+      };
+    }
+  }
+
+  return null;
+};
+
 const normalizeLateAfterTime = (value) => {
   const raw = String(value || '').trim();
   if (/^\d{1,2}:\d{2}$/.test(raw)) {
@@ -2293,7 +2348,7 @@ app.get('/api/super-admin/monitor', authenticateToken, requireSuperAdmin, async 
     }
 
     if (tab === 'attendance') {
-      const today = new Date().toISOString().split('T')[0];
+      const today = schoolLocalDate();
       const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
       let query = supabase
         .from('attendance')
@@ -3768,13 +3823,13 @@ const getAttendanceCode = (body) => {
 
   try {
     const url = new URL(raw);
-    const match = url.pathname.match(/\/id\/([^/]+)\/?$/);
+    const match = url.pathname.match(/\/(?:id|pay)\/([^/]+)\/?$/);
     if (match?.[1]) return decodeURIComponent(match[1]);
   } catch {
     // not a URL
   }
 
-  const pathMatch = raw.match(/\/id\/([^/?#\s]+)/);
+  const pathMatch = raw.match(/\/(?:id|pay)\/([^/?#\s]+)/);
   if (pathMatch?.[1]) {
     try {
       return decodeURIComponent(pathMatch[1]);
@@ -3787,56 +3842,16 @@ const getAttendanceCode = (body) => {
 };
 
 const markAttendanceForSchool = async (schoolId, attendanceCode) => {
-  let { data: student } = await supabase
-    .from('students')
-    .select('id, name, class')
-    .eq('barcode', attendanceCode)
-    .eq('school_id', schoolId)
-    .maybeSingle();
-
-  let userType = 'student';
-  let userId = student?.id;
-  let userName = student?.name;
-  let userLabel = student?.class || null;
-
-  if (!userId) {
-    const { data: staff } = await supabase
-      .from('staffs')
-      .select('id, name, role')
-      .eq('barcode', attendanceCode)
-      .eq('school_id', schoolId)
-      .maybeSingle();
-
-    if (staff) {
-      userId = staff.id;
-      userName = staff.name;
-      userLabel = staff.role || null;
-      userType = 'staff';
-    } else {
-      const { data: nonStaff } = await supabase
-        .from('nonstaffs')
-        .select('id, name, role')
-        .eq('barcode', attendanceCode)
-        .eq('school_id', schoolId)
-        .maybeSingle();
-
-      if (nonStaff) {
-        userId = nonStaff.id;
-        userName = nonStaff.name;
-        userLabel = nonStaff.role || null;
-        userType = 'non-staff';
-      }
-    }
-  }
-
-  if (!userId) {
+  const person = await findPersonByAttendanceCode(schoolId, attendanceCode);
+  if (!person) {
     const err = new Error('Invalid QR code');
     err.status = 404;
     throw err;
   }
 
+  const { userId, userName, userLabel, userType } = person;
   const now = new Date();
-  const today = now.toISOString().split('T')[0];
+  const today = schoolLocalDate(now);
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   const punctuality = getAttendancePunctuality(now, lateAfterTime);
 
@@ -4687,7 +4702,7 @@ app.put('/api/attendance/settings', authenticateToken, enforcePlanApproval, asyn
 // Get attendance summary for today
 app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = schoolLocalDate();
     const requestedDate = req.query.date || today;
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
     const cacheKey = `att-sum:${req.user.schoolId}:${selectedDate}`;
@@ -5006,7 +5021,7 @@ app.post('/api/messages/:id/reply', authenticateToken, enforcePlanApproval, asyn
 
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = schoolLocalDate();
     const requestedDate = req.query.date || today;
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
     const cacheKey = `dash:${req.user.schoolId}:${selectedDate}`;

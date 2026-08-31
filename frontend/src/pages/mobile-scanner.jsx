@@ -4,6 +4,7 @@ import axios from 'axios';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library';
 import { extractAttendanceCode } from '../utils/studentIdQr';
+import { invalidateCache } from '../utils/requestCache';
 import { CheckCircle, XCircle, Camera, Loader2 } from 'lucide-react';
 
 const SCAN_COOLDOWN_MS = 1600;
@@ -233,6 +234,8 @@ const MobileScanner = () => {
 
       try {
         const response = await axios.post(`/api/scanner/mark/${token}`, { qrCode: attendanceCode });
+        invalidateCache('dashboard');
+        invalidateCache('attendance');
         if (!mountedRef.current) return;
         setFeedback({
           type: 'success',

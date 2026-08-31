@@ -5,9 +5,10 @@ import { buildStudentIdUrl } from '../utils/studentIdQr';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/personPackExport';
-import PersonCard, { PersonGrid } from '../components/PersonCard';
+import PersonRecordTable from '../components/PersonRecordTable';
+import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
-import { Search, Hash, User, Phone, MapPin, Trophy, Mail, Download } from 'lucide-react';
+import { Search, User, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Students = () => {
@@ -94,7 +95,14 @@ const Students = () => {
   };
 
   const handleEdit = (student) => {
+    setViewingStudent(null);
     setEditingStudent(student);
+  };
+
+  const openStudent = async (student) => {
+    setViewingStudent(student);
+    const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
+    setViewingStudent(full);
   };
 
   const handleUpdate = async (e) => {
@@ -202,72 +210,38 @@ const Students = () => {
           </div>
         </div>
 
-        {viewingStudent && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-              <div className="flex items-start gap-4">
-                {viewingStudent.photo_url ? (
-                  <img
-                    src={viewingStudent.photo_url}
-                    alt={viewingStudent.name}
-                    className="h-28 w-24 rounded-xl object-cover border border-slate-500"
-                  />
-                ) : (
-                  <div className="flex h-28 w-24 items-center justify-center rounded-xl bg-primary-500/20 border border-primary-500/30">
-                    <span className="text-2xl font-bold text-primary-300">
-                      {viewingStudent.name?.charAt(0)?.toUpperCase() || '?'}
-                    </span>
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-xl font-bold text-white">{viewingStudent.name}</h2>
-                  <p className="mt-1 text-sm text-slate-300">{viewingStudent.class || 'No class'}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Roll: {viewingStudent.roll_number || 'N/A'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-3 text-sm">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Parent / guardian
-                </h3>
-                <p className="text-slate-100">
-                  {viewingStudent.parent_name || '—'}
-                  {viewingStudent.parent_relationship
-                    ? ` (${viewingStudent.parent_relationship})`
-                    : ''}
-                </p>
-                <p className="flex items-center gap-2 text-slate-300">
-                  <Phone className="h-3.5 w-3.5 text-slate-500" />
-                  {viewingStudent.parent_phone || '—'}
-                </p>
-                <p className="flex items-center gap-2 text-slate-300">
-                  <Mail className="h-3.5 w-3.5 text-slate-500" />
-                  {viewingStudent.parent_email || '—'}
-                </p>
-                <p className="flex items-start gap-2 text-slate-300">
-                  <MapPin className="mt-0.5 h-3.5 w-3.5 text-slate-500 shrink-0" />
-                  <span>{viewingStudent.house_address || '—'}</span>
-                </p>
-                {viewingStudent.skills ? (
-                  <p className="flex items-start gap-2 text-slate-300">
-                    <Trophy className="mt-0.5 h-3.5 w-3.5 text-slate-500 shrink-0" />
-                    <span>{viewingStudent.skills}</span>
-                  </p>
-                ) : null}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setViewingStudent(null)}
-                className="mt-6 w-full rounded-lg bg-slate-600 py-2 text-slate-100 hover:bg-slate-500"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
+        <PersonDetailModal
+          open={Boolean(viewingStudent)}
+          name={viewingStudent?.name}
+          badge={viewingStudent?.class || 'No class'}
+          photoUrl={viewingStudent?.photo_url}
+          qrValue={viewingStudent ? buildStudentIdUrl(viewingStudent.barcode) : ''}
+          fields={[
+            { label: 'Roll number', value: viewingStudent?.roll_number },
+            {
+              label: 'Date of birth',
+              value: viewingStudent?.date_of_birth
+                ? String(viewingStudent.date_of_birth).slice(0, 10)
+                : '',
+            },
+            { label: 'Parent / guardian', value: viewingStudent?.parent_name },
+            { label: 'Relationship', value: viewingStudent?.parent_relationship },
+            { label: 'Parent phone', value: viewingStudent?.parent_phone },
+            { label: 'Parent email', value: viewingStudent?.parent_email },
+            { label: 'House address', value: viewingStudent?.house_address },
+            { label: 'Skills', value: viewingStudent?.skills },
+          ]}
+          onClose={() => setViewingStudent(null)}
+          onEdit={() => handleEdit(viewingStudent)}
+          onDelete={() => {
+            setViewingStudent(null);
+            handleDelete(viewingStudent.id);
+          }}
+          onDownload={async () => {
+            const full = await fetchRecord(axios, `/api/students/${viewingStudent.id}`, viewingStudent);
+            downloadPersonPack(studentPack(full, buildStudentIdUrl(full.barcode)));
+          }}
+        />
 
         {editingStudent && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -375,60 +349,17 @@ const Students = () => {
         )}
 
         <div id="list-section">
-        <PersonGrid>
-          {students.map((student) => (
-            <PersonCard
-              key={student.id}
-              name={student.name}
-              badge={student.class}
-              photoUrl={student.photo_url}
-              qrValue={buildStudentIdUrl(student.barcode)}
-              downloadLabel="Download pack"
-              onView={async () => {
-                setViewingStudent(student);
-                const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
-                setViewingStudent(full);
-              }}
-              onEdit={() => handleEdit(student)}
-              onDelete={() => handleDelete(student.id)}
-              onDownloadPack={async () => {
-                const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
-                downloadPersonPack(studentPack(full, buildStudentIdUrl(full.barcode)));
-              }}
-              details={[
-                { key: 'roll', icon: <Hash className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />, text: student.roll_number || 'N/A' },
-                student.parent_name
-                  ? {
-                      key: 'parent',
-                      icon: <User className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                      text: `${student.parent_name}${student.parent_relationship ? ` · ${student.parent_relationship}` : ''}`,
-                    }
-                  : null,
-                student.parent_phone
-                  ? {
-                      key: 'phone',
-                      icon: <Phone className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                      text: student.parent_phone,
-                    }
-                  : null,
-                student.house_address
-                  ? {
-                      key: 'addr',
-                      icon: <MapPin className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                      text: student.house_address,
-                    }
-                  : null,
-                student.skills
-                  ? {
-                      key: 'skills',
-                      icon: <Trophy className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                      text: student.skills,
-                    }
-                  : null,
-              ].filter(Boolean)}
-            />
-          ))}
-        </PersonGrid>
+          <PersonRecordTable
+            rows={students}
+            onSelect={openStudent}
+            columns={[
+              { key: 'name', header: 'Student' },
+              { key: 'class', header: 'Class' },
+              { key: 'roll_number', header: 'Roll' },
+              { key: 'parent_name', header: 'Parent' },
+              { key: 'parent_phone', header: 'Phone' },
+            ]}
+          />
         </div>
 
         <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />

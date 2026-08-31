@@ -122,10 +122,6 @@ export default function AuthSplitLayout({ mode = 'login', children }) {
       />
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 md:px-8 md:py-8">
-        <div className="mb-5 md:mb-6">
-          <AuthBrandMark />
-        </div>
-
         <div className="mx-auto grid w-full max-w-5xl flex-1 overflow-hidden rounded-[28px] bg-[#121212] shadow-2xl shadow-black/50 md:min-h-[640px] md:grid-cols-2">
           <div className={`order-1 ${isSignup ? 'md:order-2' : 'md:order-1'}`}>
             <div className="flex h-full flex-col justify-center px-6 py-8 sm:px-10 md:px-12">{children}</div>

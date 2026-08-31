@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
 import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
-import AuthSplitLayout, { AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
+import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 
 const Signup = () => {
@@ -99,7 +99,8 @@ const Signup = () => {
 
   return (
     <AuthSplitLayout mode="signup">
-      <div>
+      <AuthBrandMark />
+      <div className="mt-6">
         <h1 className="text-[2rem] font-bold leading-tight text-white">Join the crew</h1>
         <p className="mt-2 text-sm text-neutral-400">
           Register a school account for your admin desk · {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year

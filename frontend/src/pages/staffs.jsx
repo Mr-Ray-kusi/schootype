@@ -1,19 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
-import PersonCard, { PersonGrid } from '../components/PersonCard';
+import PersonRecordTable from '../components/PersonRecordTable';
+import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import {
   Search,
   Plus,
   User,
-  Briefcase,
   Link2,
   Copy,
   RefreshCw,
-  BookOpen,
-  GraduationCap,
   Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -31,6 +29,7 @@ const Staff = () => {
   const [loading, setLoading] = useState(true);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [viewingStaff, setViewingStaff] = useState(null);
   const [editingStaff, setEditingStaff] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -173,7 +172,19 @@ const Staff = () => {
     }
   };
 
+  const openStaff = async (staffMember) => {
+    setViewingStaff(staffMember);
+    const full = await fetchRecord(axios, `/api/staff/${staffMember.id}`, staffMember);
+    setViewingStaff({
+      ...full,
+      secretCode: full.secretCode || full.secret_code || null,
+      subjects: full.subjects || '',
+      classNames: full.classNames || full.class_names || '',
+    });
+  };
+
   const handleEdit = (staffMember) => {
+    setViewingStaff(null);
     setEditingStaff(staffMember);
     setFormData({
       name: staffMember.name,
@@ -313,46 +324,49 @@ const Staff = () => {
           />
         </div>
 
+        <PersonDetailModal
+          open={Boolean(viewingStaff)}
+          name={viewingStaff?.name}
+          badge={viewingStaff?.role || 'Staff'}
+          photoUrl={viewingStaff?.photo_url}
+          qrValue={viewingStaff ? buildPersonIdUrl(viewingStaff.barcode) : ''}
+          fields={[
+            { label: 'Role', value: viewingStaff?.role },
+            {
+              label: 'Access code',
+              value: viewingStaff?.secretCode || viewingStaff?.secret_code,
+            },
+            { label: 'Subjects', value: viewingStaff?.subjects },
+            { label: 'Classes', value: viewingStaff?.classNames || viewingStaff?.class_names },
+          ]}
+          onClose={() => setViewingStaff(null)}
+          onEdit={() => handleEdit(viewingStaff)}
+          onDelete={() => {
+            setViewingStaff(null);
+            handleDelete(viewingStaff.id);
+          }}
+          onDownload={async () => {
+            const full = await fetchRecord(axios, `/api/staff/${viewingStaff.id}`, viewingStaff);
+            downloadPersonPack(staffPack(full, buildPersonIdUrl(full.barcode)));
+          }}
+        />
+
         <div id="list-section">
-          <PersonGrid>
-            {staff.map((staffMember) => (
-              <PersonCard
-                key={staffMember.id}
-                name={staffMember.name}
-                badge={staffMember.role || 'Staff'}
-                photoUrl={staffMember.photo_url}
-                qrValue={buildPersonIdUrl(staffMember.barcode)}
-                downloadLabel="Download pack"
-                onEdit={() => handleEdit(staffMember)}
-                onDelete={() => handleDelete(staffMember.id)}
-                onDownloadPack={async () => {
-                  const full = await fetchRecord(axios, `/api/staff/${staffMember.id}`, staffMember);
-                  downloadPersonPack(staffPack(full, buildPersonIdUrl(full.barcode)));
-                }}
-                details={[
-                  {
-                    key: 'code',
-                    icon: <Briefcase className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                    text: `Access: ${staffMember.secretCode || staffMember.secret_code || 'N/A'}`,
-                  },
-                  staffMember.subjects
-                    ? {
-                        key: 'subjects',
-                        icon: <BookOpen className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                        text: staffMember.subjects,
-                      }
-                    : null,
-                  staffMember.classNames
-                    ? {
-                        key: 'classes',
-                        icon: <GraduationCap className="mt-0.5 h-2.5 w-2.5 shrink-0 text-slate-500" />,
-                        text: staffMember.classNames,
-                      }
-                    : null,
-                ].filter(Boolean)}
-              />
-            ))}
-          </PersonGrid>
+          <PersonRecordTable
+            rows={staff}
+            minWidth="640px"
+            onSelect={openStaff}
+            columns={[
+              { key: 'name', header: 'Staff' },
+              { key: 'role', header: 'Role' },
+              { key: 'subjects', header: 'Subjects' },
+              {
+                key: 'classNames',
+                header: 'Classes',
+                render: (row) => row.classNames || row.class_names || '—',
+              },
+            ]}
+          />
         </div>
 
         <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />
