@@ -213,8 +213,8 @@ const NonStaff = () => {
           name={viewingPerson?.name}
           badge={viewingPerson?.role || 'Support staff'}
           photoUrl={viewingPerson?.photo_url}
-          qrValue={viewingPerson ? buildPersonIdUrl(viewingPerson.barcode) : ''}
-          fields={[{ label: 'Role', value: viewingPerson?.role }]}
+          accent="violet"
+          fields={[{ group: 'Assignment', label: 'Role', value: viewingPerson?.role }]}
           onClose={() => setViewingPerson(null)}
           onEdit={() => handleEdit(viewingPerson)}
           onDelete={() => {

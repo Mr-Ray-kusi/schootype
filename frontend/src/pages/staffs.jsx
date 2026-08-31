@@ -329,15 +329,20 @@ const Staff = () => {
           name={viewingStaff?.name}
           badge={viewingStaff?.role || 'Staff'}
           photoUrl={viewingStaff?.photo_url}
-          qrValue={viewingStaff ? buildPersonIdUrl(viewingStaff.barcode) : ''}
+          accent="emerald"
           fields={[
-            { label: 'Role', value: viewingStaff?.role },
+            { group: 'Assignment', label: 'Role', value: viewingStaff?.role },
+            { group: 'Assignment', label: 'Subjects', value: viewingStaff?.subjects },
             {
+              group: 'Assignment',
+              label: 'Classes',
+              value: viewingStaff?.classNames || viewingStaff?.class_names,
+            },
+            {
+              group: 'Access',
               label: 'Access code',
               value: viewingStaff?.secretCode || viewingStaff?.secret_code,
             },
-            { label: 'Subjects', value: viewingStaff?.subjects },
-            { label: 'Classes', value: viewingStaff?.classNames || viewingStaff?.class_names },
           ]}
           onClose={() => setViewingStaff(null)}
           onEdit={() => handleEdit(viewingStaff)}

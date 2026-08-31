@@ -215,21 +215,22 @@ const Students = () => {
           name={viewingStudent?.name}
           badge={viewingStudent?.class || 'No class'}
           photoUrl={viewingStudent?.photo_url}
-          qrValue={viewingStudent ? buildStudentIdUrl(viewingStudent.barcode) : ''}
+          accent="sky"
           fields={[
-            { label: 'Roll number', value: viewingStudent?.roll_number },
+            { group: 'School', label: 'Roll number', value: viewingStudent?.roll_number },
             {
+              group: 'School',
               label: 'Date of birth',
               value: viewingStudent?.date_of_birth
                 ? String(viewingStudent.date_of_birth).slice(0, 10)
                 : '',
             },
-            { label: 'Parent / guardian', value: viewingStudent?.parent_name },
-            { label: 'Relationship', value: viewingStudent?.parent_relationship },
-            { label: 'Parent phone', value: viewingStudent?.parent_phone },
-            { label: 'Parent email', value: viewingStudent?.parent_email },
-            { label: 'House address', value: viewingStudent?.house_address },
-            { label: 'Skills', value: viewingStudent?.skills },
+            { group: 'School', label: 'Skills', value: viewingStudent?.skills },
+            { group: 'Family', label: 'Parent / guardian', value: viewingStudent?.parent_name },
+            { group: 'Family', label: 'Relationship', value: viewingStudent?.parent_relationship },
+            { group: 'Family', label: 'Parent phone', value: viewingStudent?.parent_phone },
+            { group: 'Family', label: 'Parent email', value: viewingStudent?.parent_email },
+            { group: 'Family', label: 'House address', value: viewingStudent?.house_address },
           ]}
           onClose={() => setViewingStudent(null)}
           onEdit={() => handleEdit(viewingStudent)}

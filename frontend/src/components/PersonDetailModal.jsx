@@ -1,124 +1,167 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Download, Edit2, Trash2, User, X } from 'lucide-react';
-import AttendanceQrCode from './AttendanceQrCode';
+
+const ACCENTS = {
+  sky: {
+    ring: 'ring-sky-500/30',
+    fallback: 'bg-sky-500/15 text-sky-200',
+    badge: 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-500/25',
+  },
+  emerald: {
+    ring: 'ring-emerald-500/30',
+    fallback: 'bg-emerald-500/15 text-emerald-200',
+    badge: 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/25',
+  },
+  violet: {
+    ring: 'ring-violet-500/30',
+    fallback: 'bg-violet-500/15 text-violet-200',
+    badge: 'bg-violet-500/15 text-violet-200 ring-1 ring-violet-500/25',
+  },
+};
 
 const PersonDetailModal = ({
   open,
   name,
   badge,
   photoUrl,
-  qrValue,
   fields = [],
+  accent = 'sky',
   onClose,
   onEdit,
   onDelete,
   onDownload,
   downloadLabel = 'Download pack',
 }) => {
+  const [downloading, setDownloading] = useState(false);
+  const colors = ACCENTS[accent] || ACCENTS.sky;
+
+  const groups = useMemo(() => {
+    const visible = fields.filter((field) => field?.label);
+    const sections = [];
+    const index = new Map();
+    visible.forEach((field) => {
+      const title = field.group || '';
+      if (!index.has(title)) {
+        index.set(title, sections.length);
+        sections.push({ title, items: [] });
+      }
+      sections[index.get(title)].items.push(field);
+    });
+    return sections;
+  }, [fields]);
+
   if (!open) return null;
 
+  const handleDownload = async () => {
+    if (!onDownload || downloading) return;
+    setDownloading(true);
+    try {
+      await onDownload();
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-600 bg-slate-800 p-6">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-4">
-            {photoUrl ? (
-              <img
-                src={photoUrl}
-                alt={name}
-                className="h-28 w-24 rounded-xl border border-slate-500 object-cover"
-              />
-            ) : (
-              <div className="flex h-28 w-24 flex-col items-center justify-center rounded-xl border border-primary-500/30 bg-primary-500/20">
-                <User className="h-6 w-6 text-primary-300" />
-                <span className="mt-1 text-2xl font-bold text-primary-300">
-                  {name?.charAt(0)?.toUpperCase() || '?'}
-                </span>
-              </div>
-            )}
-            <div className="min-w-0">
-              <h2 className="text-xl font-bold text-white">{name || 'Details'}</h2>
-              {badge ? <p className="mt-1 text-sm text-slate-300">{badge}</p> : null}
-            </div>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-5 py-4 sm:px-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Record</p>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {qrValue ? (
-          <div className="mt-5">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Attendance QR
-            </p>
-            <AttendanceQrCode
-              value={qrValue}
-              name={name}
-              size={140}
-              showDownload={false}
-              containerClassName="bg-white rounded-xl p-3"
-            />
-          </div>
-        ) : null}
-
-        <dl className="mt-6 space-y-3 text-sm">
-          {fields.map((field) =>
-            field?.label ? (
-              <div key={field.label}>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  {field.label}
-                </dt>
-                <dd className="mt-1 text-slate-100">{field.value || '—'}</dd>
+        <div className="max-h-[calc(90vh-8.5rem)] overflow-y-auto px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={name}
+                className={`h-40 w-32 shrink-0 rounded-2xl object-cover ring-4 ${colors.ring}`}
+              />
+            ) : (
+              <div
+                className={`flex h-40 w-32 shrink-0 flex-col items-center justify-center rounded-2xl ring-4 ${colors.ring} ${colors.fallback}`}
+              >
+                <User className="h-8 w-8 opacity-80" />
+                <span className="mt-2 text-3xl font-bold">{name?.charAt(0)?.toUpperCase() || '?'}</span>
               </div>
-            ) : null
-          )}
-        </dl>
+            )}
+            <div className="min-w-0 pt-1">
+              <h2 className="text-2xl font-bold tracking-tight text-white">{name || 'Details'}</h2>
+              {badge ? (
+                <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-medium ${colors.badge}`}>
+                  {badge}
+                </span>
+              ) : null}
+            </div>
+          </div>
 
-        <div className="mt-6 flex flex-wrap gap-2">
+          <div className="mt-6 space-y-6">
+            {groups.map((group) => (
+              <section key={group.title || 'details'}>
+                {group.title ? (
+                  <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {group.title}
+                  </h3>
+                ) : null}
+                <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {group.items.map((field) => (
+                    <div
+                      key={`${group.title}-${field.label}`}
+                      className="rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3"
+                    >
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        {field.label}
+                      </dt>
+                      <dd className="mt-1.5 break-words text-sm text-slate-100">{field.value || '—'}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-800 bg-slate-950/40 px-5 py-4 sm:px-6">
+          {onDownload ? (
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-white disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {downloading ? 'Preparing…' : downloadLabel}
+            </button>
+          ) : null}
           {onEdit ? (
             <button
               type="button"
               onClick={onEdit}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm text-slate-100 hover:bg-slate-800"
             >
               <Edit2 className="h-4 w-4" />
               Edit
-            </button>
-          ) : null}
-          {onDownload ? (
-            <button
-              type="button"
-              onClick={onDownload}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600"
-            >
-              <Download className="h-4 w-4" />
-              {downloadLabel}
             </button>
           ) : null}
           {onDelete ? (
             <button
               type="button"
               onClick={onDelete}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600/80 px-3 py-2 text-sm text-white hover:bg-red-600"
+              className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm text-red-300 hover:bg-red-500/10"
             >
               <Trash2 className="h-4 w-4" />
               Delete
             </button>
           ) : null}
         </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-3 w-full rounded-lg bg-slate-600 py-2 text-slate-100 hover:bg-slate-500"
-        >
-          Close
-        </button>
       </div>
     </div>
   );
