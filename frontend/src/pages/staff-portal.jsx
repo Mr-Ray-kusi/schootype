@@ -4,7 +4,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
 
-const ROLES = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
+const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const TERMS = ['Term 1', 'Term 2', 'Term 3'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
 const SESSION_KEY = 'staffPortalSession';

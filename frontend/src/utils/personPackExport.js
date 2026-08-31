@@ -228,6 +228,7 @@ export function nonStaffPack(person, qrValue) {
     details: {
       Name: person.name,
       Role: person.role || '',
+      Salary: person.salary ?? '',
       Barcode: barcode,
     },
   };

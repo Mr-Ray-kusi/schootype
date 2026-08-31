@@ -235,7 +235,7 @@ const STUDENT_LIST_COLUMNS =
   'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, skills, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
   'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
-const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
+const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, salary, barcode, qr_code, created_at';
 
 const wantsPhotos = (req) =>
   ['1', 'true', 'yes'].includes(String(req.query.includePhotos || '').toLowerCase());
@@ -3504,7 +3504,7 @@ app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, re
 
 app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, photo } = req.body;
+    const { name, role, photo, salary } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Name is required' });
@@ -3520,13 +3520,14 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
       school_id: req.user.schoolId,
       name: name.trim(),
       role: role?.trim() || null,
+      salary: parseSalary(salary),
       barcode,
       qr_code: barcode,
       created_at: new Date(),
     });
     if (photo) payload.photo_url = photo;
 
-    const optionalColumns = ['photo_url', 'barcode', 'qr_code'];
+    const optionalColumns = ['photo_url', 'barcode', 'qr_code', 'salary'];
     let nonStaff = null;
     let error = null;
     for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
@@ -3594,11 +3595,12 @@ app.get('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
 app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role, photo, photo_url: photoUrl } = req.body;
+    const { name, role, photo, photo_url: photoUrl, salary } = req.body;
 
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
+    if (salary !== undefined) updates.salary = parseSalary(salary);
 
     const nextPhoto = photo !== undefined ? photo : photoUrl;
     if (nextPhoto !== undefined) {
@@ -3609,7 +3611,7 @@ app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
       updates.photo_url = nextPhoto || null;
     }
 
-    const optionalColumns = ['photo_url'];
+    const optionalColumns = ['photo_url', 'salary'];
     let nonStaff = null;
     let error = null;
     const payload = { ...updates };

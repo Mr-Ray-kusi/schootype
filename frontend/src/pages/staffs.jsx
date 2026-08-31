@@ -23,7 +23,7 @@ import { generateStrongPassword } from '../utils/strongPassword';
 
 const PAGE_SIZE = 50;
 const NON_STAFF_ROLES = ['Cleaner', 'Security Guard', 'Bus Driver', 'Cook', 'Maintenance', 'Gardener', 'Assistant'];
-const STAFF_ROLES = ['Teacher', 'Accountant', 'Librarian', 'Administrator', 'Principal', 'Counselor', 'Coach'];
+const STAFF_ROLES = ['Administrator', 'Teacher', 'Accountant'];
 
 const formatSalary = (value) => {
   if (value == null || value === '') return '—';
@@ -76,7 +76,9 @@ const Staff = () => {
   const [nonStaffForm, setNonStaffForm] = useState({
     name: '',
     role: '',
+    salary: '',
   });
+  const [peopleFilter, setPeopleFilter] = useState('all');
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -85,7 +87,7 @@ const Staff = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, peopleFilter]);
 
   useEffect(() => {
     fetchPortalLink();
@@ -172,7 +174,7 @@ const Staff = () => {
   };
 
   const resetNonStaffForm = () => {
-    setNonStaffForm({ name: '', role: '' });
+    setNonStaffForm({ name: '', role: '', salary: '' });
     setPhoto(null);
     setPhotoPreview(null);
     setEditingNonStaff(null);
@@ -290,6 +292,7 @@ const Staff = () => {
     setNonStaffForm({
       name: person.name,
       role: person.role || '',
+      salary: person.salary ?? '',
     });
     setShowNonStaffModal(true);
   };
@@ -319,8 +322,15 @@ const Staff = () => {
     }
   };
 
-  const pagedPeople = people.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filteredPeople =
+    peopleFilter === 'all' ? people : people.filter((person) => person.kind === peopleFilter);
+  const pagedPeople = filteredPeople.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const viewingStaff = viewingPerson?.kind === 'staff' ? viewingPerson : null;
+  const staffRoleOptions =
+    staffForm.role && !STAFF_ROLES.includes(staffForm.role)
+      ? [staffForm.role, ...STAFF_ROLES]
+      : STAFF_ROLES;
+  const showPeopleFilter = canStaff && canNonStaff;
 
   if (loading && people.length === 0) {
     return (
@@ -336,7 +346,29 @@ const Staff = () => {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Staff</h1>
-            <p className="mt-1 text-sm text-slate-400">{people.length} people</p>
+            <p className="mt-1 text-sm text-slate-400">{filteredPeople.length} people</p>
+            {showPeopleFilter && (
+              <div className="mt-3 inline-flex rounded-full border border-slate-600 bg-slate-900 p-1">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'staff', label: 'Staff' },
+                  { id: 'non-staff', label: 'Non-staff' },
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setPeopleFilter(option.id)}
+                    className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+                      peopleFilter === option.id
+                        ? 'bg-primary-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -344,19 +376,19 @@ const Staff = () => {
               onClick={async () => {
                 setDownloadingAll(true);
                 try {
-                  const packs = people.map((person) =>
+                  const packs = filteredPeople.map((person) =>
                     person.kind === 'staff'
                       ? staffPack(person, buildPersonIdUrl(person.barcode))
                       : nonStaffPack(person, buildPersonIdUrl(person.barcode))
                   );
                   const withPhotos = await Promise.all([
-                    canStaff
+                    canStaff && peopleFilter !== 'non-staff'
                       ? fetchAllPages(axios, '/api/staff', {
                           q: debouncedSearch || undefined,
                           includePhotos: 1,
                         })
                       : Promise.resolve([]),
-                    canNonStaff
+                    canNonStaff && peopleFilter !== 'staff'
                       ? fetchAllPages(axios, '/api/non-staff', {
                           q: debouncedSearch || undefined,
                           includePhotos: 1,
@@ -376,7 +408,7 @@ const Staff = () => {
                   setDownloadingAll(false);
                 }
               }}
-              disabled={downloadingAll || people.length === 0}
+              disabled={downloadingAll || filteredPeople.length === 0}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
             >
               <Download className="h-4 w-4" />
@@ -482,6 +514,7 @@ const Staff = () => {
               : [
                   { group: 'Assignment', label: 'Type', value: 'Non-staff' },
                   { group: 'Assignment', label: 'Role', value: viewingPerson?.role },
+                  { group: 'Assignment', label: 'Salary', value: formatSalary(viewingPerson?.salary) },
                 ]
           }
           onClose={() => setViewingPerson(null)}
@@ -522,7 +555,7 @@ const Staff = () => {
               {
                 key: 'salary',
                 header: 'Salary',
-                render: (row) => (row.kind === 'staff' ? formatSalary(row.salary) : '—'),
+                render: (row) => formatSalary(row.salary),
               },
               {
                 key: 'subjects',
@@ -539,12 +572,14 @@ const Staff = () => {
           />
         </div>
 
-        <PaginationBar page={page} total={people.length} limit={PAGE_SIZE} onPageChange={setPage} />
+        <PaginationBar page={page} total={filteredPeople.length} limit={PAGE_SIZE} onPageChange={setPage} />
 
-        {people.length === 0 && (
+        {filteredPeople.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
             <User className="mx-auto mb-3 h-12 w-12 text-slate-500" />
-            <p className="text-slate-300">No staff found.</p>
+            <p className="text-slate-300">
+              {peopleFilter === 'non-staff' ? 'No non-staff found.' : 'No staff found.'}
+            </p>
           </div>
         )}
 
@@ -589,7 +624,7 @@ const Staff = () => {
                     required
                   >
                     <option value="">Select a role</option>
-                    {STAFF_ROLES.map((role) => (
+                    {staffRoleOptions.map((role) => (
                       <option key={role} value={role}>
                         {role}
                       </option>
@@ -741,6 +776,19 @@ const Staff = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">Salary (GHS)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={nonStaffForm.salary}
+                    onChange={(e) => setNonStaffForm({ ...nonStaffForm, salary: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    placeholder="e.g., 1200"
+                  />
                 </div>
 
                 {!editingNonStaff && (
