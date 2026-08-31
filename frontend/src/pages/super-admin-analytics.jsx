@@ -440,7 +440,11 @@ const SuperAdminAnalytics = () => {
                       <div className="min-w-0">
                         <p className="font-medium text-white">{event.label}</p>
                         <p className="truncate text-sm text-zinc-300">
-                          {event.schoolName || event.email || 'Unknown'}
+                          {event.type === 'payment_failed'
+                            ? event.schoolName
+                              ? `Intended for ${event.schoolName}`
+                              : 'School not identified'
+                            : event.schoolName || event.email || 'Unknown'}
                           {event.page ? ` · ${event.page}` : ''}
                         </p>
                       </div>
@@ -476,7 +480,13 @@ const SuperAdminAnalytics = () => {
                     <div className="min-w-0">
                       <p className="font-medium text-white">{event.label}</p>
                       <p className="text-sm text-amber-200">{event.description || 'Attempt failed'}</p>
-                      <p className="truncate text-sm text-zinc-300">{event.schoolName || event.email || 'Unknown'}</p>
+                      <p className="truncate text-sm text-zinc-300">
+                        {event.type === 'payment_failed'
+                          ? event.schoolName
+                            ? `Intended for ${event.schoolName}`
+                            : 'School not identified'
+                          : event.schoolName || event.email || 'Unknown'}
+                      </p>
                     </div>
                     <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
                   </li>

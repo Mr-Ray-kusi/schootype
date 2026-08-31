@@ -108,14 +108,25 @@ const noteFeePaymentFailed = ({
         meta: parsed,
         studentCode: code,
       });
+      let schoolName = null;
+      if (resolvedSchoolId) {
+        const { data: school } = await supabase
+          .from('schools')
+          .select('name')
+          .eq('id', resolvedSchoolId)
+          .maybeSingle();
+        schoolName = school?.name || null;
+      }
       await recordPlatformEvent({
         eventType: 'payment_failed',
         schoolId: resolvedSchoolId,
+        schoolName,
         email: email || null,
         path: '/fees',
         meta: {
           kind: 'school_fee',
           school_id: resolvedSchoolId,
+          school_name: schoolName,
           reason: reason || 'provider_declined',
           message: message || 'Payment attempt failed',
           reference: ref || null,

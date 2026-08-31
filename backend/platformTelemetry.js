@@ -587,6 +587,96 @@ function buildFeeSeries(payments, range, now) {
   }));
 }
 
+function readEventMeta(event) {
+  const raw = event?.meta;
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+async function resolveSchoolNameLookup(events) {
+  const schoolNameById = new Map();
+  const schoolIdByStudentId = new Map();
+  const schoolIdByCode = new Map();
+  const schoolIds = new Set();
+  const studentIds = new Set();
+  const codes = new Set();
+
+  for (const event of events || []) {
+    const meta = readEventMeta(event);
+    if (event.school_id) schoolIds.add(String(event.school_id));
+    if (meta.school_id) schoolIds.add(String(meta.school_id));
+    if (meta.student_id) studentIds.add(String(meta.student_id));
+    const code = String(meta.student_code || '').trim();
+    if (code) codes.add(code);
+  }
+
+  if (supabase && studentIds.size) {
+    try {
+      const { data } = await supabase.from('students').select('id, school_id').in('id', [...studentIds]);
+      for (const row of data || []) {
+        if (!row.school_id) continue;
+        schoolIdByStudentId.set(String(row.id), row.school_id);
+        schoolIds.add(String(row.school_id));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (supabase && codes.size) {
+    const list = [...codes];
+    try {
+      const [byBarcode, byRoll] = await Promise.all([
+        supabase.from('students').select('barcode, school_id').in('barcode', list),
+        supabase.from('students').select('roll_number, school_id').in('roll_number', list),
+      ]);
+      for (const row of byBarcode.data || []) {
+        if (!row.school_id || !row.barcode) continue;
+        schoolIdByCode.set(String(row.barcode).toLowerCase(), row.school_id);
+        schoolIds.add(String(row.school_id));
+      }
+      for (const row of byRoll.data || []) {
+        if (!row.school_id || !row.roll_number) continue;
+        schoolIdByCode.set(String(row.roll_number).toLowerCase(), row.school_id);
+        schoolIds.add(String(row.school_id));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (supabase && schoolIds.size) {
+    try {
+      const { data } = await supabase.from('schools').select('id, name').in('id', [...schoolIds]);
+      for (const row of data || []) {
+        if (row.id && row.name) schoolNameById.set(String(row.id), row.name);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (event) => {
+    const meta = readEventMeta(event);
+    if (event.school_name) return event.school_name;
+    if (meta.school_name) return meta.school_name;
+    const schoolId =
+      event.school_id ||
+      meta.school_id ||
+      schoolIdByStudentId.get(String(meta.student_id || '')) ||
+      schoolIdByCode.get(String(meta.student_code || '').trim().toLowerCase());
+    return (schoolId && schoolNameById.get(String(schoolId))) || null;
+  };
+}
+
 async function newSchoolsSince(sinceIso, limit = 100) {
   if (!supabase) return [];
   try {
@@ -694,11 +784,15 @@ export async function getPlatformAnalytics(options = {}) {
   const keyEventsAll = events.filter(
     (event) => keyTypes.has(event.event_type) && new Date(event.created_at) >= rangeStart
   );
+  const recentErrors = [...inRange('login_failed', rangeStart), ...inRange('payment_failed', rangeStart)]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 20);
+  const schoolNameFor = await resolveSchoolNameLookup([...keyEventsAll.slice(0, 40), ...recentErrors]);
   const keyEvents = keyEventsAll.slice(0, 40).map((event) => ({
       id: event.id,
       type: event.event_type,
       label: eventLabel(event),
-      schoolName: event.school_name,
+      schoolName: schoolNameFor(event),
       email: event.email,
       path: event.path,
       page: pageLabel(event.path),
@@ -752,17 +846,14 @@ export async function getPlatformAnalytics(options = {}) {
       failedLoginsThisWeek: failedLoginsWeek.length,
       failedPaymentsToday: failedPaymentsToday.length,
       failedPaymentsThisWeek: failedPaymentsWeek.length,
-      recent: [...inRange('login_failed', rangeStart), ...inRange('payment_failed', rangeStart)]
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-        .slice(0, 20)
-        .map((event) => ({
+      recent: recentErrors.map((event) => ({
           id: event.id,
           type: event.event_type,
           label: eventLabel(event),
           description: describePlatformError(event),
-          reason: event.meta?.reason || null,
+          reason: readEventMeta(event).reason || null,
           email: event.email,
-          schoolName: event.school_name,
+          schoolName: schoolNameFor(event),
           createdAt: event.created_at,
         })),
     },
