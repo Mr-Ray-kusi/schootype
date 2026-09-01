@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { AlertTriangle, Clock, Printer, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { cachedGet, invalidateCache, peekCache } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
 import useLiteMode from '../hooks/useLiteMode';
+import { useLivePoll } from '../hooks/useLivePoll';
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -48,12 +49,6 @@ const Attendance = () => {
   const [savingLateTime, setSavingLateTime] = useState(false);
   const { liteMode } = useLiteMode();
 
-  useEffect(() => {
-    fetchAttendance();
-    fetchSummary();
-    fetchLateSettings();
-  }, [selectedDate]);
-
   const fetchLateSettings = async () => {
     try {
       const response = await axios.get('/api/attendance/settings');
@@ -63,6 +58,68 @@ const Attendance = () => {
     }
   };
 
+  const fetchAttendance = useCallback(
+    async ({ silent = false } = {}) => {
+      const cacheKey = `attendance:${selectedDate}`;
+      if (!silent) {
+        const cached = peekCache(cacheKey);
+        if (cached) {
+          setAttendanceRecords(cached);
+          setLoading(false);
+        }
+      }
+      try {
+        const data = await cachedGet(
+          cacheKey,
+          async () => (await axios.get(`/api/attendance?date=${selectedDate}`)).data,
+          silent ? 0 : 4000
+        );
+        setAttendanceRecords(data);
+      } catch (error) {
+        if (!silent) console.error('Error fetching attendance:', error);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [selectedDate]
+  );
+
+  const fetchSummary = useCallback(
+    async ({ silent = false } = {}) => {
+      const cacheKey = `attendance-summary:${selectedDate}`;
+      if (!silent) {
+        const cached = peekCache(cacheKey) || peekCache(`dashboard:${selectedDate}`)?.attendance;
+        if (cached) setSummary(cached);
+      }
+      try {
+        const data = await cachedGet(
+          cacheKey,
+          async () => (await axios.get(`/api/attendance/summary?date=${selectedDate}`)).data,
+          silent ? 0 : 4000
+        );
+        setSummary(data);
+      } catch (error) {
+        if (!silent) console.error('Error fetching summary:', error);
+      }
+    },
+    [selectedDate]
+  );
+
+  useEffect(() => {
+    fetchAttendance({ silent: false });
+    fetchSummary({ silent: false });
+    fetchLateSettings();
+  }, [fetchAttendance, fetchSummary]);
+
+  useLivePoll(
+    () => {
+      fetchAttendance({ silent: true });
+      fetchSummary({ silent: true });
+    },
+    4000,
+    !loading
+  );
+
   const saveLateSettings = async () => {
     setSavingLateTime(true);
     try {
@@ -70,54 +127,12 @@ const Attendance = () => {
       setLateAfterTime(response.data.lateAfterTime || lateAfterTime);
       toast.success('Late cutoff saved');
       invalidateCache('attendance');
-      fetchAttendance();
+      fetchAttendance({ silent: false });
+      fetchSummary({ silent: false });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to save late time');
     } finally {
       setSavingLateTime(false);
-    }
-  };
-
-  const fetchAttendance = async () => {
-    const cacheKey = `attendance:${selectedDate}`;
-    const cached = peekCache(cacheKey);
-    if (cached) {
-      setAttendanceRecords(cached);
-      setLoading(false);
-    }
-    try {
-      const data = await staleGet(
-        cacheKey,
-        async () => {
-          const response = await axios.get(`/api/attendance?date=${selectedDate}`);
-          return response.data;
-        },
-        45000
-      );
-      setAttendanceRecords(data);
-    } catch (error) {
-      console.error('Error fetching attendance:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchSummary = async () => {
-    const cacheKey = `attendance-summary:${selectedDate}`;
-    const cached = peekCache(cacheKey) || peekCache(`dashboard:${selectedDate}`)?.attendance;
-    if (cached) setSummary(cached);
-    try {
-      const data = await staleGet(
-        cacheKey,
-        async () => {
-          const response = await axios.get(`/api/attendance/summary?date=${selectedDate}`);
-          return response.data;
-        },
-        45000
-      );
-      setSummary(data);
-    } catch (error) {
-      console.error('Error fetching summary:', error);
     }
   };
 
@@ -145,8 +160,8 @@ const Attendance = () => {
   const refresh = () => {
     invalidateCache('attendance');
     setLoading(true);
-    fetchAttendance();
-    fetchSummary();
+    fetchAttendance({ silent: false });
+    fetchSummary({ silent: false });
   };
 
   const summaryItems = summary

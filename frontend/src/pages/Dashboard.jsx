@@ -61,7 +61,7 @@ const Dashboard = () => {
     fetchDashboardData(selectedDate, { silent: false });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
 
-  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 60000, !loading);
+  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 8000, !loading);
 
   const todayLabel = schoolLocalDateLabel();
 
