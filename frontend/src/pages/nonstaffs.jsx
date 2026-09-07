@@ -30,7 +30,7 @@ const NonStaff = ({ hideHeader = false }) => {
   });
 
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(searchTerm), 180);
+    const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(id);
   }, [searchTerm]);
 

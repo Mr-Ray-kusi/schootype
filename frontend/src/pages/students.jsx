@@ -25,7 +25,7 @@ const Students = () => {
   const [downloadingAll, setDownloadingAll] = useState(false);
 
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(searchTerm), 180);
+    const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(id);
   }, [searchTerm]);
 

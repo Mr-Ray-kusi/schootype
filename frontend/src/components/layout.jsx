@@ -7,7 +7,6 @@ import {
   Briefcase,
   Calendar,
   QrCode,
-  Package,
   UserPlus,
   LogOut,
   Menu,
@@ -32,7 +31,6 @@ import OfflineBanner from './OfflineBanner';
 import useLiteMode from '../hooks/useLiteMode';
 import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
 import { cachedGet } from '../utils/requestCache';
-import { prefetchRoute } from '../utils/routePrefetch';
 
 /** True when the current location matches a nav href. */
 const isNavActive = (location, href) => {
@@ -97,7 +95,6 @@ const Layout = ({ children }) => {
         { name: 'Setup', href: '/classes', icon: BookOpen, featureKey: 'classes' },
         { name: 'Attendance', href: '/attendance', icon: Calendar, featureKey: 'attendance' },
         { name: 'Scanner', href: '/scanner', icon: QrCode, featureKey: 'scanner' },
-        { name: 'Collection', href: '/collection', icon: Package, featureKey: 'scanner' },
         { name: 'Add Student', href: '/add-student', icon: UserPlus, featureKey: 'add-student' },
       ],
     },
@@ -270,8 +267,6 @@ const Layout = ({ children }) => {
                       key={item.href}
                       to={item.href}
                       onClick={() => setSidebarOpen(false)}
-                      onMouseEnter={() => prefetchRoute(item.href)}
-                      onFocus={() => prefetchRoute(item.href)}
                       className={itemClasses}
                       aria-current={active ? 'page' : undefined}
                     >

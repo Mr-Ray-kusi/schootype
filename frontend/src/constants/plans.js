@@ -25,7 +25,6 @@ const SHARED_FEATURE_BULLETS = [
   'Quick student enrollment form',
   'Daily attendance tracking & summaries',
   'QR code scanner check-in',
-  'Shared collection QR with unit-code verify',
   'Attendance filters & print',
   'Dashboard attendance charts',
   'Bulk SMS & email messaging',
@@ -145,7 +144,6 @@ export const FEATURE_LABELS = {
   'non-staff': 'Non-Staff',
   attendance: 'Attendance',
   scanner: 'Scanner',
-  collection: 'Collection',
   'messages-sms': 'Bulk SMS',
   'messages-email': 'Bulk Email',
   classes: 'Classes',
@@ -163,7 +161,6 @@ export const ROUTE_FEATURE_MAP = {
   '/non-staff': 'non-staff',
   '/attendance': 'attendance',
   '/scanner': 'scanner',
-  '/collection': 'scanner',
   '/add-student': 'add-student',
   '/classes': 'classes',
   '/messages': 'messages-sms',
@@ -181,7 +178,7 @@ export const SYSTEM_CAPABILITY_GROUPS = [
   },
   {
     title: 'Attendance',
-    items: ['Daily check-in scanner', 'Shared collection QR + unit code', 'Attendance logs & filters', 'Summary charts & export'],
+    items: ['Daily check-in scanner', 'Attendance logs & filters', 'Summary charts & export'],
   },
   {
     title: 'Communication',
