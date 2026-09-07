@@ -59,6 +59,7 @@ import {
 import { initSchoolWalletStore, creditInternalFunds, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
 import { registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
+import { registerItemCollectionRoutes } from './itemCollection.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
@@ -169,7 +170,8 @@ app.use(
 
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB
 const PAGE_SIZE = 50;
-const DASHBOARD_TTL_MS = 5 * 60 * 1000;
+const LIVE_STATS_TTL_MS = 3000;
+const DASHBOARD_TTL_MS = LIVE_STATS_TTL_MS;
 const REPORTS_TTL_MS = 5 * 60 * 1000;
 
 const parsePagination = (req) => {
@@ -199,6 +201,7 @@ const bumpSchoolCaches = (schoolId) => {
   if (!schoolId) return;
   cacheInvalidate(`dash:${schoolId}`);
   cacheInvalidate(`att-sum:${schoolId}`);
+  cacheInvalidate(`att:${schoolId}`);
   cacheInvalidate(`reports:${schoolId}`);
 };
 
@@ -2817,6 +2820,7 @@ app.delete('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin,
 // Health check endpoint
 registerWalletRoutes(app, { authenticateToken, enforcePlanApproval });
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
+registerItemCollectionRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
   enforcePlanApproval,
@@ -4791,6 +4795,10 @@ app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (
 app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { date, type } = req.query;
+    const attCacheKey = `att:${req.user.schoolId}:${date || ''}:${type || 'all'}`;
+    const attCached = cacheGet(attCacheKey);
+    if (attCached) return res.json(attCached);
+
     let query = supabase
       .from('attendance')
       .select('*')
@@ -4809,6 +4817,7 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
 
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
     const enrichedAttendance = await enrichAttendanceRows(attendance, lateAfterTime);
+    cacheSet(attCacheKey, enrichedAttendance, LIVE_STATS_TTL_MS);
 
     res.json(enrichedAttendance);
   } catch (error) {

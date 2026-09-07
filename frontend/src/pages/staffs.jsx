@@ -81,7 +81,7 @@ const Staff = () => {
   const [peopleFilter, setPeopleFilter] = useState('all');
 
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    const id = setTimeout(() => setDebouncedSearch(searchTerm), 180);
     return () => clearTimeout(id);
   }, [searchTerm]);
 

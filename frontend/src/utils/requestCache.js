@@ -81,5 +81,5 @@ export function invalidateCache(prefix = '') {
   }
 }
 
-export const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
+export const DASHBOARD_CACHE_MS = 8 * 1000;
 export const REPORT_CACHE_MS = 5 * 60 * 1000;

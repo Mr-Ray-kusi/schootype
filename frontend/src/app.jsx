@@ -23,6 +23,8 @@ const Staff = lazyWithRetry(() => import('./pages/staffs'));
 const Attendance = lazyWithRetry(() => import('./pages/attendance'));
 const Messages = lazyWithRetry(() => import('./pages/message'));
 const Scanner = lazyWithRetry(() => import('./pages/scanner'));
+const Collection = lazyWithRetry(() => import('./pages/collection'));
+const CollectPublic = lazyWithRetry(() => import('./pages/collect-public'));
 const AddStudent = lazyWithRetry(() => import('./pages/addstudends'));
 const Classes = lazyWithRetry(() => import('./pages/classes'));
 const ReportCards = lazyWithRetry(() => import('./pages/report-cards'));
@@ -118,6 +120,7 @@ function App() {
               <Route path="/pay/receipt" element={<FeesReceipt />} />
               <Route path="/pay/:barcode" element={<FeesPay />} />
               <Route path="/scan/:token" element={<MobileScanner />} />
+              <Route path="/collect/:token" element={<CollectPublic />} />
               <Route path="/staff-portal/:token" element={<StaffPortal />} />
               <Route path="/:schoolSlug/staff-portal" element={<StaffPortal />} />
               <Route
@@ -160,6 +163,7 @@ function App() {
                   </Route>
                   <Route element={<PlanFeatureRoute feature="scanner" />}>
                     <Route path="/scanner" element={<Scanner />} />
+                    <Route path="/collection" element={<Collection />} />
                   </Route>
                   <Route element={<PlanFeatureRoute feature="add-student" />}>
                     <Route path="/add-student" element={<AddStudent />} />

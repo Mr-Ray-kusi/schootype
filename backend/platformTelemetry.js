@@ -238,6 +238,7 @@ export function pageLabel(path) {
   if (p.startsWith('/staff')) return 'Staff';
   if (p.startsWith('/non-staff')) return 'Non-staff';
   if (p.startsWith('/scanner')) return 'Scanner';
+  if (p.startsWith('/collection') || p.startsWith('/collect')) return 'Collection';
   if (p.startsWith('/messages')) return 'Messages';
   if (p.startsWith('/classes')) return 'Setup';
   if (p.startsWith('/dashboard')) return 'Dashboard';
