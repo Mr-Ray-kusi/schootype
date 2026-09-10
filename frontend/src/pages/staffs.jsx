@@ -20,10 +20,21 @@ import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { fetchAllPages, fetchRecord } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
+import MultiSelectDropdown from '../components/MultiSelectDropdown';
 
 const PAGE_SIZE = 50;
 const NON_STAFF_ROLES = ['Cleaner', 'Security Guard', 'Bus Driver', 'Cook', 'Maintenance', 'Gardener', 'Assistant'];
 const STAFF_ROLES = ['Administrator', 'Teacher', 'Accountant'];
+
+const parseCsvList = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  return String(value || '')
+    .split(/[,;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
 
 const formatSalary = (value) => {
   if (value == null || value === '') return '—';
@@ -69,8 +80,8 @@ const Staff = () => {
     name: '',
     role: '',
     secretCode: '',
-    subjects: '',
-    classNames: '',
+    subjects: [],
+    classNames: [],
     salary: '',
   });
   const [nonStaffForm, setNonStaffForm] = useState({
@@ -79,6 +90,8 @@ const Staff = () => {
     salary: '',
   });
   const [peopleFilter, setPeopleFilter] = useState('all');
+  const [setupSubjects, setSetupSubjects] = useState([]);
+  const [setupClasses, setSetupClasses] = useState([]);
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -91,6 +104,7 @@ const Staff = () => {
 
   useEffect(() => {
     fetchPortalLink();
+    fetchSetupOptions();
   }, []);
 
   useEffect(() => {
@@ -116,6 +130,27 @@ const Staff = () => {
       console.error('Failed to load staff portal link:', error);
     } finally {
       setPortalLoading(false);
+    }
+  };
+
+  const fetchSetupOptions = async () => {
+    try {
+      const [subjectRes, classRes] = await Promise.all([
+        axios.get('/api/subjects'),
+        axios.get('/api/classes'),
+      ]);
+      setSetupSubjects(
+        (Array.isArray(subjectRes.data) ? subjectRes.data : [])
+          .map((item) => item.name)
+          .filter(Boolean)
+      );
+      setSetupClasses(
+        (Array.isArray(classRes.data) ? classRes.data : [])
+          .map((item) => item.name)
+          .filter(Boolean)
+      );
+    } catch (error) {
+      console.error('Failed to load setup subjects/classes:', error);
     }
   };
 
@@ -164,8 +199,8 @@ const Staff = () => {
       name: '',
       role: '',
       secretCode: generateStrongPassword(16),
-      subjects: '',
-      classNames: '',
+      subjects: [],
+      classNames: [],
       salary: '',
     });
     setPhoto(null);
@@ -185,6 +220,8 @@ const Staff = () => {
     try {
       const payload = {
         ...staffForm,
+        subjects: staffForm.subjects.join(', '),
+        classNames: staffForm.classNames.join(', '),
         secretCode: staffForm.secretCode || generateSecretCode(),
         photo,
       };
@@ -276,13 +313,14 @@ const Staff = () => {
     setPhoto(null);
     setPhotoPreview(person.photo_url || null);
     if (person.kind === 'staff') {
+      fetchSetupOptions();
       setEditingStaff(person);
       setStaffForm({
         name: person.name,
         role: person.role || '',
         secretCode: person.secretCode || person.secret_code || generateSecretCode(),
-        subjects: person.subjects || '',
-        classNames: person.classNames || person.class_names || '',
+        subjects: parseCsvList(person.subjects),
+        classNames: parseCsvList(person.classNames || person.class_names),
         salary: person.salary ?? '',
       });
       setShowStaffModal(true);
@@ -418,6 +456,7 @@ const Staff = () => {
               <button
                 onClick={() => {
                   resetStaffForm();
+                  fetchSetupOptions();
                   setShowStaffModal(true);
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
@@ -669,34 +708,22 @@ const Staff = () => {
 
                 {staffForm.role === 'Teacher' && (
                   <>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-200 mb-2">
-                        Subjects taught
-                      </label>
-                      <input
-                        type="text"
-                        value={staffForm.subjects}
-                        onChange={(e) => setStaffForm({ ...staffForm, subjects: e.target.value })}
-                        className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
-                        placeholder="Mathematics, English"
-                      />
-                      <p className="text-xs text-slate-400 mt-1">Comma-separated list</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-200 mb-2">
-                        Classes assigned
-                      </label>
-                      <input
-                        type="text"
-                        value={staffForm.classNames}
-                        onChange={(e) => setStaffForm({ ...staffForm, classNames: e.target.value })}
-                        className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
-                        placeholder="Match class names from Setup"
-                      />
-                      <p className="text-xs text-slate-400 mt-1">
-                        Must match student class names exactly (comma-separated)
-                      </p>
-                    </div>
+                    <MultiSelectDropdown
+                      label="Subjects taught"
+                      options={setupSubjects}
+                      selected={staffForm.subjects}
+                      onChange={(subjects) => setStaffForm({ ...staffForm, subjects })}
+                      placeholder="Add a subject"
+                      emptyHint="Add subjects in Setup first."
+                    />
+                    <MultiSelectDropdown
+                      label="Classes assigned"
+                      options={setupClasses}
+                      selected={staffForm.classNames}
+                      onChange={(classNames) => setStaffForm({ ...staffForm, classNames })}
+                      placeholder="Add a class"
+                      emptyHint="Add classes in Setup first."
+                    />
                   </>
                 )}
 

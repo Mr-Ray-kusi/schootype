@@ -2227,6 +2227,27 @@ const schoolLocalDate = (date = new Date()) => {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const selectPersonForScan = async (table, schoolId, field, attendanceCode, columnSets) => {
+  for (const columns of columnSets) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq('school_id', schoolId)
+      .eq(field, attendanceCode)
+      .maybeSingle();
+
+    if (error) {
+      const missingOptional = ['photo_url', 'parent_phone', 'parent_name'].some(
+        (column) => columns.includes(column) && isMissingColumnError(error, column)
+      );
+      if (missingOptional) continue;
+      return null;
+    }
+    return data || null;
+  }
+  return null;
+};
+
 const findPersonByAttendanceCode = async (schoolId, attendanceCode) => {
   if (!attendanceCode) return null;
 
@@ -2234,32 +2255,85 @@ const findPersonByAttendanceCode = async (schoolId, attendanceCode) => {
   if (UUID_RE.test(attendanceCode)) fields.push('id');
 
   const lookups = [
-    { table: 'students', type: 'student', columns: 'id, name, class' },
-    { table: 'staffs', type: 'staff', columns: 'id, name, role' },
-    { table: 'nonstaffs', type: 'non-staff', columns: 'id, name, role' },
+    {
+      table: 'students',
+      type: 'student',
+      columnSets: [
+        'id, name, class, photo_url, parent_phone, parent_name',
+        'id, name, class, photo_url',
+        'id, name, class',
+      ],
+    },
+    {
+      table: 'staffs',
+      type: 'staff',
+      columnSets: ['id, name, role, photo_url', 'id, name, role'],
+    },
+    {
+      table: 'nonstaffs',
+      type: 'non-staff',
+      columnSets: ['id, name, role, photo_url', 'id, name, role'],
+    },
   ];
 
   for (const lookup of lookups) {
     for (const field of fields) {
-      const { data, error } = await supabase
-        .from(lookup.table)
-        .select(lookup.columns)
-        .eq('school_id', schoolId)
-        .eq(field, attendanceCode)
-        .maybeSingle();
+      const data = await selectPersonForScan(
+        lookup.table,
+        schoolId,
+        field,
+        attendanceCode,
+        lookup.columnSets
+      );
+      if (!data) continue;
 
-      if (error || !data) continue;
-
+      const withPhoto = mergePersonPhoto(data);
       return {
-        userId: data.id,
-        userName: data.name,
-        userLabel: data.class || data.role || null,
+        userId: withPhoto.id,
+        userName: withPhoto.name,
+        userLabel: withPhoto.class || withPhoto.role || null,
         userType: lookup.type,
+        photoUrl: withPhoto.photo_url || null,
+        parentPhone: withPhoto.parent_phone || null,
+        parentName: withPhoto.parent_name || null,
       };
     }
   }
 
   return null;
+};
+
+const getSchoolNameById = async (schoolId) => {
+  if (!schoolId) return null;
+  const { data } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
+  return data?.name || null;
+};
+
+const buildScanIdentity = (person, schoolName, punctuality = null) => {
+  if (!person) return null;
+  const isStudent = person.userType === 'student';
+  return {
+    name: person.userName,
+    type: person.userType,
+    label: person.userLabel,
+    class: isStudent ? person.userLabel : null,
+    photo_url: person.photoUrl || null,
+    school_name: schoolName || null,
+    parent_phone: isStudent ? person.parentPhone || null : null,
+    parent_name: isStudent ? person.parentName || null : null,
+    punctuality: punctuality || null,
+  };
+};
+
+const toCsvField = (value) => {
+  if (value == null || value === '') return null;
+  const parts = Array.isArray(value)
+    ? value.map((item) => String(item || '').trim()).filter(Boolean)
+    : String(value)
+        .split(/[,;\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
 };
 
 const normalizeLateAfterTime = (value) => {
@@ -3328,9 +3402,8 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
 
     const barcode = `${req.user.schoolId}-STAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const accessCode = String(secretCode || '').trim() || generateStrongPassword(16);
-    const subjectsValue = subjects?.trim?.() ? subjects.trim() : subjects || null;
-    const classesValue =
-      (classNames !== undefined ? classNames : class_names)?.toString?.().trim?.() || null;
+    const subjectsValue = toCsvField(subjects);
+    const classesValue = toCsvField(classNames !== undefined ? classNames : class_names);
 
     const insertObj = {
       school_id: req.user.schoolId,
@@ -3407,10 +3480,9 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     const updates = {};
     if (name) updates.name = name.trim();
     if (role) updates.role = role.trim();
-    if (subjects !== undefined) updates.subjects = subjects?.trim?.() ? subjects.trim() : subjects || null;
+    if (subjects !== undefined) updates.subjects = toCsvField(subjects);
     if (classNames !== undefined || class_names !== undefined) {
-      const nextClasses = classNames !== undefined ? classNames : class_names;
-      updates.class_names = nextClasses?.toString?.().trim?.() || null;
+      updates.class_names = toCsvField(classNames !== undefined ? classNames : class_names);
     }
     if (salary !== undefined) updates.salary = parseSalary(salary);
 
@@ -3897,10 +3969,12 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   }
 
   const { userId, userName, userLabel, userType } = person;
+  const schoolName = await getSchoolNameById(schoolId);
   const now = new Date();
   const today = schoolLocalDate(now);
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   const punctuality = getAttendancePunctuality(now, lateAfterTime);
+  const identity = buildScanIdentity(person, schoolName, punctuality);
 
   const { data: existingAttendance } = await supabase
     .from('attendance')
@@ -3914,6 +3988,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   if (existingAttendance) {
     const err = new Error('Attendance already marked for today');
     err.status = 400;
+    err.user = identity;
     throw err;
   }
 
@@ -3950,7 +4025,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   return {
     message: `Attendance marked for ${userName} (${punctuality === 'late' ? 'Late' : 'Early'})`,
     attendance,
-    user: { name: userName, type: userType, label: userLabel, punctuality },
+    user: identity,
   };
 };
 
@@ -4764,7 +4839,7 @@ app.post('/api/scanner/mark/:token', async (req, res) => {
     if (status >= 500) {
       console.error('Mobile scanner attendance error:', error);
     }
-    res.status(status).json({ error: error.message });
+    res.status(status).json({ error: error.message, user: error.user || undefined });
   }
 });
 
@@ -4783,7 +4858,7 @@ app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (
     if (status >= 500) {
       console.error('Attendance marking error:', error);
     }
-    res.status(status).json({ error: error.message });
+    res.status(status).json({ error: error.message, user: error.user || undefined });
   }
 });
 

@@ -6,8 +6,10 @@ import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library
 import { extractAttendanceCode } from '../utils/studentIdQr';
 import { invalidateCache } from '../utils/requestCache';
 import { CheckCircle, XCircle, Camera, Loader2 } from 'lucide-react';
+import ScanIdentityCard from '../components/ScanIdentityCard';
 
 const SCAN_COOLDOWN_MS = 1600;
+const IDENTITY_HOLD_MS = 12000;
 
 const buildQrHints = () => {
   const hints = new Map();
@@ -232,33 +234,47 @@ const MobileScanner = () => {
         message: 'Marking attendance',
       });
 
+      let holdMs = SCAN_COOLDOWN_MS;
       try {
         const response = await axios.post(`/api/scanner/mark/${token}`, { qrCode: attendanceCode });
         invalidateCache('dashboard');
         invalidateCache('attendance');
         if (!mountedRef.current) return;
+        holdMs = IDENTITY_HOLD_MS;
         setFeedback({
           type: 'success',
           title: 'Recorded!',
           message: response.data.message,
-          name: response.data.user?.name,
-          userType: response.data.user?.type,
-          punctuality: response.data.user?.punctuality,
+          user: response.data.user,
+          alreadyMarked: false,
         });
       } catch (err) {
         if (!mountedRef.current) return;
-        setFeedback({
-          type: 'error',
-          title: 'Not recorded',
-          message: err.response?.data?.error || 'Could not mark attendance',
-        });
+        const alreadyMarked = err.response?.data?.error === 'Attendance already marked for today';
+        const scannedUser = err.response?.data?.user;
+        if (alreadyMarked && scannedUser) {
+          holdMs = IDENTITY_HOLD_MS;
+          setFeedback({
+            type: 'success',
+            title: 'Already recorded',
+            message: err.response.data.error,
+            user: scannedUser,
+            alreadyMarked: true,
+          });
+        } else {
+          setFeedback({
+            type: 'error',
+            title: 'Not recorded',
+            message: err.response?.data?.error || 'Could not mark attendance',
+          });
+        }
       }
 
       resumeTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
         scanLockRef.current = false;
         setFeedback(null);
-      }, SCAN_COOLDOWN_MS);
+      }, holdMs);
     },
     [token]
   );
@@ -401,17 +417,38 @@ const MobileScanner = () => {
         )}
 
         {feedback?.type === 'success' && (
-          <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 max-w-sm mx-auto bg-green-600 rounded-2xl p-8 text-center shadow-2xl animate-fade-in z-10">
-            <CheckCircle className="w-20 h-20 mx-auto mb-4 text-white" />
-            <h2 className="text-2xl font-bold mb-1">{feedback.title}</h2>
-            <p className="text-green-100 text-lg font-medium">{feedback.name}</p>
-            <p className="text-green-200 text-sm mt-2 capitalize">{feedback.userType}</p>
-            {feedback.punctuality ? (
-              <p className="text-green-50 text-sm mt-2 font-semibold">
-                {feedback.punctuality === 'late' ? 'Late' : 'Early'}
-              </p>
-            ) : null}
-            <p className="text-green-100/80 text-xs mt-4">Attendance saved to admin dashboard</p>
+          <div
+            className={`absolute inset-x-4 top-1/2 z-10 mx-auto max-h-[85vh] w-full max-w-sm -translate-y-1/2 overflow-y-auto rounded-2xl p-6 text-white shadow-2xl animate-fade-in ${
+              feedback.alreadyMarked ? 'bg-amber-600' : 'bg-green-600'
+            }`}
+          >
+            <CheckCircle className="mx-auto mb-3 h-12 w-12 text-white" />
+            <h2 className="mb-3 text-center text-xl font-bold">{feedback.title}</h2>
+            <ScanIdentityCard
+              user={feedback.user}
+              message={
+                feedback.user?.punctuality
+                  ? feedback.user.punctuality === 'late'
+                    ? 'Late'
+                    : 'Early'
+                  : feedback.message
+              }
+              alreadyMarked={Boolean(feedback.alreadyMarked)}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (resumeTimerRef.current) {
+                  clearTimeout(resumeTimerRef.current);
+                  resumeTimerRef.current = null;
+                }
+                scanLockRef.current = false;
+                setFeedback(null);
+              }}
+              className="mt-4 w-full rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/25"
+            >
+              Scan next
+            </button>
           </div>
         )}
 

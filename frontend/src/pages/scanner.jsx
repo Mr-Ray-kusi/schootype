@@ -6,6 +6,7 @@ import { extractAttendanceCode } from '../utils/studentIdQr';
 import { invalidateCache } from '../utils/requestCache';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
+import ScanIdentityCard from '../components/ScanIdentityCard';
 
 const Scanner = () => {
   const { school } = useAuth();
@@ -59,6 +60,17 @@ const Scanner = () => {
     } catch (err) {
       if (err.offlineQueued) {
         setResult({ message: 'Saved offline — will sync when online', user: { name: valueToSubmit, type: 'queued' } });
+        setScanCode('');
+        return;
+      }
+      const alreadyMarked = err.response?.data?.error === 'Attendance already marked for today';
+      const scannedUser = err.response?.data?.user;
+      if (alreadyMarked && scannedUser) {
+        setResult({
+          message: err.response.data.error,
+          user: scannedUser,
+          alreadyMarked: true,
+        });
         setScanCode('');
         return;
       }
@@ -223,19 +235,29 @@ const Scanner = () => {
       </div>
 
       {result && (
-        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 sm:p-5">
-          <div className="flex items-start gap-3">
-            <CheckCircle className="mt-0.5 h-7 w-7 shrink-0 text-emerald-400" />
+        <div
+          className={`rounded-2xl border p-4 sm:p-5 ${
+            result.alreadyMarked
+              ? 'border-amber-400/40 bg-amber-500/15 text-amber-50'
+              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-50'
+          }`}
+        >
+          <div className="mb-4 flex items-start gap-3">
+            <CheckCircle
+              className={`mt-0.5 h-7 w-7 shrink-0 ${
+                result.alreadyMarked ? 'text-amber-300' : 'text-emerald-400'
+              }`}
+            />
             <div className="min-w-0">
-              <h3 className="font-semibold text-emerald-100">Attendance marked</h3>
-              <p className="break-words text-sm text-emerald-200">
+              <h3 className="font-semibold">
+                {result.alreadyMarked ? 'Already recorded' : 'Attendance marked'}
+              </h3>
+              <p className="break-words text-sm opacity-90">
                 {result.message} at {new Date().toLocaleTimeString()}
-              </p>
-              <p className="mt-1 text-xs text-emerald-300">
-                {result.user?.type} · {result.user?.name}
               </p>
             </div>
           </div>
+          <ScanIdentityCard user={result.user} alreadyMarked={Boolean(result.alreadyMarked)} />
         </div>
       )}
 
