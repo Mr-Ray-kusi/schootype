@@ -4508,6 +4508,7 @@ app.get('/api/staff-portal/session/scores', authenticateStaffPortal, async (req,
 
     const subject = String(req.query.subject || '').trim();
     const className = String(req.query.className || req.query.class || '').trim();
+    const term = String(req.query.term || '').trim();
 
     let query = supabase
       .from('student_scores')
@@ -4517,6 +4518,7 @@ app.get('/api/staff-portal/session/scores', authenticateStaffPortal, async (req,
 
     if (subject) query = query.eq('subject', subject);
     if (className) query = query.eq('class_name', className);
+    if (term) query = query.eq('term', term);
 
     const { data, error } = await query.order('updated_at', { ascending: false });
     if (error) {
@@ -4531,124 +4533,145 @@ app.get('/api/staff-portal/session/scores', authenticateStaffPortal, async (req,
   }
 });
 
+const SCORE_ATTITUDES = new Set(['Excellent', 'Good', 'Bad', 'Worse']);
+
+const portalHttpError = (status, message) => {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+};
+
+const loadPortalStaff = async (req) => {
+  const { data: staff, error } = await supabase
+    .from('staffs')
+    .select('*')
+    .eq('id', req.staffPortal.staffId)
+    .eq('school_id', req.staffPortal.schoolId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!staff) throw portalHttpError(404, 'Staff member not found');
+  return staff;
+};
+
+const upsertStaffPortalScore = async ({ schoolId, staffId, staff, body }) => {
+  const allowedSubjects = parseCsvList(staff.subjects);
+  const allowedClasses = parseCsvList(staff.class_names);
+  const subject = String(body.subject || '').trim();
+  const studentId = body.studentId;
+  const className = String(body.className || body.class || '').trim();
+  const term = String(body.term || 'Term 1').trim() || 'Term 1';
+  const score = body.score === '' || body.score == null ? null : Number(body.score);
+  const maxScore = body.maxScore === '' || body.maxScore == null ? 100 : Number(body.maxScore);
+  const remark = body.remark?.trim?.() || null;
+  const attitudeRaw = String(body.attitude || '').trim();
+  const attitude = SCORE_ATTITUDES.has(attitudeRaw) ? attitudeRaw : null;
+
+  if (!studentId || !subject) {
+    throw portalHttpError(400, 'Student and subject are required');
+  }
+  if (allowedSubjects.length && !listsOverlap([subject], allowedSubjects)) {
+    throw portalHttpError(403, 'You are not assigned to this subject');
+  }
+
+  const { data: student, error: studentError } = await supabase
+    .from('students')
+    .select('id, name, class, school_id')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (studentError) throw studentError;
+  if (!student) throw portalHttpError(404, 'Student not found');
+
+  const studentClass = String(student.class || '').trim();
+  if (allowedClasses.length && !listsOverlap([studentClass], allowedClasses)) {
+    throw portalHttpError(403, 'Student is not in your assigned classes');
+  }
+
+  const record = {
+    school_id: schoolId,
+    student_id: studentId,
+    staff_id: staffId,
+    subject,
+    class_name: className || studentClass || null,
+    term,
+    score: Number.isFinite(score) ? score : null,
+    max_score: Number.isFinite(maxScore) ? maxScore : 100,
+    remark,
+    attitude,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existing } = await supabase
+    .from('student_scores')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq('student_id', studentId)
+    .eq('subject', subject)
+    .eq('term', term)
+    .eq('staff_id', staffId)
+    .maybeSingle();
+
+  let saved;
+  if (existing?.id) {
+    let { data, error } = await supabase
+      .from('student_scores')
+      .update(record)
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error && isMissingColumnError(error, 'attitude')) {
+      const { attitude: _omit, ...withoutAttitude } = record;
+      ({ data, error } = await supabase
+        .from('student_scores')
+        .update(withoutAttitude)
+        .eq('id', existing.id)
+        .select()
+        .single());
+    }
+    if (error) throw error;
+    saved = data;
+  } else {
+    let { data, error } = await supabase
+      .from('student_scores')
+      .insert([{ ...record, created_at: new Date().toISOString() }])
+      .select()
+      .single();
+    if (error && isMissingColumnError(error, 'attitude')) {
+      const { attitude: _omit, ...withoutAttitude } = record;
+      ({ data, error } = await supabase
+        .from('student_scores')
+        .insert([{ ...withoutAttitude, created_at: new Date().toISOString() }])
+        .select()
+        .single());
+    }
+    if (error) {
+      if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+        throw portalHttpError(
+          503,
+          'Scores table is missing. Run backend/migrations/add_parent_teacher_portal.sql in Supabase.'
+        );
+      }
+      throw error;
+    }
+    saved = data;
+  }
+
+  return { saved, student, subject, className: className || studentClass, term };
+};
+
 app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req, res) => {
   try {
     if (String(req.staffPortal.role).toLowerCase() !== 'teacher') {
       return res.status(403).json({ error: 'Only teachers can enter scores' });
     }
 
-    const { data: staff, error: staffError } = await supabase
-      .from('staffs')
-      .select('*')
-      .eq('id', req.staffPortal.staffId)
-      .eq('school_id', req.staffPortal.schoolId)
-      .maybeSingle();
-    if (staffError) throw staffError;
-    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
-
-    const allowedSubjects = parseCsvList(staff.subjects);
-    const allowedClasses = parseCsvList(staff.class_names);
-    const subject = String(req.body.subject || '').trim();
-    const studentId = req.body.studentId;
-    const className = String(req.body.className || req.body.class || '').trim();
-    const term = String(req.body.term || 'Term 1').trim() || 'Term 1';
-    const score = req.body.score === '' || req.body.score == null ? null : Number(req.body.score);
-    const maxScore =
-      req.body.maxScore === '' || req.body.maxScore == null ? 100 : Number(req.body.maxScore);
-    const remark = req.body.remark?.trim?.() || null;
-    const attitudeRaw = String(req.body.attitude || '').trim();
-    const allowedAttitudes = new Set(['Excellent', 'Good', 'Bad', 'Worse']);
-    const attitude = allowedAttitudes.has(attitudeRaw) ? attitudeRaw : null;
-
-    if (!studentId || !subject) {
-      return res.status(400).json({ error: 'Student and subject are required' });
-    }
-    if (allowedSubjects.length && !listsOverlap([subject], allowedSubjects)) {
-      return res.status(403).json({ error: 'You are not assigned to this subject' });
-    }
-
-    const { data: student, error: studentError } = await supabase
-      .from('students')
-      .select('id, name, class, school_id')
-      .eq('id', studentId)
-      .eq('school_id', req.staffPortal.schoolId)
-      .maybeSingle();
-    if (studentError) throw studentError;
-    if (!student) return res.status(404).json({ error: 'Student not found' });
-
-    const studentClass = String(student.class || '').trim();
-    if (allowedClasses.length && !listsOverlap([studentClass], allowedClasses)) {
-      return res.status(403).json({ error: 'Student is not in your assigned classes' });
-    }
-
-    const record = {
-      school_id: req.staffPortal.schoolId,
-      student_id: studentId,
-      staff_id: req.staffPortal.staffId,
-      subject,
-      class_name: className || studentClass || null,
-      term,
-      score: Number.isFinite(score) ? score : null,
-      max_score: Number.isFinite(maxScore) ? maxScore : 100,
-      remark,
-      attitude,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data: existing } = await supabase
-      .from('student_scores')
-      .select('id')
-      .eq('school_id', req.staffPortal.schoolId)
-      .eq('student_id', studentId)
-      .eq('subject', subject)
-      .eq('term', term)
-      .eq('staff_id', req.staffPortal.staffId)
-      .maybeSingle();
-
-    let saved;
-    if (existing?.id) {
-      let { data, error } = await supabase
-        .from('student_scores')
-        .update(record)
-        .eq('id', existing.id)
-        .select()
-        .single();
-      if (error && isMissingColumnError(error, 'attitude')) {
-        const { attitude: _omit, ...withoutAttitude } = record;
-        ({ data, error } = await supabase
-          .from('student_scores')
-          .update(withoutAttitude)
-          .eq('id', existing.id)
-          .select()
-          .single());
-      }
-      if (error) throw error;
-      saved = data;
-    } else {
-      let { data, error } = await supabase
-        .from('student_scores')
-        .insert([{ ...record, created_at: new Date().toISOString() }])
-        .select()
-        .single();
-      if (error && isMissingColumnError(error, 'attitude')) {
-        const { attitude: _omit, ...withoutAttitude } = record;
-        ({ data, error } = await supabase
-          .from('student_scores')
-          .insert([{ ...withoutAttitude, created_at: new Date().toISOString() }])
-          .select()
-          .single());
-      }
-      if (error) {
-        if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
-          return res.status(503).json({
-            error:
-              'Scores table is missing. Run backend/migrations/add_parent_teacher_portal.sql in Supabase.',
-          });
-        }
-        throw error;
-      }
-      saved = data;
-    }
+    const staff = await loadPortalStaff(req);
+    const { saved, student, subject, className, term } = await upsertStaffPortalScore({
+      schoolId: req.staffPortal.schoolId,
+      staffId: req.staffPortal.staffId,
+      staff,
+      body: req.body || {},
+    });
 
     bumpSchoolCaches(req.staffPortal.schoolId);
     recordPlatformEvent({
@@ -4663,18 +4686,102 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
         staffRole: staff.role,
         source: 'staff_portal',
         activity: `Saved ${subject} score for ${student.name || 'a student'}${
-          className || studentClass ? ` · ${className || studentClass}` : ''
+          className ? ` · ${className}` : ''
         } (${term})`,
-        studentId,
+        studentId: student.id,
         subject,
-        className: className || studentClass,
+        className,
         term,
       },
     }).catch(() => {});
     res.json(saved);
   } catch (error) {
-    console.error('Staff portal score save error:', error);
-    res.status(500).json({ error: error.message || 'Failed to save score' });
+    const status = error.status || 500;
+    if (status >= 500) console.error('Staff portal score save error:', error);
+    res.status(status).json({ error: error.message || 'Failed to save score' });
+  }
+});
+
+app.post('/api/staff-portal/session/scores/batch', authenticateStaffPortal, async (req, res) => {
+  try {
+    if (String(req.staffPortal.role).toLowerCase() !== 'teacher') {
+      return res.status(403).json({ error: 'Only teachers can enter scores' });
+    }
+
+    const staff = await loadPortalStaff(req);
+    const subject = String(req.body?.subject || '').trim();
+    const className = String(req.body?.className || req.body?.class || '').trim();
+    const term = String(req.body?.term || 'Term 1').trim() || 'Term 1';
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+
+    if (!subject) return res.status(400).json({ error: 'Subject is required' });
+    if (!entries.length) return res.status(400).json({ error: 'Add at least one student score' });
+
+    const saved = [];
+    const failed = [];
+    for (const entry of entries) {
+      try {
+        const result = await upsertStaffPortalScore({
+          schoolId: req.staffPortal.schoolId,
+          staffId: req.staffPortal.staffId,
+          staff,
+          body: {
+            ...entry,
+            subject,
+            className: entry.className || className,
+            term,
+          },
+        });
+        saved.push(result.saved);
+      } catch (error) {
+        failed.push({
+          studentId: entry?.studentId,
+          error: error.message || 'Failed to save score',
+        });
+      }
+    }
+
+    if (!saved.length) {
+      return res.status(400).json({
+        error: failed[0]?.error || 'Failed to save scores',
+        failed,
+      });
+    }
+
+    bumpSchoolCaches(req.staffPortal.schoolId);
+    recordPlatformEvent({
+      eventType: 'staff_activity',
+      schoolId: req.staffPortal.schoolId,
+      email: staff.name,
+      role: 'staff_portal',
+      path: '/staff-portal',
+      meta: {
+        staffId: staff.id,
+        staffName: staff.name,
+        staffRole: staff.role,
+        source: 'staff_portal',
+        activity: `Saved ${saved.length} ${subject} scores${className ? ` · ${className}` : ''} (${term})`,
+        subject,
+        className,
+        term,
+        savedCount: saved.length,
+        failedCount: failed.length,
+      },
+    }).catch(() => {});
+
+    res.json({
+      saved: saved.length,
+      failed,
+      scores: saved,
+      message:
+        failed.length > 0
+          ? `Saved ${saved.length} scores, ${failed.length} failed`
+          : `Saved ${saved.length} scores`,
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('Staff portal batch score save error:', error);
+    res.status(status).json({ error: error.message || 'Failed to save scores' });
   }
 });
 

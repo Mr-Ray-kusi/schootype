@@ -9,6 +9,8 @@ import {
   downloadStudentReportCardsPdf,
   downloadSubjectRankingsPdf,
   letterGrade,
+  ordinal,
+  rankStudentsForReports,
 } from '../utils/reportCardPdf';
 
 const formatWhen = (iso) => {
@@ -95,27 +97,28 @@ const ReportCards = () => {
   }, [scores, selectedClass, selectedSubject, selectedTerm]);
 
   const studentsForPrint = useMemo(() => {
-    const map = new Map();
-    for (const row of scores) {
-      if (selectedClass !== 'all' && row.class_name !== selectedClass) continue;
-      if (selectedTerm !== 'all' && row.term !== selectedTerm) continue;
-      const key = studentKey(row);
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          student_id: row.student_id,
-          student_name: row.student_name,
-          class_name: row.class_name,
-          roll_number: row.roll_number,
-          term: row.term,
-          entryCount: 0,
-        });
-      }
-      map.get(key).entryCount += 1;
-    }
-    return Array.from(map.values()).sort((a, b) =>
-      String(a.student_name || '').localeCompare(String(b.student_name || ''))
-    );
+    const ranked = rankStudentsForReports(scores, {
+      className: selectedClass,
+      term: selectedTerm,
+    });
+    return ranked
+      .map((row) => ({
+        key: studentKey(row),
+        student_id: row.student_id,
+        student_name: row.student_name,
+        class_name: row.class_name,
+        roll_number: row.roll_number,
+        term: row.term,
+        entryCount: row.subjects?.length || 0,
+        totalMarks: row.totalMarks,
+        totalMax: row.totalMax,
+        overallPercent: row.overallPercent,
+        position: row.position,
+      }))
+      .sort((a, b) => {
+        if ((a.position || 0) !== (b.position || 0)) return (a.position || 0) - (b.position || 0);
+        return String(a.student_name || '').localeCompare(String(b.student_name || ''));
+      });
   }, [scores, selectedClass, selectedTerm]);
 
   const gradeDistribution = useMemo(() => {
@@ -219,7 +222,7 @@ const ReportCards = () => {
       return;
     }
 
-    downloadStudentReportCardsPdf({
+    const count = downloadStudentReportCardsPdf({
       scores,
       schoolName: school?.name || 'School',
       className: selectedClass,
@@ -227,7 +230,9 @@ const ReportCards = () => {
       studentIds: ids,
     });
     toast.success(
-      ids.length === 1 ? 'Personal student report downloaded' : `${ids.length} personal reports downloaded`
+      count === 1
+        ? 'Personal student report downloaded'
+        : `${count} reports downloaded, each named after the student`
     );
   };
 
@@ -485,14 +490,15 @@ const ReportCards = () => {
                 <th className="px-6 py-4">Student</th>
                 <th className="px-6 py-4">Class</th>
                 <th className="px-6 py-4">Term</th>
-                <th className="px-6 py-4">Score entries</th>
+                <th className="px-6 py-4">Total marks</th>
+                <th className="px-6 py-4">Position</th>
                 <th className="px-6 py-4">Print</th>
               </tr>
             </thead>
             <tbody>
               {studentsForPrint.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-slate-400">
+                  <td colSpan={7} className="px-6 py-10 text-center text-slate-400">
                     No students yet.
                   </td>
                 </tr>
@@ -518,7 +524,12 @@ const ReportCards = () => {
                     <td className="px-6 py-4">
                       {selectedTerm === 'all' ? student.term || '-' : selectedTerm}
                     </td>
-                    <td className="px-6 py-4">{student.entryCount}</td>
+                    <td className="px-6 py-4">
+                      {student.totalMarks ?? 0}
+                      {student.totalMax ? `/${student.totalMax}` : ''}
+                      {student.overallPercent != null ? ` · ${student.overallPercent}%` : ''}
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-white">{ordinal(student.position)}</td>
                     <td className="px-6 py-4">
                       <button
                         type="button"

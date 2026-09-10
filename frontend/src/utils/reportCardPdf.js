@@ -70,19 +70,26 @@ function studentKey(row) {
   return row.student_id || `${row.student_name}-${row.class_name}`;
 }
 
-function buildStudentSummaries(scores, { className, term, studentIds } = {}) {
-  const selected =
-    Array.isArray(studentIds) && studentIds.length > 0 ? new Set(studentIds.map(String)) : null;
-
-  const filtered = scores.filter((row) => {
-    if (className && className !== 'all' && row.class_name !== className) return false;
-    if (term && term !== 'all' && row.term !== term) return false;
-    if (selected && !selected.has(String(studentKey(row)))) return false;
-    return row.percent != null;
+function assignUniquePositions(rows, getScore) {
+  const sorted = [...rows].sort((a, b) => {
+    const sb = getScore(b) ?? -Infinity;
+    const sa = getScore(a) ?? -Infinity;
+    if (sb !== sa) return sb - sa;
+    return String(a.student_name || '').localeCompare(String(b.student_name || ''));
   });
+  return sorted.map((row, index) => ({ ...row, position: index + 1 }));
+}
 
+function numericScore(row) {
+  const score = Number(row?.score);
+  if (Number.isFinite(score)) return score;
+  const percent = Number(row?.percent);
+  return Number.isFinite(percent) ? percent : null;
+}
+
+function groupScoresByStudent(rows) {
   const byStudent = new Map();
-  for (const row of filtered) {
+  for (const row of rows) {
     const key = studentKey(row);
     if (!byStudent.has(key)) {
       byStudent.set(key, {
@@ -94,23 +101,169 @@ function buildStudentSummaries(scores, { className, term, studentIds } = {}) {
         subjects: [],
       });
     }
-    byStudent.get(key).subjects.push(row);
+    const entry = byStudent.get(key);
+    const existingIndex = entry.subjects.findIndex(
+      (item) => String(item.subject || '').toLowerCase() === String(row.subject || '').toLowerCase()
+    );
+    if (existingIndex >= 0) entry.subjects[existingIndex] = row;
+    else entry.subjects.push(row);
   }
 
-  const summaries = Array.from(byStudent.values()).map((entry) => {
-    const percents = entry.subjects.map((s) => s.percent).filter((p) => p != null);
+  return Array.from(byStudent.values()).map((entry) => {
+    const totalMarks = entry.subjects.reduce((sum, row) => sum + (Number(row.score) || 0), 0);
+    const totalMax = entry.subjects.reduce((sum, row) => {
+      const max = Number(row.max_score);
+      return sum + (Number.isFinite(max) && max > 0 ? max : 100);
+    }, 0);
+    const percents = entry.subjects.map((row) => row.percent).filter((value) => value != null);
     const average =
       percents.length > 0
         ? Math.round((percents.reduce((a, b) => a + b, 0) / percents.length) * 10) / 10
         : null;
+    const overallPercent =
+      totalMax > 0 ? Math.round((totalMarks / totalMax) * 1000) / 10 : average;
     return {
       ...entry,
+      totalMarks,
+      totalMax,
       average,
+      overallPercent,
       attitude: pickAttitude(entry.subjects),
     };
   });
+}
 
-  return assignPositions(summaries, (row) => row.average);
+function attachSubjectPositions(summaries, classRows) {
+  const rankByKey = new Map();
+  const subjects = [...new Set(classRows.map((row) => row.subject).filter(Boolean))];
+  for (const subject of subjects) {
+    const ranked = assignUniquePositions(
+      classRows.filter((row) => row.subject === subject),
+      (row) => numericScore(row)
+    );
+    for (const row of ranked) {
+      rankByKey.set(`${studentKey(row)}::${subject}`, row.position);
+    }
+  }
+
+  return summaries.map((student) => ({
+    ...student,
+    subjects: student.subjects.map((row) => ({
+      ...row,
+      position: rankByKey.get(`${studentKey(student)}::${row.subject}`) || null,
+    })),
+  }));
+}
+
+/** Rank students within each class + term by total marks across all subjects. */
+export function rankStudentsForReports(scores, { className, term, studentIds } = {}) {
+  const selected =
+    Array.isArray(studentIds) && studentIds.length > 0 ? new Set(studentIds.map(String)) : null;
+
+  const filtered = (scores || []).filter((row) => {
+    if (className && className !== 'all' && row.class_name !== className) return false;
+    if (term && term !== 'all' && row.term !== term) return false;
+    return row.score != null || row.percent != null;
+  });
+
+  const groups = new Map();
+  for (const row of filtered) {
+    const groupKey = `${row.class_name || ''}||${row.term || ''}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(row);
+  }
+
+  const ranked = [];
+  for (const classRows of groups.values()) {
+    const summaries = groupScoresByStudent(classRows);
+    const withOverall = assignUniquePositions(summaries, (row) => row.totalMarks);
+    ranked.push(...attachSubjectPositions(withOverall, classRows));
+  }
+
+  ranked.sort((a, b) => {
+    if ((a.position || 0) !== (b.position || 0)) return (a.position || 0) - (b.position || 0);
+    return String(a.student_name || '').localeCompare(String(b.student_name || ''));
+  });
+
+  if (!selected) return ranked;
+  return ranked.filter((student) => selected.has(String(studentKey(student))));
+}
+
+function safePdfName(value) {
+  return (
+    String(value || 'student')
+      .replace(/[<>:"/\\|?*]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80) || 'student'
+  );
+}
+
+function uniquePdfFileName(student, used) {
+  const base = safePdfName(student?.student_name);
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate.toLowerCase())) {
+    const roll = String(student?.roll_number || '').trim();
+    candidate = roll && suffix === 2 ? `${base} ${roll}` : `${base} (${suffix})`;
+    suffix += 1;
+  }
+  used.add(candidate.toLowerCase());
+  return `${candidate}.pdf`;
+}
+
+function drawStudentReport(doc, student, { schoolName, term }) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let y = 48;
+  doc.setFontSize(16);
+  doc.text(schoolName, pageWidth / 2, y, { align: 'center' });
+  y += 22;
+  doc.setFontSize(13);
+  doc.text('Student Report Card', pageWidth / 2, y, { align: 'center' });
+  y += 28;
+
+  doc.setFontSize(11);
+  doc.text(`Student: ${student.student_name}`, 40, y);
+  y += 16;
+  doc.text(`Class: ${student.class_name || '—'}`, 40, y);
+  y += 16;
+  doc.text(`Term: ${term === 'all' ? student.term || '—' : term}`, 40, y);
+  y += 16;
+  doc.text(`Overall position: ${ordinal(student.position)}`, 40, y);
+  y += 16;
+  doc.text(
+    `Total marks: ${student.totalMarks ?? 0}${student.totalMax ? `/${student.totalMax}` : ''} (${
+      student.overallPercent == null ? '—' : `${student.overallPercent}%`
+    } · ${letterGrade(student.overallPercent)})`,
+    40,
+    y
+  );
+  y += 16;
+  doc.text(`Attitude: ${student.attitude || '—'}`, 40, y);
+  y += 20;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Subject', 'Score', '%', 'Grade', 'Subject pos.', 'Attitude', 'Remark']],
+    body: student.subjects.map((row) => [
+      row.subject,
+      row.score == null ? '—' : `${row.score}/${row.max_score ?? 100}`,
+      row.percent == null ? '—' : `${row.percent}%`,
+      letterGrade(row.percent),
+      ordinal(row.position),
+      row.attitude || '—',
+      row.remark || '—',
+    ]),
+    styles: { fontSize: 9, cellPadding: 4 },
+    headStyles: { fillColor: [14, 165, 233] },
+    margin: { left: 40, right: 40 },
+  });
+
+  const footY = (doc.lastAutoTable?.finalY || y) + 28;
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text('Generated by SCHOOLTYPE', pageWidth / 2, footY, { align: 'center' });
+  doc.setTextColor(0);
 }
 
 export function downloadSubjectRankingsPdf({
@@ -210,72 +363,27 @@ export function downloadStudentReportCardsPdf({
   term = 'all',
   studentIds,
 }) {
-  const summaries = buildStudentSummaries(scores, { className, term, studentIds });
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const pageWidth = doc.internal.pageSize.getWidth();
+  const summaries = rankStudentsForReports(scores, { className, term, studentIds });
+  const usedNames = new Set();
 
   if (!summaries.length) {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     doc.setFontSize(12);
     doc.text('No student scores available for the selected filters.', 40, 60);
-    doc.save(`student-report-cards-${Date.now()}.pdf`);
-    return;
+    doc.save('student-report.pdf');
+    return 0;
   }
 
   summaries.forEach((student, index) => {
-    if (index > 0) doc.addPage();
-
-    let y = 48;
-    doc.setFontSize(16);
-    doc.text(schoolName, pageWidth / 2, y, { align: 'center' });
-    y += 22;
-    doc.setFontSize(13);
-    doc.text('Student Report Card', pageWidth / 2, y, { align: 'center' });
-    y += 28;
-
-    doc.setFontSize(11);
-    doc.text(`Student: ${student.student_name}`, 40, y);
-    y += 16;
-    doc.text(`Class: ${student.class_name || '—'}`, 40, y);
-    y += 16;
-    doc.text(`Term: ${term === 'all' ? student.term || '—' : term}`, 40, y);
-    y += 16;
-    doc.text(`Overall position: ${ordinal(student.position)}`, 40, y);
-    y += 16;
-    doc.text(
-      `Average: ${student.average == null ? '—' : `${student.average}%`} (${letterGrade(student.average)})`,
-      40,
-      y
-    );
-    y += 16;
-    doc.text(`Attitude: ${student.attitude || '—'}`, 40, y);
-    y += 20;
-
-    const subjectRows = assignPositions(student.subjects, (row) => row.percent);
-
-    autoTable(doc, {
-      startY: y,
-      head: [['Subject', 'Score', '%', 'Grade', 'Subject pos.', 'Attitude', 'Remark']],
-      body: subjectRows.map((row) => [
-        row.subject,
-        row.score == null ? '—' : `${row.score}/${row.max_score ?? 100}`,
-        row.percent == null ? '—' : `${row.percent}%`,
-        letterGrade(row.percent),
-        ordinal(row.position),
-        row.attitude || '—',
-        row.remark || '—',
-      ]),
-      styles: { fontSize: 9, cellPadding: 4 },
-      headStyles: { fillColor: [14, 165, 233] },
-      margin: { left: 40, right: 40 },
-    });
-
-    const footY = (doc.lastAutoTable?.finalY || y) + 28;
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text('Generated by SCHOOLTYPE', pageWidth / 2, footY, { align: 'center' });
-    doc.setTextColor(0);
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    drawStudentReport(doc, student, { schoolName, term });
+    const filename = uniquePdfFileName(student, usedNames);
+    if (index === 0) {
+      doc.save(filename);
+      return;
+    }
+    window.setTimeout(() => doc.save(filename), index * 280);
   });
 
-  const classPart = className === 'all' ? 'all-classes' : className;
-  doc.save(`student-report-cards-${classPart}-${term}-${Date.now()}.pdf`);
+  return summaries.length;
 }

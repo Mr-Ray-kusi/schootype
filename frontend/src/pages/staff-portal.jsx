@@ -38,13 +38,12 @@ const StaffPortal = () => {
   });
   const [staff, setStaff] = useState(null);
   const [students, setStudents] = useState([]);
-  const [scores, setScores] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [term, setTerm] = useState('Term 1');
   const [draftScores, setDraftScores] = useState({});
   const [loadingPortal, setLoadingPortal] = useState(true);
-  const [savingId, setSavingId] = useState(null);
+  const [savingAll, setSavingAll] = useState(false);
 
   const authHeaders = useMemo(
     () => (sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
@@ -133,22 +132,21 @@ const StaffPortal = () => {
     setSessionToken(null);
     setStaff(null);
     setStudents([]);
-    setScores([]);
+    setDraftScores({});
   };
 
   const loadTeacherData = useCallback(
-    async (subject, className) => {
+    async (subject, className, selectedTerm) => {
       if (!sessionToken) return;
       try {
         const [studentsRes, scoresRes] = await Promise.all([
           axios.get('/api/staff-portal/session/students', { headers: authHeaders }),
           axios.get('/api/staff-portal/session/scores', {
             headers: authHeaders,
-            params: { subject, className },
+            params: { subject, className, term: selectedTerm },
           }),
         ]);
         setStudents(studentsRes.data || []);
-        setScores(scoresRes.data || []);
         const nextDraft = {};
         for (const row of scoresRes.data || []) {
           nextDraft[row.student_id] = {
@@ -193,8 +191,8 @@ const StaffPortal = () => {
   useEffect(() => {
     if (!staff || String(staff.role).toLowerCase() !== 'teacher') return;
     if (!selectedSubject || !selectedClass) return;
-    loadTeacherData(selectedSubject, selectedClass);
-  }, [staff, selectedSubject, selectedClass, loadTeacherData]);
+    loadTeacherData(selectedSubject, selectedClass, term);
+  }, [staff, selectedSubject, selectedClass, term, loadTeacherData]);
 
   useEffect(() => {
     if (!sessionToken || !staff) return undefined;
@@ -258,30 +256,49 @@ const StaffPortal = () => {
     return students.filter((student) => normalizeClassKey(student.class) === selectedKey);
   }, [students, selectedClass]);
 
-  const saveScore = async (student) => {
-    const draft = draftScores[student.id] || { score: '', maxScore: 100, remark: '', attitude: '' };
-    setSavingId(student.id);
+  const hasEnteredMark = (student) => {
+    const draft = draftScores[student.id];
+    if (!draft || draft.score === '' || draft.score == null) return false;
+    return Number.isFinite(Number(draft.score));
+  };
+
+  const markedCount = classStudents.filter(hasEnteredMark).length;
+  const allMarksEntered = classStudents.length > 0 && markedCount === classStudents.length;
+
+  const saveAllScores = async () => {
+    if (!allMarksEntered || savingAll) return;
+    setSavingAll(true);
     try {
-      await axios.post(
-        '/api/staff-portal/session/scores',
+      const { data } = await axios.post(
+        '/api/staff-portal/session/scores/batch',
         {
-          studentId: student.id,
           subject: selectedSubject,
-          className: selectedClass || student.class,
+          className: selectedClass,
           term,
-          score: draft.score,
-          maxScore: draft.maxScore,
-          remark: draft.remark,
-          attitude: draft.attitude || null,
+          entries: classStudents.map((student) => {
+            const draft = draftScores[student.id] || { score: '', maxScore: 100, remark: '', attitude: '' };
+            return {
+              studentId: student.id,
+              className: selectedClass || student.class,
+              score: draft.score,
+              maxScore: draft.maxScore,
+              remark: draft.remark,
+              attitude: draft.attitude || null,
+            };
+          }),
         },
         { headers: authHeaders }
       );
-      toast.success(`Saved score for ${student.name}`);
-      await loadTeacherData(selectedSubject, selectedClass);
+      if (data?.failed?.length) {
+        toast.error(data.message || `Saved with ${data.failed.length} errors`);
+      } else {
+        toast.success(data?.message || `Saved ${classStudents.length} scores`);
+      }
+      await loadTeacherData(selectedSubject, selectedClass, term);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to save score');
+      toast.error(err.response?.data?.error || 'Failed to save scores');
     } finally {
-      setSavingId(null);
+      setSavingAll(false);
     }
   };
 
@@ -430,6 +447,7 @@ const StaffPortal = () => {
                     value={selectedSubject}
                     onChange={(e) => setSelectedSubject(e.target.value)}
                     className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm"
+                    disabled={savingAll}
                   >
                     {staff.subjects.map((item) => (
                       <option key={item} value={item}>
@@ -441,6 +459,7 @@ const StaffPortal = () => {
                     value={selectedClass}
                     onChange={(e) => setSelectedClass(e.target.value)}
                     className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm"
+                    disabled={savingAll}
                   >
                     {staff.classNames.map((item) => (
                       <option key={item} value={item}>
@@ -452,6 +471,7 @@ const StaffPortal = () => {
                     value={term}
                     onChange={(e) => setTerm(e.target.value)}
                     className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm"
+                    disabled={savingAll}
                   >
                     {TERMS.map((item) => (
                       <option key={item} value={item}>
@@ -462,10 +482,27 @@ const StaffPortal = () => {
                 </section>
 
                 <section className="overflow-hidden rounded-3xl border border-slate-700 bg-slate-900/50">
-                  <div className="border-b border-slate-700 px-5 py-4">
-                    <h2 className="font-semibold">
-                      Scores · {selectedSubject} · {selectedClass}
-                    </h2>
+                  <div className="flex flex-col gap-3 border-b border-slate-700 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="font-semibold">
+                        Scores · {selectedSubject} · {selectedClass}
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Enter a mark for every student, then save once.
+                        {classStudents.length > 0
+                          ? ` ${markedCount}/${classStudents.length} entered.`
+                          : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={saveAllScores}
+                      disabled={!allMarksEntered || savingAll}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      {savingAll ? 'Saving…' : 'Save all'}
+                    </button>
                   </div>
                   <div className="divide-y divide-slate-800">
                     {classStudents.length === 0 ? (
@@ -505,6 +542,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Score"
+                              disabled={savingAll}
                             />
                             <input
                               type="number"
@@ -517,6 +555,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Max"
+                              disabled={savingAll}
                             />
                             <select
                               value={draft.attitude || ''}
@@ -527,6 +566,7 @@ const StaffPortal = () => {
                                 }))
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-36"
+                              disabled={savingAll}
                             >
                               <option value="">Attitude</option>
                               {ATTITUDES.map((item) => (
@@ -546,16 +586,8 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-40"
                               placeholder="Remark"
+                              disabled={savingAll}
                             />
-                            <button
-                              type="button"
-                              onClick={() => saveScore(student)}
-                              disabled={savingId === student.id}
-                              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-                            >
-                              <Save className="h-3.5 w-3.5" />
-                              {savingId === student.id ? 'Saving…' : 'Save'}
-                            </button>
                           </div>
                         );
                       })
