@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Download, FileText, Printer, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, FileText, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
@@ -36,6 +36,7 @@ const ReportCards = () => {
   const [selectedTerm, setSelectedTerm] = useState('all');
   const [selectedStudentKeys, setSelectedStudentKeys] = useState([]);
   const [clearing, setClearing] = useState(false);
+  const [expandedEntryKey, setExpandedEntryKey] = useState(null);
 
   const loadScores = useCallback(async ({ silent = false } = {}) => {
     const cacheKey = 'report-cards:scores';
@@ -71,6 +72,10 @@ const ReportCards = () => {
   }, [loadScores]);
 
   useLivePoll(() => loadScores({ silent: true }), 60000, !loading);
+
+  useEffect(() => {
+    setExpandedEntryKey(null);
+  }, [selectedClass, selectedSubject, selectedTerm]);
 
   const classes = useMemo(() => {
     const set = new Set(scores.map((row) => row.class_name).filter(Boolean));
@@ -120,6 +125,58 @@ const ReportCards = () => {
         return String(a.student_name || '').localeCompare(String(b.student_name || ''));
       });
   }, [scores, selectedClass, selectedTerm]);
+
+  const studentScoreEntries = useMemo(() => {
+    const classTermRows = scores.filter((row) => {
+      if (selectedClass !== 'all' && row.class_name !== selectedClass) return false;
+      if (selectedTerm !== 'all' && row.term !== selectedTerm) return false;
+      return true;
+    });
+
+    const byStudent = new Map();
+    for (const row of classTermRows) {
+      const key = `${studentKey(row)}::${row.term || ''}`;
+      if (!byStudent.has(key)) {
+        byStudent.set(key, {
+          key,
+          student_id: row.student_id,
+          student_name: row.student_name,
+          class_name: row.class_name,
+          roll_number: row.roll_number,
+          term: row.term,
+          subjects: [],
+        });
+      }
+      byStudent.get(key).subjects.push(row);
+    }
+
+    let entries = Array.from(byStudent.values()).map((entry) => {
+      const subjects = [...entry.subjects].sort((a, b) =>
+        String(a.subject || '').localeCompare(String(b.subject || ''))
+      );
+      const latest = subjects.reduce((stamp, row) => {
+        const time = new Date(row.updated_at || row.created_at || 0).getTime();
+        return Number.isFinite(time) && time > stamp ? time : stamp;
+      }, 0);
+      const teachers = [...new Set(subjects.map((row) => row.teacher_name).filter(Boolean))];
+      return {
+        ...entry,
+        subjects,
+        teacherNames: teachers,
+        updated_at: latest ? new Date(latest).toISOString() : null,
+      };
+    });
+
+    if (selectedSubject !== 'all') {
+      entries = entries.filter((entry) =>
+        entry.subjects.some((row) => row.subject === selectedSubject)
+      );
+    }
+
+    return entries.sort((a, b) =>
+      String(a.student_name || '').localeCompare(String(b.student_name || ''))
+    );
+  }, [scores, selectedClass, selectedSubject, selectedTerm]);
 
   const gradeDistribution = useMemo(() => {
     const buckets = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
@@ -371,7 +428,10 @@ const ReportCards = () => {
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-sky-400" />
-            <h2 className="text-lg font-semibold text-white">Teacher score entries</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Teacher score entries</h2>
+              <p className="text-xs text-slate-400">Click a student to see every subject, score, and remark.</p>
+            </div>
           </div>
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
             <button
@@ -390,60 +450,108 @@ const ReportCards = () => {
           <table className="min-w-full text-left text-sm text-slate-200">
             <thead>
               <tr className="border-b border-slate-700 text-slate-300">
+                <th className="w-10 px-4 py-4" />
                 <th className="px-6 py-4">Student</th>
                 <th className="px-6 py-4">Class</th>
-                <th className="px-6 py-4">Subject</th>
                 <th className="px-6 py-4">Term</th>
-                <th className="px-6 py-4">Score</th>
-                <th className="px-6 py-4">Attitude</th>
-                <th className="px-6 py-4">Teacher</th>
+                <th className="px-6 py-4">Subjects</th>
+                <th className="px-6 py-4">Teachers</th>
                 <th className="px-6 py-4">Updated</th>
-                <th className="px-6 py-4">Remark</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
+                  <td colSpan={7} className="px-6 py-10 text-center text-slate-400">
                     Loading teacher scores...
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : studentScoreEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400">
+                  <td colSpan={7} className="px-6 py-10 text-center text-slate-400">
                     No scores yet.
                   </td>
                 </tr>
               ) : (
-                filtered.map((row, index) => (
-                  <tr key={row.id} className={index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'}>
-                    <td className="px-6 py-4 text-white">
-                      <div>{row.student_name}</div>
-                      {row.roll_number ? (
-                        <div className="text-xs text-slate-500">{row.roll_number}</div>
+                studentScoreEntries.map((entry, index) => {
+                  const open = expandedEntryKey === entry.key;
+                  return (
+                    <React.Fragment key={entry.key}>
+                      <tr
+                        className={`cursor-pointer ${index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'} ${
+                          open ? 'bg-sky-950/40' : 'hover:bg-slate-700/80'
+                        }`}
+                        onClick={() => setExpandedEntryKey(open ? null : entry.key)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setExpandedEntryKey(open ? null : entry.key);
+                          }
+                        }}
+                        tabIndex={0}
+                        aria-expanded={open}
+                      >
+                        <td className="px-4 py-4 text-slate-400">
+                          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </td>
+                        <td className="px-6 py-4 text-white">
+                          <div className="font-medium">{entry.student_name}</div>
+                          {entry.roll_number ? (
+                            <div className="text-xs text-slate-500">{entry.roll_number}</div>
+                          ) : null}
+                        </td>
+                        <td className="px-6 py-4">{entry.class_name || '-'}</td>
+                        <td className="px-6 py-4">{entry.term || '-'}</td>
+                        <td className="px-6 py-4">{entry.subjects.length}</td>
+                        <td className="px-6 py-4">{entry.teacherNames.join(', ') || '-'}</td>
+                        <td className="px-6 py-4 text-slate-400">{formatWhen(entry.updated_at)}</td>
+                      </tr>
+                      {open ? (
+                        <tr className="bg-slate-950/80">
+                          <td colSpan={7} className="px-6 py-4">
+                            <div className="overflow-x-auto rounded-2xl border border-slate-700">
+                              <table className="min-w-full text-left text-sm text-slate-200">
+                                <thead>
+                                  <tr className="border-b border-slate-700 text-slate-400">
+                                    <th className="px-4 py-3">Subject</th>
+                                    <th className="px-4 py-3">Score</th>
+                                    <th className="px-4 py-3">Attitude</th>
+                                    <th className="px-4 py-3">Teacher</th>
+                                    <th className="px-4 py-3">Remark</th>
+                                    <th className="px-4 py-3">Updated</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {entry.subjects.map((row) => (
+                                    <tr key={row.id || `${row.subject}-${row.teacher_id}`} className="border-b border-slate-800 last:border-0">
+                                      <td className="px-4 py-3 font-medium text-white">{row.subject || '-'}</td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="font-semibold text-white">
+                                            {row.score == null ? '-' : `${row.score}/${row.max_score ?? 100}`}
+                                          </span>
+                                          {row.percent != null ? (
+                                            <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs text-white">
+                                              {letterGrade(row.percent)} - {row.percent}%
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3">{row.attitude || '-'}</td>
+                                      <td className="px-4 py-3">{row.teacher_name || '-'}</td>
+                                      <td className="px-4 py-3 text-slate-300">{row.remark || '-'}</td>
+                                      <td className="px-4 py-3 text-slate-400">{formatWhen(row.updated_at)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
                       ) : null}
-                    </td>
-                    <td className="px-6 py-4">{row.class_name}</td>
-                    <td className="px-6 py-4">{row.subject}</td>
-                    <td className="px-6 py-4">{row.term}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <span className="font-semibold text-white">
-                          {row.score == null ? '-' : `${row.score}/${row.max_score ?? 100}`}
-                        </span>
-                        {row.percent != null ? (
-                          <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs text-white">
-                            {letterGrade(row.percent)} - {row.percent}%
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">{row.attitude || '-'}</td>
-                    <td className="px-6 py-4">{row.teacher_name}</td>
-                    <td className="px-6 py-4 text-slate-400">{formatWhen(row.updated_at)}</td>
-                    <td className="px-6 py-4 text-slate-300">{row.remark || '-'}</td>
-                  </tr>
-                ))
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
