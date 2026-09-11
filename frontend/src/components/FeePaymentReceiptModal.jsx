@@ -162,22 +162,22 @@ const FeePaymentReceiptModal = ({
             Close
           </button>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => printFeeReceipt(receiptOptions)}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:bg-slate-800"
+            className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full border border-slate-600 px-2 py-2 text-xs text-slate-100 hover:bg-slate-800 sm:gap-2 sm:px-4 sm:text-sm"
           >
-            <Printer className="h-4 w-4" />
-            Print receipt
+            <Printer className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="truncate">Print receipt</span>
           </button>
           <button
             type="button"
             onClick={() => downloadFeeReceiptPdf(receiptOptions)}
-            className="inline-flex items-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400"
+            className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full bg-sky-500 px-2 py-2 text-xs font-medium text-white hover:bg-sky-400 sm:gap-2 sm:px-4 sm:text-sm"
           >
-            <Download className="h-4 w-4" />
-            Download PDF
+            <Download className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="truncate">Download PDF</span>
           </button>
         </div>
 

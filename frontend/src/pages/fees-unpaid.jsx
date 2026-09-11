@@ -122,18 +122,30 @@ const FeesUnpaid = () => {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
-          <p className="text-sm uppercase tracking-wide text-slate-300">Total overdue</p>
-          <p className="mt-4 text-3xl font-semibold text-white">{formatGhs(totals.unpaid_amount)}</p>
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-2.5 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">
+            Total overdue
+          </p>
+          <p className="mt-2 break-words text-sm font-semibold text-white sm:mt-4 sm:text-3xl">
+            {formatGhs(totals.unpaid_amount)}
+          </p>
         </div>
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
-          <p className="text-sm uppercase tracking-wide text-slate-300">Students owing</p>
-          <p className="mt-4 text-3xl font-semibold text-white">{totals.unpaid || 0}</p>
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-2.5 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">
+            Students owing
+          </p>
+          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-3xl">
+            {totals.unpaid || 0}
+          </p>
         </div>
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
-          <p className="text-sm uppercase tracking-wide text-slate-300">Already paid</p>
-          <p className="mt-4 text-3xl font-semibold text-white">{totals.paid || 0}</p>
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-2.5 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">
+            Already paid
+          </p>
+          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-3xl">
+            {totals.paid || 0}
+          </p>
         </div>
       </div>
 
