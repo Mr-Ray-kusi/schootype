@@ -76,6 +76,7 @@ import {
   createPlatformNotification,
   createPlatformNotificationsBatch,
   listSchoolNotifications,
+  listPeerSchools,
   countUnreadSchoolNotifications,
   countUnreadSuperAdminNotifications,
   markNotificationRead,
@@ -5699,6 +5700,66 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/api/notifications/schools', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      const { data, error } = await supabase
+        .from('schools')
+        .select('id, name, email, role')
+        .neq('role', 'super_admin')
+        .order('name');
+      if (error) throw error;
+      return res.json(data || []);
+    }
+    const schools = await listPeerSchools(req.user.schoolId);
+    res.json(schools);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/notifications/compose', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.status(403).json({ error: 'Use the platform compose endpoint' });
+    }
+
+    const fromSchoolId = req.user.schoolId;
+    const requested = Array.isArray(req.body.schoolIds) ? req.body.schoolIds : [];
+    const uniqueIds = [...new Set(requested.map((id) => String(id || '').trim()).filter(Boolean))].filter(
+      (id) => id !== fromSchoolId
+    );
+    if (!uniqueIds.length) {
+      return res.status(400).json({ error: 'Select at least one school' });
+    }
+    if (!String(req.body.body || '').trim()) {
+      return res.status(400).json({ error: 'Message body is required' });
+    }
+
+    const peers = await listPeerSchools(fromSchoolId);
+    const allowed = new Set(peers.map((school) => school.id));
+    const targets = uniqueIds.filter((id) => allowed.has(id));
+    if (!targets.length) {
+      return res.status(400).json({ error: 'Select a valid school' });
+    }
+
+    const subjectText = String(req.body.subject || '').trim() || 'Message from school';
+    const created = await createPlatformNotificationsBatch(
+      targets.map((id) => ({
+        schoolId: id,
+        fromSchoolId,
+        senderRole: 'school',
+        subject: subjectText,
+        body: req.body.body,
+        kind: 'message',
+      }))
+    );
+    res.json({ count: created.length, items: created });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
 app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
@@ -5775,16 +5836,30 @@ app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => 
 
     const { data: parent } = await supabase
       .from('platform_notifications')
-      .select('id, school_id, parent_id, subject')
+      .select('*')
       .eq('id', req.params.id)
-      .eq('school_id', req.user.schoolId)
       .maybeSingle();
 
     if (!parent) return res.status(404).json({ error: 'Notification not found' });
 
+    const myId = req.user.schoolId;
+    const involved = parent.school_id === myId || parent.from_school_id === myId;
+    if (!involved) return res.status(404).json({ error: 'Notification not found' });
+
+    let targetSchoolId = myId;
+    let fromSchoolId = null;
+    if (parent.from_school_id && parent.from_school_id !== myId) {
+      targetSchoolId = parent.from_school_id;
+      fromSchoolId = myId;
+    } else if (parent.school_id && parent.school_id !== myId) {
+      targetSchoolId = parent.school_id;
+      fromSchoolId = myId;
+    }
+
     const rootId = parent.parent_id || parent.id;
     const reply = await createPlatformNotification({
-      schoolId: req.user.schoolId,
+      schoolId: targetSchoolId,
+      fromSchoolId,
       senderRole: 'school',
       subject: parent.subject ? `Re: ${String(parent.subject).replace(/^Re:\s*/i, '')}` : 'Reply',
       body,

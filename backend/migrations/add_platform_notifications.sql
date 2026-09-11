@@ -6,6 +6,7 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS last_due_reminder_at TIMESTAMPTZ;
 CREATE TABLE IF NOT EXISTS platform_notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  from_school_id UUID REFERENCES schools(id) ON DELETE SET NULL,
   sender_role TEXT NOT NULL CHECK (sender_role IN ('super_admin', 'school')),
   parent_id UUID REFERENCES platform_notifications(id) ON DELETE CASCADE,
   subject TEXT,
@@ -15,8 +16,14 @@ CREATE TABLE IF NOT EXISTS platform_notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE platform_notifications
+  ADD COLUMN IF NOT EXISTS from_school_id UUID REFERENCES schools(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_platform_notifications_school
   ON platform_notifications (school_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_platform_notifications_from_school
+  ON platform_notifications (from_school_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_platform_notifications_unread
   ON platform_notifications (school_id)

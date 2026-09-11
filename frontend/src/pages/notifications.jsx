@@ -71,11 +71,12 @@ const Notifications = () => {
   }, [load]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    const url = isSuperAdmin ? '/api/super-admin/schools' : '/api/notifications/schools';
     axios
-      .get('/api/super-admin/schools')
-      .then((res) => setSchools(res.data || []))
+      .get(url)
+      .then((res) => setSchools(Array.isArray(res.data) ? res.data : []))
       .catch(() => {});
+    if (!isSuperAdmin) setSelectAllSchools(false);
   }, [isSuperAdmin]);
 
   useLivePoll(() => load({ silent: true }), POLL_MS, true);
@@ -118,32 +119,60 @@ const Notifications = () => {
   }, [schools]);
 
   const filteredSchools = useMemo(() => {
+    const base = (schools || []).filter((s) => {
+      if (String(s.role || '').toLowerCase() === 'super_admin') return false;
+      if (!isSuperAdmin && s.id === school?.id) return false;
+      return true;
+    });
     const q = schoolSearch.trim().toLowerCase();
-    if (!q) return schools;
-    return schools.filter(
+    if (!q) return base;
+    return base.filter(
       (s) => s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q)
     );
-  }, [schools, schoolSearch]);
+  }, [schools, schoolSearch, isSuperAdmin, school?.id]);
+
+  const mySchoolId = school?.id;
+
+  const isMyMessage = (msg) => {
+    if (isSuperAdmin) return msg.sender_role === 'super_admin';
+    if (msg.from_school_id) return msg.from_school_id === mySchoolId;
+    return msg.sender_role === 'school';
+  };
+
+  const peerSchoolId = (item) => {
+    if (!item || isSuperAdmin) return item?.school_id || null;
+    if (item.from_school_id && item.from_school_id !== mySchoolId) return item.from_school_id;
+    if (item.school_id && item.school_id !== mySchoolId) return item.school_id;
+    return null;
+  };
 
   const inboxSenderForRoot = (item) => {
+    if (!item) return '';
     if (isSuperAdmin) {
+      if (item.from_school_id && item.from_school_id !== item.school_id) {
+        const from = schoolNameById[item.from_school_id] || 'School';
+        const to = schoolNameById[item.school_id] || 'School';
+        return `${from} → ${to}`;
+      }
       return schoolNameById[item.school_id] || 'School';
     }
+    const peerId = peerSchoolId(item);
+    if (peerId) return schoolNameById[peerId] || 'School';
     return 'SCHOOLTYPE Admin';
   };
 
   const labelForMessage = (msg) => {
-    const mine = isSuperAdmin
-      ? msg.sender_role === 'super_admin'
-      : msg.sender_role === 'school';
+    if (isMyMessage(msg)) return 'Me';
+    if (msg.sender_role === 'super_admin') return 'SCHOOLTYPE Admin';
+    const peerId = peerSchoolId(msg);
+    return schoolNameById[peerId] || school?.name || 'School';
+  };
 
-    if (mine) return 'Me';
-
-    if (msg.sender_role === 'school') {
-      return schoolNameById[msg.school_id] || school?.name || 'School';
-    }
-
-    return 'SCHOOLTYPE Admin';
+  const isIncomingUnread = (n) => {
+    if (n.read_at) return false;
+    if (isSuperAdmin) return n.sender_role === 'school';
+    if (n.sender_role === 'super_admin') return true;
+    return Boolean(n.from_school_id && n.from_school_id !== mySchoolId);
   };
 
   const openThread = (item) => {
@@ -153,9 +182,7 @@ const Notifications = () => {
 
     const toMark = items.filter((n) => {
       if (n.id !== rootId && n.parent_id !== rootId) return false;
-      if (n.read_at) return false;
-      if (isSuperAdmin) return n.sender_role === 'school';
-      return n.sender_role === 'super_admin';
+      return isIncomingUnread(n);
     });
 
     if (!toMark.length) return;
@@ -185,6 +212,7 @@ const Notifications = () => {
     const optimistic = {
       id: tempId,
       school_id: selected.school_id,
+      from_school_id: isSuperAdmin ? null : mySchoolId,
       sender_role: isSuperAdmin ? 'super_admin' : 'school',
       subject: selected.subject ? `Re: ${String(selected.subject).replace(/^Re:\s*/i, '')}` : 'Reply',
       body: bodyText,
@@ -223,21 +251,24 @@ const Notifications = () => {
       toast.error('Message body is required');
       return;
     }
-    if (!selectAllSchools && !selectedSchoolIds.length) {
+    if ((!isSuperAdmin || !selectAllSchools) && !selectedSchoolIds.length) {
       toast.error('Select at least one school');
       return;
     }
     if (sending) return;
 
     setSending(true);
-    const subjectText = composeSubject.trim() || 'Message from SCHOOLTYPE';
+    const subjectText =
+      composeSubject.trim() ||
+      (isSuperAdmin ? 'Message from SCHOOLTYPE' : `Message from ${school?.name || 'school'}`);
     const bodyText = composeBody.trim();
     try {
-      const { data } = await axios.post('/api/super-admin/notifications', {
+      const endpoint = isSuperAdmin ? '/api/super-admin/notifications' : '/api/notifications/compose';
+      const { data } = await axios.post(endpoint, {
         subject: subjectText,
         body: bodyText,
-        selectAll: selectAllSchools,
-        schoolIds: selectAllSchools ? [] : selectedSchoolIds,
+        selectAll: isSuperAdmin && selectAllSchools,
+        schoolIds: isSuperAdmin && selectAllSchools ? [] : selectedSchoolIds,
       });
       setComposeSubject('');
       setComposeBody('');
@@ -267,11 +298,15 @@ const Notifications = () => {
     const rootId = item.id;
     return items.some((n) => {
       if (n.id !== rootId && n.parent_id !== rootId) return false;
-      if (n.read_at) return false;
-      if (isSuperAdmin) return n.sender_role === 'school';
-      return n.sender_role === 'super_admin';
+      return isIncomingUnread(n);
     });
   };
+
+  const replyPlaceholder = isSuperAdmin
+    ? 'Reply to this school…'
+    : peerSchoolId(thread[0] || selected)
+      ? 'Reply to this school…'
+      : 'Reply to SCHOOLTYPE admin…';
 
   return (
     <div className="relative min-h-[calc(100vh-3rem)]">
@@ -303,10 +338,9 @@ const Notifications = () => {
         </button>
       </header>
 
-      {isSuperAdmin && (
-        <section className="mb-8 rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
+      <section className="mb-8 rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
           <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            Compose in-app message
+            {isSuperAdmin ? 'Compose in-app message' : 'Message another school'}
           </h2>
           <form onSubmit={handleCompose} className="mt-5 grid gap-5 lg:grid-cols-2">
             <div className="space-y-4">
@@ -317,7 +351,7 @@ const Notifications = () => {
                 <input
                   value={composeSubject}
                   onChange={(e) => setComposeSubject(e.target.value)}
-                  placeholder="e.g. Yearly renewal notice"
+                  placeholder={isSuperAdmin ? 'e.g. Yearly renewal notice' : 'e.g. Collaboration request'}
                   className={fieldClass}
                 />
               </div>
@@ -329,7 +363,11 @@ const Notifications = () => {
                   value={composeBody}
                   onChange={(e) => setComposeBody(e.target.value)}
                   rows={6}
-                  placeholder="Schools will see this in their notification inbox…"
+                  placeholder={
+                    isSuperAdmin
+                      ? 'Schools will see this in their notification inbox…'
+                      : 'Write a message to another school…'
+                  }
                   className={`${fieldClass} resize-y`}
                 />
               </div>
@@ -339,11 +377,12 @@ const Notifications = () => {
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
               >
                 <Send className="h-4 w-4" />
-                {sending ? 'Sending…' : 'Send in-app notification'}
+                {sending ? 'Sending…' : isSuperAdmin ? 'Send in-app notification' : 'Send message'}
               </button>
             </div>
 
             <div>
+              {isSuperAdmin && (
               <div className="mb-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -367,7 +406,8 @@ const Notifications = () => {
                   Select schools
                 </button>
               </div>
-              {!selectAllSchools && (
+              )}
+              {(!isSuperAdmin || !selectAllSchools) && (
                 <>
                   <input
                     value={schoolSearch}
@@ -376,7 +416,10 @@ const Notifications = () => {
                     className={`${fieldClass} mb-3`}
                   />
                   <div className="max-h-56 space-y-1 overflow-y-auto rounded-xl border border-slate-700 p-2">
-                    {filteredSchools.map((s) => {
+                    {filteredSchools.length === 0 ? (
+                      <p className="px-2 py-3 text-sm text-slate-400">No other schools found.</p>
+                    ) : (
+                    filteredSchools.map((s) => {
                       const checked = selectedSchoolIds.includes(s.id);
                       return (
                         <label
@@ -395,11 +438,12 @@ const Notifications = () => {
                           <span className="truncate">{s.name}</span>
                         </label>
                       );
-                    })}
+                    })
+                    )}
                   </div>
                 </>
               )}
-              {selectAllSchools && (
+              {isSuperAdmin && selectAllSchools && (
                 <p className="text-sm text-slate-400">
                   Message will go to all {schools.length} registered school
                   {schools.length === 1 ? '' : 's'}.
@@ -408,7 +452,6 @@ const Notifications = () => {
             </div>
           </form>
         </section>
-      )}
 
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-4 lg:col-span-2 md:p-5">
@@ -467,9 +510,7 @@ const Notifications = () => {
               )}
               <div className="mt-5 max-h-[22rem] space-y-3 overflow-y-auto">
                 {thread.map((msg) => {
-                  const mine = isSuperAdmin
-                    ? msg.sender_role === 'super_admin'
-                    : msg.sender_role === 'school';
+                  const mine = isMyMessage(msg);
                   return (
                     <div
                       key={msg.id}
@@ -495,9 +536,7 @@ const Notifications = () => {
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
                   rows={3}
-                  placeholder={
-                    isSuperAdmin ? 'Reply to this school…' : 'Reply to SCHOOLTYPE admin…'
-                  }
+                  placeholder={replyPlaceholder}
                   className={`${fieldClass} resize-y`}
                 />
                 <button

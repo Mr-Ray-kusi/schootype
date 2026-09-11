@@ -640,8 +640,8 @@ const SchoolWallet = () => {
                   })}
                 </div>
 
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <div>
                     <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
                       {action === 'deposit' ? 'MoMo account' : 'Payout account'}
                     </label>
@@ -673,7 +673,7 @@ const SchoolWallet = () => {
                     )}
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div>
                     <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
                       Amount (GHS)
                     </label>

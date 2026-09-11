@@ -15,6 +15,17 @@ const isMissingTableError = (error) => {
   );
 };
 
+const isMissingColumnError = (error, column) => {
+  const msg = String(error?.message || error?.details || error?.hint || '');
+  return (
+    msg.includes(column) &&
+    (msg.includes('does not exist') ||
+      msg.includes('Could not find') ||
+      msg.includes('schema cache') ||
+      error?.code === 'PGRST204')
+  );
+};
+
 export async function createPlatformNotification({
   schoolId,
   senderRole,
@@ -22,6 +33,7 @@ export async function createPlatformNotification({
   body,
   kind = 'message',
   parentId = null,
+  fromSchoolId = null,
 }) {
   const payload = {
     school_id: schoolId,
@@ -30,6 +42,7 @@ export async function createPlatformNotification({
     body: String(body || '').trim(),
     kind,
     parent_id: parentId || null,
+    from_school_id: fromSchoolId || null,
     created_at: new Date().toISOString(),
   };
 
@@ -37,11 +50,18 @@ export async function createPlatformNotification({
     throw new Error('Notification body is required');
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('platform_notifications')
     .insert([payload])
     .select()
     .single();
+
+  if (error && payload.from_school_id && isMissingColumnError(error, 'from_school_id')) {
+    delete payload.from_school_id;
+    const retry = await supabase.from('platform_notifications').insert([payload]).select().single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     if (isMissingTableError(error)) {
@@ -67,6 +87,7 @@ export async function createPlatformNotificationsBatch(rows) {
       body: String(row.body || '').trim(),
       kind: row.kind || 'message',
       parent_id: row.parentId || null,
+      from_school_id: row.fromSchoolId || null,
       created_at: new Date().toISOString(),
     }))
     .filter((row) => row.body && row.school_id);
@@ -75,10 +96,14 @@ export async function createPlatformNotificationsBatch(rows) {
     throw new Error('Notification body is required');
   }
 
-  const { data, error } = await supabase
-    .from('platform_notifications')
-    .insert(payloads)
-    .select();
+  let { data, error } = await supabase.from('platform_notifications').insert(payloads).select();
+
+  if (error && isMissingColumnError(error, 'from_school_id')) {
+    const stripped = payloads.map(({ from_school_id: _from, ...row }) => row);
+    const retry = await supabase.from('platform_notifications').insert(stripped).select();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     if (isMissingTableError(error)) {
@@ -94,34 +119,56 @@ export async function createPlatformNotificationsBatch(rows) {
   return data || [];
 }
 
-export async function listSchoolNotifications(schoolId, { limit = 50 } = {}) {
-  const { data, error } = await supabase
+export async function listSchoolNotifications(schoolId, { limit = 80 } = {}) {
+  const withPeers = await supabase
     .from('platform_notifications')
     .select('*')
-    .eq('school_id', schoolId)
+    .or(`school_id.eq.${schoolId},from_school_id.eq.${schoolId}`)
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  if (error) {
-    if (isMissingTableError(error)) return [];
-    throw error;
+  if (!withPeers.error) return withPeers.data || [];
+
+  if (isMissingColumnError(withPeers.error, 'from_school_id')) {
+    const fallback = await supabase
+      .from('platform_notifications')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (fallback.error) {
+      if (isMissingTableError(fallback.error)) return [];
+      throw fallback.error;
+    }
+    return fallback.data || [];
   }
-  return data || [];
+
+  if (isMissingTableError(withPeers.error)) return [];
+  throw withPeers.error;
 }
 
 export async function countUnreadSchoolNotifications(schoolId) {
-  const { count, error } = await supabase
+  const incoming = await supabase
+    .from('platform_notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .is('read_at', null)
+    .or(`sender_role.eq.super_admin,from_school_id.neq.${schoolId}`);
+
+  if (!incoming.error) return incoming.count || 0;
+
+  const fallback = await supabase
     .from('platform_notifications')
     .select('id', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .eq('sender_role', 'super_admin')
     .is('read_at', null);
 
-  if (error) {
-    if (isMissingTableError(error)) return 0;
-    throw error;
+  if (fallback.error) {
+    if (isMissingTableError(fallback.error)) return 0;
+    throw fallback.error;
   }
-  return count || 0;
+  return fallback.count || 0;
 }
 
 /** Unread replies from schools for the platform admin inbox. */
@@ -157,10 +204,22 @@ export async function markAllSchoolNotificationsRead(schoolId) {
     .from('platform_notifications')
     .update({ read_at: new Date().toISOString() })
     .eq('school_id', schoolId)
-    .eq('sender_role', 'super_admin')
     .is('read_at', null);
 
   if (error && !isMissingTableError(error)) throw error;
+}
+
+export async function listPeerSchools(excludeSchoolId) {
+  const { data, error } = await supabase
+    .from('schools')
+    .select('id, name, email, role')
+    .neq('id', excludeSchoolId)
+    .order('name');
+
+  if (error) throw error;
+  return (data || [])
+    .filter((row) => String(row.role || '').toLowerCase() !== 'super_admin')
+    .map(({ id, name, email }) => ({ id, name, email }));
 }
 
 export async function listSuperAdminNotificationThreads({ limit = 100 } = {}) {

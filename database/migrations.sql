@@ -208,3 +208,9 @@ CREATE INDEX IF NOT EXISTS idx_academic_terms_school
   ON academic_terms (school_id, sort_order);
 
 ALTER TABLE IF EXISTS academic_terms DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE IF EXISTS platform_notifications
+  ADD COLUMN IF NOT EXISTS from_school_id UUID REFERENCES schools(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_platform_notifications_from_school
+  ON platform_notifications (from_school_id, created_at DESC);
