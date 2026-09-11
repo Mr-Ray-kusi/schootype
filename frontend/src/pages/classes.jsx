@@ -463,62 +463,89 @@ const Setup = () => {
         )}
       </section>
 
-      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
-        <div className="mb-3 flex items-center gap-2">
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 md:p-4">
+        <div className="mb-2 flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-emerald-400" />
           <h2 className="text-sm font-semibold text-white">Subjects</h2>
         </div>
-        <form onSubmit={saveSubjects} className="space-y-2">
-          <div className="max-w-[11rem]">
-            <label className="mb-1 block text-xs font-medium text-slate-300">Number to add</label>
-            <input
-              type="number"
-              min="1"
-              max="40"
-              value={subjectCount}
-              onChange={(e) => setSubjectCount(Math.max(1, Math.min(40, Number(e.target.value) || 1)))}
-              className={fieldClass}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {subjectRows.map((row, index) => (
+        <form onSubmit={saveSubjects} className="space-y-1.5">
+          <div className="flex items-end gap-1.5">
+            <div className="w-14 shrink-0">
+              <label className="mb-1 block text-[10px] font-medium text-slate-400">No.</label>
               <input
-                key={index}
+                type="number"
+                min="1"
+                max="40"
+                value={subjectCount}
+                onChange={(e) => setSubjectCount(Math.max(1, Math.min(40, Number(e.target.value) || 1)))}
+                className={`${fieldClass} px-1.5 text-center`}
+                aria-label="Number of subjects"
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <label className="mb-1 block text-[10px] font-medium text-slate-400">Subject name</label>
+              <input
                 type="text"
-                value={row.name}
+                value={subjectRows[0]?.name || ''}
                 onChange={(e) => {
                   const next = [...subjectRows];
-                  next[index] = { name: e.target.value };
+                  next[0] = { name: e.target.value };
                   setSubjectRows(next);
                 }}
                 className={fieldClass}
                 placeholder="Subject name"
               />
-            ))}
-          </div>
-          <button
-            type="submit"
-            disabled={savingSubjects}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {savingSubjects ? 'Saving…' : 'Add subjects'}
-          </button>
-        </form>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {subjects.map((item) => (
-            <span
-              key={item.id}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs text-slate-100"
+            </div>
+            <button
+              type="submit"
+              disabled={savingSubjects}
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-2.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 md:px-3 md:text-sm"
             >
-              {item.name}
-              <button type="button" onClick={() => deleteSubject(item.id)} className="text-red-400 hover:text-red-300">
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-        {subjects.length === 0 ? <p className="mt-2 text-xs text-slate-500">No subjects yet.</p> : null}
+              <Plus className="h-3.5 w-3.5" />
+              {savingSubjects ? 'Saving…' : 'Add'}
+            </button>
+          </div>
+          {subjectRows.length > 1 ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {subjectRows.slice(1).map((row, index) => (
+                <input
+                  key={index + 1}
+                  type="text"
+                  value={row.name}
+                  onChange={(e) => {
+                    const next = [...subjectRows];
+                    next[index + 1] = { name: e.target.value };
+                    setSubjectRows(next);
+                  }}
+                  className={fieldClass}
+                  placeholder={`Subject ${index + 2}`}
+                />
+              ))}
+            </div>
+          ) : null}
+        </form>
+        {subjects.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-500">No subjects yet.</p>
+        ) : (
+          <ul className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
+            {subjects.map((item) => (
+              <li
+                key={item.id}
+                className="flex min-w-0 items-center justify-between gap-1 rounded-md bg-slate-800/70 px-2 py-1"
+              >
+                <span className="truncate text-xs text-slate-100">{item.name}</span>
+                <button
+                  type="button"
+                  onClick={() => deleteSubject(item.id)}
+                  className="shrink-0 text-red-400 hover:text-red-300"
+                  aria-label={`Delete ${item.name}`}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );
