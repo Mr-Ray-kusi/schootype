@@ -126,7 +126,7 @@ const Dashboard = () => {
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="sticky top-16 z-20 -mx-4 mb-2 flex flex-col gap-3 border-b border-slate-800/80 bg-slate-900/95 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6 md:static md:z-auto md:mx-0 md:mb-0 md:flex-row md:items-end md:justify-between md:gap-5 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+        <header className="sticky top-0 z-20 -mx-4 -mt-16 mb-2 flex flex-col gap-3 border-b border-slate-800/80 bg-slate-900/95 px-4 pb-3 pt-16 backdrop-blur-md sm:-mx-6 sm:px-6 md:static md:z-auto md:mx-0 md:mb-0 md:mt-0 md:flex-row md:items-end md:justify-between md:gap-5 md:border-0 md:bg-transparent md:px-0 md:py-0 md:pt-0 md:backdrop-blur-none">
           <div className="flex min-w-0 items-start gap-3 md:gap-4">
             {school?.logo_url ? (
               <img
