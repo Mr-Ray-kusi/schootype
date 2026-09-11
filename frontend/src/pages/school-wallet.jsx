@@ -333,12 +333,6 @@ const SchoolWallet = () => {
               <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
                 {title}
               </h1>
-              {!isSuperAdmin ? (
-                <p className="mt-3 text-sm leading-relaxed text-slate-400">
-                  Successful parent fee payments increase this wallet and settle to your Bank Settings
-                  account. Fees Paid lists the student for each payment.
-                </p>
-              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 self-start">
@@ -388,34 +382,34 @@ const SchoolWallet = () => {
           </div>
         </header>
 
-        <div className="space-y-10">
-          <div className="grid items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
+        <div className="space-y-6 md:space-y-10">
+          <div className="grid items-stretch gap-4 lg:grid-cols-2 lg:gap-8">
             <section className="animate-[fadeIn_0.55s_ease-out]">
-              <div className="flex h-full min-h-[220px] flex-col justify-between overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/15 via-slate-900/80 to-slate-950 p-6 md:p-8">
-                <div className="flex items-start justify-between gap-4">
+              <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/15 via-slate-900/80 to-slate-950 p-4 md:min-h-[220px] md:rounded-3xl md:p-8">
+                <div className="flex items-start justify-between gap-3 md:gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200/80">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200/80 md:text-xs">
                       Available balance
                     </p>
-                    <p className="mt-4 text-4xl font-bold tracking-tight text-white md:text-5xl">
+                    <p className="mt-2 text-2xl font-bold tracking-tight text-white md:mt-4 md:text-5xl">
                       {loading ? '—' : formatGhs(wallet?.available_balance_major)}
                     </p>
                   </div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-300">
-                    <Wallet className="h-6 w-6" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-300 md:h-12 md:w-12 md:rounded-2xl">
+                    <Wallet className="h-5 w-5 md:h-6 md:w-6" />
                   </div>
                 </div>
 
-                <div className="mt-8 grid grid-cols-2 gap-4 border-t border-white/10 pt-5">
+                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/10 pt-3 md:mt-8 md:gap-4 md:pt-5">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-sky-200/80">Paid online</p>
-                    <p className="mt-2 text-lg font-semibold text-sky-100">
+                    <p className="mt-1 text-sm font-semibold text-sky-100 md:mt-2 md:text-lg">
                       {loading ? '—' : formatGhs(wallet?.paid_online_major)}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-amber-200/80">Cashed</p>
-                    <p className="mt-2 text-lg font-semibold text-amber-100">
+                    <p className="mt-1 text-sm font-semibold text-amber-100 md:mt-2 md:text-lg">
                       {loading ? '—' : formatGhs(wallet?.cashed_major)}
                     </p>
                   </div>
@@ -424,13 +418,13 @@ const SchoolWallet = () => {
                       <Clock3 className="h-3.5 w-3.5" />
                       Pending
                     </p>
-                    <p className="mt-2 text-lg font-semibold text-slate-100">
+                    <p className="mt-1 text-sm font-semibold text-slate-100 md:mt-2 md:text-lg">
                       {loading ? '—' : formatGhs(wallet?.pending_balance_major)}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-slate-400">Currency</p>
-                    <p className="mt-2 text-lg font-semibold text-slate-100">
+                    <p className="mt-1 text-sm font-semibold text-slate-100 md:mt-2 md:text-lg">
                       {paystack.currency || 'GHS'}
                     </p>
                   </div>
@@ -439,10 +433,10 @@ const SchoolWallet = () => {
             </section>
 
             <section className="animate-[fadeIn_0.55s_ease-out]">
-              <div className="flex h-full min-h-[220px] flex-col rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
+              <div className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 md:min-h-[220px] md:rounded-3xl md:p-8">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 md:text-xs">
                       Recent activity
                     </h2>
                   </div>
@@ -451,48 +445,48 @@ const SchoolWallet = () => {
                   </span>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-3 grid grid-cols-3 gap-1.5 md:mt-4 md:flex md:flex-wrap md:gap-2">
                   <button
                     type="button"
                     disabled={downloading || (!transactions.length && !loading)}
                     onClick={() => handleDownloadRecords('all')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-600 bg-slate-800/80 px-1.5 py-1.5 text-[11px] font-medium text-slate-100 transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
                   >
-                    <Download className="h-3.5 w-3.5" />
-                    {downloading ? 'Preparing…' : 'Download all'}
+                    <Download className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{downloading ? 'Preparing…' : 'Download'}</span>
                   </button>
                   <button
                     type="button"
                     disabled={downloading}
                     onClick={() => handleDownloadRecords('deposit')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-1.5 text-[11px] font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
                   >
-                    <ArrowDownToLine className="h-3.5 w-3.5" />
-                    Loads
+                    <ArrowDownToLine className="h-3.5 w-3.5 shrink-0" />
+                    Load
                   </button>
                   <button
                     type="button"
                     disabled={downloading}
                     onClick={() => handleDownloadRecords('withdrawal')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-1.5 text-xs font-medium text-primary-200 transition hover:bg-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-primary-500/30 bg-primary-500/10 px-1.5 py-1.5 text-[11px] font-medium text-primary-200 transition hover:bg-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
                   >
-                    <ArrowUpFromLine className="h-3.5 w-3.5" />
+                    <ArrowUpFromLine className="h-3.5 w-3.5 shrink-0" />
                     Withdrawals
                   </button>
                 </div>
 
-                <div className="mt-5 flex-1 space-y-3 overflow-y-auto pr-1" style={{ maxHeight: '280px' }}>
+                <div className="mt-3 flex-1 space-y-1.5 overflow-y-auto pr-1 md:mt-5 md:space-y-3" style={{ maxHeight: '220px' }}>
                   {loading ? (
-                    <div className="space-y-3">
+                    <div className="space-y-1.5 md:space-y-3">
                       {[0, 1].map((i) => (
                         <div
                           key={i}
-                          className="h-16 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40"
+                          className="h-11 animate-pulse rounded-xl border border-slate-700/60 bg-slate-800/40 md:h-16 md:rounded-2xl"
                         />
                       ))}
                     </div>
                   ) : !transactions.length ? (
-                    <div className="flex h-full min-h-[140px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-600 bg-slate-950/30 px-4 py-8 text-center">
+                    <div className="flex h-full min-h-[88px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-600 bg-slate-950/30 px-3 py-5 text-center md:min-h-[140px] md:rounded-2xl md:px-4 md:py-8">
                       <Wallet className="h-7 w-7 text-slate-500" />
                       <p className="mt-3 text-sm font-medium text-slate-300">No activity yet</p>
                       <p className="mt-1 text-xs text-slate-500">
@@ -510,11 +504,11 @@ const SchoolWallet = () => {
                       return (
                         <article
                           key={tx.id}
-                          className="rounded-2xl border border-slate-700/70 bg-slate-950/40 p-3.5 transition hover:border-slate-500/80"
+                          className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-2 transition hover:border-slate-500/80 md:rounded-2xl md:p-3.5"
                         >
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-2 md:gap-3">
                             <div
-                              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                              className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg md:h-9 md:w-9 md:rounded-xl ${
                                 isDeposit
                                   ? 'bg-emerald-500/15 text-emerald-300'
                                   : 'bg-primary-500/15 text-primary-300'
@@ -529,11 +523,11 @@ const SchoolWallet = () => {
 
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h3 className="text-sm font-semibold text-white">
+                                <h3 className="truncate text-xs font-semibold text-white md:text-sm">
                                   {tx.description || (tx.type === 'credit' || tx.type === 'deposit' ? 'Credit' : tx.type)}
                                 </h3>
                                 <p
-                                  className={`text-sm font-semibold ${
+                                  className={`text-xs font-semibold md:text-sm ${
                                     isDeposit ? 'text-emerald-300' : 'text-slate-100'
                                   }`}
                                 >
@@ -541,7 +535,7 @@ const SchoolWallet = () => {
                                   {formatGhs(tx.amount_major)}
                                 </p>
                               </div>
-                              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 md:mt-1.5 md:gap-2">
                                 {tx.source_label ? (
                                   <span
                                     className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${
@@ -562,7 +556,7 @@ const SchoolWallet = () => {
                                   {new Date(tx.created_at).toLocaleString()}
                                 </span>
                               </div>
-                              <p className="mt-1.5 truncate font-mono text-[10px] text-slate-500">
+                              <p className="mt-1 truncate font-mono text-[10px] text-slate-500 md:mt-1.5">
                                 {tx.reference}
                               </p>
                             </div>
@@ -578,10 +572,6 @@ const SchoolWallet = () => {
 
           <section className="animate-[fadeIn_0.7s_ease-out] border-t border-slate-700/80 pt-8">
             <h2 className="text-lg font-semibold text-white">Move money</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Load money with MoMo only — Paystack sends a prompt and you confirm on your phone.
-              Withdrawals can go to MoMo or bank.
-            </p>
 
             {(action === 'deposit' ? !momoAccounts.length : !accounts.length) ? (
               <div className="mt-6 rounded-2xl border border-dashed border-slate-600 bg-slate-950/30 px-6 py-12 text-center">
@@ -678,7 +668,7 @@ const SchoolWallet = () => {
                         {selectedAccount.type === 'mobile_money' ? 'MoMo' : 'Bank'} ·{' '}
                         {selectedAccount.account_name}
                         {action === 'deposit' &&
-                          ' · Approve the Paystack prompt on this phone'}
+                          ' · Approve the prompt on this phone'}
                       </p>
                     )}
                   </div>
