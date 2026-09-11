@@ -114,47 +114,47 @@ const Dashboard = () => {
   return (
     <>
       <div className="relative space-y-5 md:space-y-8">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-64"
-          style={{
-            background:
-              'radial-gradient(ellipse 65% 55% at 0% 0%, rgba(14, 165, 233, 0.16), transparent 55%), radial-gradient(ellipse 40% 35% at 100% 10%, rgba(16, 185, 129, 0.1), transparent 50%)',
-          }}
-        />
-
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="sticky top-0 z-20 -mx-4 -mt-16 mb-2 flex flex-col gap-3 border-b border-slate-800/80 bg-slate-900/95 px-4 pb-3 pt-16 backdrop-blur-md sm:-mx-6 sm:px-6 md:static md:z-auto md:mx-0 md:mb-0 md:mt-0 md:flex-row md:items-end md:justify-between md:gap-5 md:border-0 md:bg-transparent md:px-0 md:py-0 md:pt-0 md:backdrop-blur-none">
-          <div className="flex min-w-0 items-start gap-3 md:gap-4">
-            {school?.logo_url ? (
-              <img
-                src={school.logo_url}
-                alt=""
-                loading="lazy"
-                className="h-11 w-11 rounded-2xl border border-slate-600 object-cover shadow-lg md:h-14 md:w-14"
-              />
-            ) : (
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-sky-500/30 bg-sky-500/15 font-display text-lg font-bold text-sky-300 md:h-14 md:w-14 md:text-xl">
-                {(school?.name || 'N').charAt(0).toUpperCase()}
-              </div>
-            )}
+        <header className="relative sticky top-0 z-20 -mx-4 -mt-16 mb-2 flex min-h-[13rem] flex-col justify-end overflow-hidden border-b border-white/10 px-4 pb-4 pt-16 sm:-mx-6 sm:px-6 md:static md:z-auto md:mb-0 md:min-h-[16rem] md:px-8 md:pb-8 md:pt-10 lg:-mt-6">
+          {school?.logo_url ? (
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+              style={{ backgroundImage: `url("${String(school.logo_url).replace(/"/g, '\\"')}")` }}
+            />
+          ) : (
+            <div
+              aria-hidden
+              className="absolute inset-0"
+              style={{
+                background:
+                  'radial-gradient(ellipse 65% 55% at 0% 0%, rgba(14, 165, 233, 0.28), transparent 55%), radial-gradient(ellipse 40% 35% at 100% 10%, rgba(16, 185, 129, 0.18), transparent 50%), #0f172a',
+              }}
+            />
+          )}
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/55 to-slate-950/85"
+          />
+
+          <div className="relative z-10 flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-5">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-300/90 md:text-xs">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-200 md:text-xs">
                 Overview
               </p>
-              <h1 className="mt-0.5 truncate font-display text-2xl font-bold tracking-tight text-white md:mt-1 md:text-3xl lg:text-4xl">
+              <h1 className="mt-0.5 truncate font-display text-2xl font-bold tracking-tight text-white drop-shadow md:mt-1 md:text-3xl lg:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
-              <p className="mt-1 text-sm text-slate-400">{todayLabel}</p>
+              <p className="mt-1 text-sm text-slate-200/90">{todayLabel}</p>
             </div>
+            {school?.plan_name && (
+              <div className="w-fit rounded-full border border-white/20 bg-slate-950/55 px-3 py-1.5 text-xs text-slate-100 backdrop-blur-sm md:px-4 md:py-2">
+                Plan · <span className="font-semibold text-white">{school.plan_name}</span>
+              </div>
+            )}
           </div>
-          {school?.plan_name && (
-            <div className="w-fit rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-300 md:px-4 md:py-2">
-              Plan · <span className="font-semibold text-white">{school.plan_name}</span>
-            </div>
-          )}
         </header>
 
         <section>
