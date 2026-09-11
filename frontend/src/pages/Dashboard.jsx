@@ -113,7 +113,7 @@ const Dashboard = () => {
 
   return (
     <>
-      <div className="relative space-y-8">
+      <div className="relative space-y-5 md:space-y-8">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-64"
@@ -126,32 +126,32 @@ const Dashboard = () => {
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex items-start gap-4">
+        <header className="sticky top-16 z-20 -mx-4 mb-2 flex flex-col gap-3 border-b border-slate-800/80 bg-slate-900/95 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6 md:static md:z-auto md:mx-0 md:mb-0 md:flex-row md:items-end md:justify-between md:gap-5 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+          <div className="flex min-w-0 items-start gap-3 md:gap-4">
             {school?.logo_url ? (
               <img
                 src={school.logo_url}
                 alt=""
                 loading="lazy"
-                className="h-14 w-14 rounded-2xl object-cover border border-slate-600 shadow-lg"
+                className="h-11 w-11 rounded-2xl border border-slate-600 object-cover shadow-lg md:h-14 md:w-14"
               />
             ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-500/30 bg-sky-500/15 font-display text-xl font-bold text-sky-300">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-sky-500/30 bg-sky-500/15 font-display text-lg font-bold text-sky-300 md:h-14 md:w-14 md:text-xl">
                 {(school?.name || 'N').charAt(0).toUpperCase()}
               </div>
             )}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-300/90 md:text-xs">
                 Overview
               </p>
-              <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
+              <h1 className="mt-0.5 truncate font-display text-2xl font-bold tracking-tight text-white md:mt-1 md:text-3xl lg:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
-              <p className="mt-1.5 text-sm text-slate-400">{todayLabel}</p>
+              <p className="mt-1 text-sm text-slate-400">{todayLabel}</p>
             </div>
           </div>
           {school?.plan_name && (
-            <div className="rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs text-slate-300">
+            <div className="w-fit rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-300 md:px-4 md:py-2">
               Plan · <span className="font-semibold text-white">{school.plan_name}</span>
             </div>
           )}
@@ -166,32 +166,34 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
             {statCards.map((stat) => {
               const locked = !isPlanApproved;
               const Icon = stat.icon;
               const content = (
                 <>
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-2">
                     <div
-                      className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${stat.accent}`}
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border md:h-10 md:w-10 md:rounded-xl ${stat.accent}`}
                     >
-                      <Icon className="h-5 w-5" />
+                      <Icon className="h-4 w-4 md:h-5 md:w-5" />
                     </div>
-                    {!locked && <ArrowUpRight className="h-4 w-4 text-slate-500" />}
-                    {locked && <Lock className="h-4 w-4 text-amber-400/80" />}
+                    {!locked && <ArrowUpRight className="hidden h-4 w-4 text-slate-500 md:block" />}
+                    {locked && <Lock className="h-3.5 w-3.5 text-amber-400/80 md:h-4 md:w-4" />}
                   </div>
-                  <p className="mt-5 text-sm text-slate-400">{stat.title}</p>
-                  <p className="mt-1 font-display text-3xl font-bold tabular-nums text-white">
+                  <p className="mt-2 text-[11px] leading-tight text-slate-400 md:mt-5 md:text-sm">
+                    {stat.title}
+                  </p>
+                  <p className="mt-0.5 font-display text-xl font-bold tabular-nums text-white md:mt-1 md:text-3xl">
                     {locked ? '—' : Number(stat.value || 0).toLocaleString()}
                   </p>
                   {locked && (
-                    <p className="mt-2 text-xs text-amber-400/90">Locked until approved</p>
+                    <p className="mt-1 text-[10px] text-amber-400/90 md:mt-2 md:text-xs">Locked until approved</p>
                   )}
                 </>
               );
 
-              const className = `rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5 transition ${
+              const className = `rounded-xl border border-slate-700/80 bg-slate-900/50 p-3 transition md:rounded-2xl md:p-5 ${
                 locked
                   ? 'opacity-80'
                   : 'hover:border-slate-500 hover:bg-slate-900/80'

@@ -307,7 +307,7 @@ const Layout = ({ children }) => {
       </div>
 
       <div className="lg:ml-64 min-w-0">
-        <main className="min-w-0 overflow-x-hidden p-6 pt-16 lg:pt-6">
+        <main className="min-w-0 overflow-x-clip p-4 pt-16 sm:p-6 lg:pt-6">
           <OfflineBanner />
           {children ?? <Outlet />}
         </main>

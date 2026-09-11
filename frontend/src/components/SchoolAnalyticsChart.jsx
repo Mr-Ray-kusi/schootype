@@ -140,15 +140,17 @@ const SchoolAnalyticsChart = () => {
   const preview = previews[selected.id] || [];
 
   return (
-    <section className="relative overflow-hidden rounded-3xl border border-slate-700/80 bg-[#141416] p-5 shadow-[0_0_80px_rgba(14,165,233,0.08)] md:p-7">
+    <section className="relative overflow-hidden rounded-2xl border border-slate-700/80 bg-[#141416] p-3 shadow-[0_0_80px_rgba(14,165,233,0.08)] md:rounded-3xl md:p-7">
       <div className="chart-animated-bg pointer-events-none absolute inset-0 opacity-50" />
       <div className="relative z-10">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">School performance</h2>
-            <p className="mt-2 text-xl font-semibold text-white md:text-2xl">{selected.title}</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
-              <span className="text-lg font-semibold text-white">{selected.formatValue(latest)}</span>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
+          <div className="min-w-0">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 md:text-xs">
+              School performance
+            </h2>
+            <p className="mt-1.5 text-lg font-semibold text-white md:mt-2 md:text-2xl">{selected.title}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400 md:mt-2 md:gap-2 md:text-sm">
+              <span className="text-base font-semibold text-white md:text-lg">{selected.formatValue(latest)}</span>
               {change != null ? (
                 <span
                   className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
@@ -162,7 +164,7 @@ const SchoolAnalyticsChart = () => {
               <span>· {rangeLabel}</span>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 self-start rounded-full border border-white/10 bg-zinc-950/70 p-1">
+          <div className="grid w-full grid-cols-5 gap-1 rounded-xl border border-white/10 bg-zinc-950/70 p-1 md:flex md:w-auto md:shrink-0 md:items-center md:gap-1.5 md:self-start md:rounded-full">
             {RANGES.map((item) => {
               const active = range === item.id;
               return (
@@ -170,7 +172,7 @@ const SchoolAnalyticsChart = () => {
                   key={item.id}
                   type="button"
                   onClick={() => setRange(item.id)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  className={`min-h-8 rounded-lg px-1.5 text-[11px] font-semibold transition md:min-h-0 md:rounded-full md:px-3 md:py-1.5 md:text-xs ${
                     active
                       ? 'bg-gradient-to-r from-sky-500 to-violet-500 text-white'
                       : 'text-zinc-400 hover:text-white'
@@ -183,7 +185,7 @@ const SchoolAnalyticsChart = () => {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-1.5">
+        <div className="mt-3 grid grid-cols-2 gap-1.5 md:mt-5 md:flex md:flex-wrap">
           {panels.map((panel) => {
             const Icon = panel.icon;
             const active = selectedPanel === panel.id;
@@ -192,20 +194,20 @@ const SchoolAnalyticsChart = () => {
                 key={panel.id}
                 type="button"
                 onClick={() => setSelectedPanel(panel.id)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                className={`inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-left text-[11px] font-medium leading-tight transition md:min-h-0 md:justify-start md:rounded-full md:px-2.5 md:py-1 md:text-xs ${
                   active
                     ? 'border-transparent bg-gradient-to-r from-sky-500 to-violet-500 text-white'
                     : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:text-white'
                 }`}
               >
-                <Icon className="h-3.5 w-3.5" />
-                {panel.title}
+                <Icon className="hidden h-3.5 w-3.5 shrink-0 md:block" />
+                <span className="truncate">{panel.title}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="mt-6">
+        <div className="mt-4 md:mt-6">
           {loading && !data ? (
             <p className="py-16 text-center text-sm text-slate-400">Loading school chart…</p>
           ) : (
@@ -213,7 +215,7 @@ const SchoolAnalyticsChart = () => {
           )}
         </div>
 
-        <div className="mt-6 border-t border-white/10 pt-5">
+        <div className="mt-4 border-t border-white/10 pt-4 md:mt-6 md:pt-5">
           {preview.length === 0 ? (
             <p className="py-4 text-center text-sm text-zinc-500">
               No {selected.title.toLowerCase()} records in this range.
