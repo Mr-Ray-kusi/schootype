@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
   body {
     @apply antialiased bg-slate-900 text-slate-100 font-sans;
   }

@@ -314,7 +314,7 @@ const SchoolWallet = () => {
 
   return (
     <>
-<div className="relative min-h-[calc(100vh-3rem)] overflow-hidden">
+<div className="relative min-h-[calc(100vh-3rem)] min-w-0 max-w-full">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10"
@@ -324,39 +324,39 @@ const SchoolWallet = () => {
           }}
         />
 
-        <header className="mb-10 animate-[fadeIn_0.45s_ease-out]">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
+        <header className="mb-6 min-w-0 animate-[fadeIn_0.45s_ease-out] md:mb-10">
+          <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
+            <div className="min-w-0 max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300/90">
                 Finance
               </p>
-              <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
+              <h1 className="mt-3 break-words text-3xl font-bold tracking-tight text-white md:text-5xl">
                 {title}
               </h1>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 self-start">
+            <div className="grid w-full min-w-0 grid-cols-2 gap-2 self-start lg:flex lg:w-auto lg:items-center">
               <button
                 type="button"
                 onClick={loadWallet}
                 disabled={loading || busy}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50"
+                className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-slate-900/70 px-2 py-2.5 text-xs font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50 md:gap-2 md:px-4 md:py-3 md:text-sm"
               >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-4 w-4 shrink-0 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
               <Link
                 to={bankSettingsPath}
-                className="group inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-900/30 transition hover:bg-primary-500"
+                className="group inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-2 py-2.5 text-xs font-semibold text-white shadow-lg shadow-primary-900/30 transition hover:bg-primary-500 md:gap-2 md:px-5 md:py-3 md:text-sm"
               >
-                <Landmark className="h-4 w-4" />
-                Bank Settings
-                <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                <Landmark className="h-4 w-4 shrink-0" />
+                <span className="truncate">Bank Settings</span>
+                <ArrowRight className="hidden h-4 w-4 transition group-hover:translate-x-0.5 md:block" />
               </Link>
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+          <div className="mt-4 flex min-w-0 flex-wrap items-center gap-2 text-sm md:mt-6 md:gap-3">
             {isSuperAdmin ? (
               <span
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${
@@ -382,10 +382,10 @@ const SchoolWallet = () => {
           </div>
         </header>
 
-        <div className="space-y-6 md:space-y-10">
-          <div className="grid items-stretch gap-4 lg:grid-cols-2 lg:gap-8">
-            <section className="animate-[fadeIn_0.55s_ease-out]">
-              <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/15 via-slate-900/80 to-slate-950 p-4 md:min-h-[220px] md:rounded-3xl md:p-8">
+        <div className="min-w-0 max-w-full space-y-6 md:space-y-10">
+          <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2 lg:gap-8">
+            <section className="min-w-0 animate-[fadeIn_0.55s_ease-out]">
+              <div className="flex h-full min-h-0 min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/15 via-slate-900/80 to-slate-950 p-4 md:min-h-[220px] md:rounded-3xl md:p-8">
                 <div className="flex items-start justify-between gap-3 md:gap-4">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200/80 md:text-xs">
@@ -432,8 +432,8 @@ const SchoolWallet = () => {
               </div>
             </section>
 
-            <section className="animate-[fadeIn_0.55s_ease-out]">
-              <div className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 md:min-h-[220px] md:rounded-3xl md:p-8">
+            <section className="min-w-0 animate-[fadeIn_0.55s_ease-out]">
+              <div className="flex h-full min-h-0 min-w-0 flex-col rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 md:min-h-[220px] md:rounded-3xl md:p-8">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 md:text-xs">
@@ -445,21 +445,21 @@ const SchoolWallet = () => {
                   </span>
                 </div>
 
-                <div className="mt-3 grid grid-cols-3 gap-1.5 md:mt-4 md:flex md:flex-wrap md:gap-2">
+                <div className="mt-3 grid min-w-0 grid-cols-3 gap-1.5 md:mt-4 md:flex md:flex-wrap md:gap-2">
                   <button
                     type="button"
                     disabled={downloading || (!transactions.length && !loading)}
                     onClick={() => handleDownloadRecords('all')}
-                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-600 bg-slate-800/80 px-1.5 py-1.5 text-[11px] font-medium text-slate-100 transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-lg border border-slate-600 bg-slate-800/80 px-1 py-1.5 text-[10px] font-medium text-slate-100 transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
                   >
                     <Download className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{downloading ? 'Preparing…' : 'Download'}</span>
+                    <span className="truncate">{downloading ? '…' : 'Download'}</span>
                   </button>
                   <button
                     type="button"
                     disabled={downloading}
                     onClick={() => handleDownloadRecords('deposit')}
-                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-1.5 text-[11px] font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-1 py-1.5 text-[10px] font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
                   >
                     <ArrowDownToLine className="h-3.5 w-3.5 shrink-0" />
                     Load
@@ -468,10 +468,10 @@ const SchoolWallet = () => {
                     type="button"
                     disabled={downloading}
                     onClick={() => handleDownloadRecords('withdrawal')}
-                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-primary-500/30 bg-primary-500/10 px-1.5 py-1.5 text-[11px] font-medium text-primary-200 transition hover:bg-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-lg border border-primary-500/30 bg-primary-500/10 px-1 py-1.5 text-[10px] font-medium text-primary-200 transition hover:bg-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50 md:gap-1.5 md:px-3 md:text-xs"
                   >
                     <ArrowUpFromLine className="h-3.5 w-3.5 shrink-0" />
-                    Withdrawals
+                    <span className="truncate">Withdraw</span>
                   </button>
                 </div>
 
@@ -504,9 +504,9 @@ const SchoolWallet = () => {
                       return (
                         <article
                           key={tx.id}
-                          className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-2 transition hover:border-slate-500/80 md:rounded-2xl md:p-3.5"
+                          className="min-w-0 max-w-full rounded-xl border border-slate-700/70 bg-slate-950/40 p-2 transition hover:border-slate-500/80 md:rounded-2xl md:p-3.5"
                         >
-                          <div className="flex items-start gap-2 md:gap-3">
+                          <div className="flex min-w-0 items-start gap-2 md:gap-3">
                             <div
                               className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg md:h-9 md:w-9 md:rounded-xl ${
                                 isDeposit
@@ -521,13 +521,13 @@ const SchoolWallet = () => {
                               )}
                             </div>
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h3 className="truncate text-xs font-semibold text-white md:text-sm">
+                            <div className="min-w-0 flex-1 overflow-hidden">
+                              <div className="flex min-w-0 items-start justify-between gap-2">
+                                <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-white md:text-sm">
                                   {tx.description || (tx.type === 'credit' || tx.type === 'deposit' ? 'Credit' : tx.type)}
                                 </h3>
                                 <p
-                                  className={`text-xs font-semibold md:text-sm ${
+                                  className={`shrink-0 text-xs font-semibold md:text-sm ${
                                     isDeposit ? 'text-emerald-300' : 'text-slate-100'
                                   }`}
                                 >
@@ -556,7 +556,7 @@ const SchoolWallet = () => {
                                   {new Date(tx.created_at).toLocaleString()}
                                 </span>
                               </div>
-                              <p className="mt-1 truncate font-mono text-[10px] text-slate-500 md:mt-1.5">
+                              <p className="mt-1 break-all font-mono text-[10px] text-slate-500 md:mt-1.5">
                                 {tx.reference}
                               </p>
                             </div>
