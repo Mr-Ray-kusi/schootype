@@ -302,10 +302,10 @@ const Messages = () => {
           </button>
         </header>
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Broadcasts</p>
-            <p className="mt-3 text-3xl font-semibold tabular-nums text-white">{messages.length}</p>
+        <section className="grid grid-cols-2 gap-2 xl:grid-cols-4 xl:gap-4">
+          <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">Broadcasts</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums text-white xl:mt-3 xl:text-3xl">{messages.length}</p>
             <p className="mt-1 text-xs text-slate-500">
               {canSms && canEmail
                 ? `${smsCount} SMS · ${emailCount} email`
@@ -317,21 +317,21 @@ const Messages = () => {
 
           {canSms && (
             <>
-              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5">
-                <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
+                <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">
                   <Coins className="h-3.5 w-3.5" />
                   SMS units
                 </p>
-                <p className="mt-3 text-3xl font-semibold tabular-nums text-emerald-300">
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-emerald-300 xl:mt-3 xl:text-3xl">
                   {smsBalance?.sms_units ?? '…'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5">
-                <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
+                <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">
                   <Wallet className="h-3.5 w-3.5" />
                   Wallet
                 </p>
-                <p className="mt-3 text-3xl font-semibold tabular-nums text-white">
+                <p className="mt-2 text-xl font-semibold tabular-nums text-white xl:mt-3 xl:text-3xl">
                   {formatGhs(smsBalance?.wallet?.available_balance_major)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
@@ -340,15 +340,15 @@ const Messages = () => {
                   </Link>
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Unit price</p>
-                <p className="mt-3 text-3xl font-semibold tabular-nums text-white">{formatGhs(unitPrice)}</p>
+              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">Unit price</p>
+                <p className="mt-2 text-xl font-semibold tabular-nums text-white xl:mt-3 xl:text-3xl">{formatGhs(unitPrice)}</p>
               </div>
             </>
           )}
 
           {!canSms && (
-            <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-5 sm:col-span-1 xl:col-span-3">
+            <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:col-span-3 xl:p-5">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Channel</p>
               <p className="mt-3 flex items-center gap-2 text-lg font-semibold text-white">
                 <Mail className="h-5 w-5 text-primary-400" />
@@ -369,36 +369,40 @@ const Messages = () => {
               </div>
             </div>
 
-            <form onSubmit={handleBuySmsUnits} className="mt-6 flex flex-wrap items-end gap-4">
-              <div>
-                <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
-                  Units
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={buyUnits}
-                  onChange={(e) => setBuyUnits(e.target.value)}
-                  className={`${fieldClass} w-36`}
-                />
+            <form onSubmit={handleBuySmsUnits} className="mt-4 space-y-3 md:mt-6">
+              <div className="flex items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Units
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={buyUnits}
+                    onChange={(e) => setBuyUnits(e.target.value)}
+                    className={fieldClass}
+                  />
+                </div>
+                <Link
+                  to="/school-wallet"
+                  className="inline-flex h-[42px] shrink-0 items-center rounded-xl border border-slate-600 px-3 text-sm text-slate-200 transition hover:bg-slate-800 md:px-5"
+                >
+                  Open wallet
+                </Link>
               </div>
-              <div className="pb-3 text-sm text-slate-300">
-                Cost ≈ <span className="font-semibold text-white">{formatGhs(buyCost)}</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-slate-300">
+                  Cost ≈ <span className="font-semibold text-white">{formatGhs(buyCost)}</span>
+                </p>
+                <button
+                  type="submit"
+                  disabled={buyingUnits}
+                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60 md:px-5 md:py-3"
+                >
+                  {buyingUnits ? 'Converting…' : 'Buy units'}
+                </button>
               </div>
-              <button
-                type="submit"
-                disabled={buyingUnits}
-                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
-              >
-                {buyingUnits ? 'Converting…' : 'Buy units'}
-              </button>
-              <Link
-                to="/school-wallet"
-                className="rounded-xl border border-slate-600 px-5 py-3 text-sm text-slate-200 transition hover:bg-slate-800"
-              >
-                Open wallet
-              </Link>
             </form>
             {sendError && !showSendModal && (
               <p className="mt-4 text-sm text-red-300">{sendError}</p>
@@ -571,7 +575,7 @@ const Messages = () => {
                     <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
                       Channel
                     </label>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-2 gap-2">
                       {[
                         { value: 'sms', label: 'SMS', icon: MessageSquare },
                         { value: 'email', label: 'Email', icon: Mail },
@@ -604,7 +608,7 @@ const Messages = () => {
                   <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
                     Send to
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {['Group', 'Individual'].map((mode) => {
                       const selected = newMessage.sendMode === mode;
                       return (
@@ -768,22 +772,24 @@ const Messages = () => {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-3 pt-2">
+                <div className="flex flex-nowrap items-center gap-2 pt-2">
                   <button
                     type="submit"
                     disabled={sendingMessage || quoting}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-3 py-2.5 text-xs font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-50 md:flex-none md:gap-2 md:px-5 md:py-3 md:text-sm"
                   >
-                    <Send className="h-4 w-4" />
-                    {quoting
-                      ? 'Calculating…'
-                      : sendingMessage
-                        ? 'Sending…'
-                        : newMessage.deliveryChannel === 'sms' && !smsQuote
-                          ? 'Check SMS units'
-                          : newMessage.deliveryChannel === 'sms'
-                            ? 'Confirm & send SMS'
-                            : 'Send broadcast'}
+                    <Send className="h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {quoting
+                        ? 'Calculating…'
+                        : sendingMessage
+                          ? 'Sending…'
+                          : newMessage.deliveryChannel === 'sms' && !smsQuote
+                            ? 'Check SMS units'
+                            : newMessage.deliveryChannel === 'sms'
+                              ? 'Confirm & send SMS'
+                              : 'Send broadcast'}
+                    </span>
                   </button>
                   {smsQuote && (
                     <button
@@ -792,7 +798,7 @@ const Messages = () => {
                         setSmsQuote(null);
                         setSendError('');
                       }}
-                      className="rounded-xl border border-slate-600 px-5 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                      className="shrink-0 rounded-xl border border-slate-600 px-3 py-2.5 text-xs text-slate-200 hover:bg-slate-800 md:px-5 md:py-3 md:text-sm"
                     >
                       Recalculate
                     </button>
@@ -803,7 +809,7 @@ const Messages = () => {
                       setShowSendModal(false);
                       resetCompose();
                     }}
-                    className="rounded-xl border border-slate-600 px-5 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                    className="shrink-0 rounded-xl border border-slate-600 px-3 py-2.5 text-xs text-slate-200 hover:bg-slate-800 md:px-5 md:py-3 md:text-sm"
                   >
                     Cancel
                   </button>

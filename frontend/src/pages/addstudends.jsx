@@ -10,7 +10,6 @@ import {
   MapPin,
   Calendar,
   ArrowLeft,
-  QrCode,
   Trophy,
 } from 'lucide-react';
 import PhotoCaptureInput from '../components/PhotoCaptureInput';
@@ -332,14 +331,6 @@ const AddStudent = () => {
               </div>
             </div>
           </section>
-
-          <div className="flex items-start gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/10 px-5 py-4 text-sm text-sky-100">
-            <QrCode className="mt-0.5 h-5 w-5 shrink-0 text-sky-300" />
-            <p>
-              A unique QR code will be created for this student. School scanners mark attendance;
-              a normal phone camera opens their public ID (photo, school, parent contact, address).
-            </p>
-          </div>
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
