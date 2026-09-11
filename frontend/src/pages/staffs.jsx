@@ -408,7 +408,7 @@ const Staff = () => {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5 md:w-auto md:flex-wrap md:gap-2">
             <button
               type="button"
               onClick={async () => {
@@ -447,9 +447,9 @@ const Staff = () => {
                 }
               }}
               disabled={downloadingAll || filteredPeople.length === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
+              className="inline-flex min-w-0 shrink items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-slate-700 px-2 py-2 text-[11px] text-white hover:bg-slate-600 disabled:opacity-50 md:gap-2 md:px-3 md:text-sm"
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
               {downloadingAll ? 'Preparing…' : 'Download all'}
             </button>
             {canStaff && (
@@ -459,10 +459,11 @@ const Staff = () => {
                   fetchSetupOptions();
                   setShowStaffModal(true);
                 }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                className="inline-flex min-w-0 shrink items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-primary-600 px-2 py-2 text-[11px] font-medium text-white transition-colors hover:bg-primary-700 md:gap-2 md:px-4 md:text-sm"
               >
-                <Plus className="w-5 h-5" />
-                Add Staff
+                <Plus className="hidden h-5 w-5 md:block" />
+                <span className="md:hidden">+staff</span>
+                <span className="hidden md:inline">Add Staff</span>
               </button>
             )}
             {canNonStaff && (
@@ -471,10 +472,11 @@ const Staff = () => {
                   resetNonStaffForm();
                   setShowNonStaffModal(true);
                 }}
-                className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+                className="inline-flex min-w-0 shrink items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-purple-600 px-2 py-2 text-[11px] font-medium text-white hover:bg-purple-700 md:gap-2 md:px-4 md:text-sm"
               >
-                <Plus className="w-5 h-5" />
-                Add Non-staff
+                <Plus className="hidden h-5 w-5 md:block" />
+                <span className="md:hidden">+ non-staff</span>
+                <span className="hidden md:inline">Add Non-staff</span>
               </button>
             )}
           </div>
