@@ -161,8 +161,7 @@
 }
 
 .landing-nav-logo {
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 55%, #6366f1 100%);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
 }
 
 .landing-nav-cta {

@@ -147,9 +147,11 @@ const Home = () => {
             handleNavClick(NAV_ITEMS[0]);
           }}
         >
-          <span className="landing-nav-logo flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-extrabold text-white sm:h-10 sm:w-10 sm:text-sm">
-            S
-          </span>
+          <img
+            src="/logo.svg"
+            alt=""
+            className="landing-nav-logo h-8 w-8 shrink-0 rounded-full object-cover sm:h-10 sm:w-10"
+          />
           <span className="leading-tight">
             <span className="block whitespace-nowrap font-display text-[15px] font-extrabold tracking-tight text-slate-900 sm:text-lg">
               SCHOOLTYPE
