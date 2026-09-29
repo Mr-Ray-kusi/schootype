@@ -18,7 +18,7 @@ const typeBadge = (type) => {
     case 'staff':
       return 'bg-emerald-500/15 text-emerald-200';
     case 'non-staff':
-      return 'bg-violet-500/15 text-violet-200';
+      return 'bg-slate-600/40 text-slate-200';
     default:
       return 'bg-slate-600/40 text-slate-200';
   }

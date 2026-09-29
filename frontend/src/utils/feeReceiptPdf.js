@@ -95,7 +95,7 @@ export function buildFeeReceiptPdf({
       ],
     ],
     styles: { fontSize: 10, cellPadding: 6 },
-    headStyles: { fillColor: [14, 165, 233] },
+    headStyles: { fillColor: [52, 152, 219] },
     margin: { left: 48, right: 48 },
   });
 
@@ -205,8 +205,10 @@ export function printFeeReceipt(options) {
     p { margin: 4px 0; font-size: 13px; }
     table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
     th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
-    th { background: #f1f5f9; }
+    th { background: #ebf5fb; color: #154360; }
     .totals td { font-weight: 700; }
+    .paid { color: #27AE60; }
+    .overdue { color: #E74C3C; }
     .note { margin-top: 20px; font-size: 12px; color: #334155; }
   </style>
 </head>
@@ -222,8 +224,8 @@ export function printFeeReceipt(options) {
     <thead><tr><th>Fee billed</th><th>Amount paid</th><th>Outstanding</th></tr></thead>
     <tbody class="totals"><tr>
       <td>${escapeHtml(formatGhs(options.feeAmount))}</td>
-      <td>${escapeHtml(formatGhs(options.paidAmount))}</td>
-      <td>${outstanding >= 0.01 ? escapeHtml(formatGhs(outstanding)) : 'None'}</td>
+      <td class="paid">${escapeHtml(formatGhs(options.paidAmount))}</td>
+      <td class="${outstanding >= 0.01 ? 'overdue' : 'paid'}">${outstanding >= 0.01 ? escapeHtml(formatGhs(outstanding)) : 'None'}</td>
     </tr></tbody>
   </table>
   <table>

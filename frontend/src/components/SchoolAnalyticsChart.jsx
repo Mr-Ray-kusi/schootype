@@ -140,7 +140,7 @@ const SchoolAnalyticsChart = () => {
   const preview = previews[selected.id] || [];
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-slate-700/80 bg-[#141416] p-3 shadow-[0_0_80px_rgba(14,165,233,0.08)] md:rounded-3xl md:p-7">
+    <section className="relative overflow-hidden rounded-2xl border border-slate-700/80 bg-[#141416] p-3 shadow-[0_0_80px_rgba(52,152,219,0.08)] md:rounded-3xl md:p-7">
       <div className="chart-animated-bg pointer-events-none absolute inset-0 opacity-50" />
       <div className="relative z-10">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">

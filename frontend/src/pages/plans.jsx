@@ -21,7 +21,7 @@ const Plans = () => {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'radial-gradient(ellipse 60% 45% at 10% 0%, rgba(14, 165, 233, 0.18), transparent 55%), radial-gradient(ellipse 45% 40% at 100% 20%, rgba(34, 197, 94, 0.1), transparent 50%), #020617',
+            'radial-gradient(ellipse 60% 45% at 10% 0%, rgba(52, 152, 219, 0.18), transparent 55%), radial-gradient(ellipse 45% 40% at 100% 20%, rgba(39, 174, 96, 0.1), transparent 50%), #020617',
         }}
       />
 

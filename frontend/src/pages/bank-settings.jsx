@@ -147,7 +147,7 @@ const BankSettings = () => {
           className="pointer-events-none absolute inset-0 -z-10"
           style={{
             background:
-              'radial-gradient(ellipse 80% 50% at 10% -10%, rgba(14, 165, 233, 0.18), transparent 55%), radial-gradient(ellipse 60% 40% at 100% 0%, rgba(16, 185, 129, 0.12), transparent 50%)',
+              'radial-gradient(ellipse 80% 50% at 10% -10%, rgba(52, 152, 219, 0.18), transparent 55%), radial-gradient(ellipse 60% 40% at 100% 0%, rgba(39, 174, 96, 0.12), transparent 50%)',
           }}
         />
 

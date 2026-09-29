@@ -8,9 +8,9 @@ import { buildStudentIdUrl } from '../utils/studentIdQr';
 export const CARD_WIDTH = '3.370in';
 export const CARD_HEIGHT = '2.125in';
 
-const ORANGE = '#f97316';
-const ORANGE_DARK = '#ea580c';
-const RED = '#dc2626';
+const ORANGE = '#3498DB';
+const ORANGE_DARK = '#2471a3';
+const RED = '#E74C3C';
 
 const formatStudentId = (student) => {
   const roll = student.roll_number || student.rollNumber;

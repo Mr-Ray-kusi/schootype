@@ -285,7 +285,7 @@ const SuperAdminAnalytics = () => {
         })}
       </div>
 
-      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-[0_0_80px_rgba(168,85,247,0.08)] md:p-8">
+      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-[0_0_80px_rgba(52,152,219,0.08)] md:p-8">
         <div className="chart-animated-bg pointer-events-none absolute inset-0 opacity-60" />
         <div className="relative z-10">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

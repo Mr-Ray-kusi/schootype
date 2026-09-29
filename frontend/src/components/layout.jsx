@@ -240,7 +240,7 @@ const Layout = ({ children }) => {
                     isLocked
                       ? 'text-slate-400 cursor-not-allowed opacity-60'
                       : active
-                        ? 'bg-slate-700 text-white'
+                        ? 'bg-sky-500/15 text-white'
                         : 'text-slate-100 hover:bg-slate-700'
                   }`;
 

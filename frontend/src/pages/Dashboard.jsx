@@ -86,7 +86,7 @@ const Dashboard = () => {
       title: 'Non-staff',
       value: stats.totalNonStaff,
       icon: UserCog,
-      accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',
+      accent: 'text-sky-200 bg-sky-500/10 border-sky-500/20',
       link: '/staff#list',
       feature: 'non-staff',
     },
@@ -130,7 +130,7 @@ const Dashboard = () => {
               className="absolute inset-0"
               style={{
                 background:
-                  'radial-gradient(ellipse 65% 55% at 0% 0%, rgba(14, 165, 233, 0.28), transparent 55%), radial-gradient(ellipse 40% 35% at 100% 10%, rgba(16, 185, 129, 0.18), transparent 50%), #0f172a',
+                  'radial-gradient(ellipse 65% 55% at 0% 0%, rgba(52, 152, 219, 0.28), transparent 55%), radial-gradient(ellipse 40% 35% at 100% 10%, rgba(39, 174, 96, 0.18), transparent 50%), #0f172a',
               }}
             />
           )}

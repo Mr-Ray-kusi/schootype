@@ -328,7 +328,7 @@ const Home = () => {
             className="absolute inset-0 opacity-40"
             style={{
               backgroundImage:
-                'radial-gradient(ellipse 50% 40% at 15% 80%, rgba(14, 165, 233, 0.25), transparent), radial-gradient(ellipse 40% 35% at 85% 20%, rgba(34, 197, 94, 0.12), transparent)',
+                'radial-gradient(ellipse 50% 40% at 15% 80%, rgba(52, 152, 219, 0.25), transparent), radial-gradient(ellipse 40% 35% at 85% 20%, rgba(39, 174, 96, 0.12), transparent)',
             }}
           />
         </div>

@@ -1,4 +1,44 @@
 /** @type {import('tailwindcss').Config} */
+
+const softBlue = {
+  50: '#ebf5fb',
+  100: '#d4eaf7',
+  200: '#a9d4ef',
+  300: '#7ebfe7',
+  400: '#54a9df',
+  500: '#3498DB',
+  600: '#2e86c1',
+  700: '#2471a3',
+  800: '#1a5276',
+  900: '#154360',
+};
+
+const softGreen = {
+  50: '#eafaf1',
+  100: '#d5f5e3',
+  200: '#abebc6',
+  300: '#82e0aa',
+  400: '#58d68d',
+  500: '#27AE60',
+  600: '#1e8449',
+  700: '#196f3d',
+  800: '#145a32',
+  900: '#0e3d22',
+};
+
+const softRed = {
+  50: '#fdedec',
+  100: '#fadbd8',
+  200: '#f5b7b1',
+  300: '#f1948a',
+  400: '#ec7063',
+  500: '#E74C3C',
+  600: '#cb4335',
+  700: '#a93226',
+  800: '#7b241c',
+  900: '#641e16',
+};
+
 module.exports = {
   content: [
     "./index.html",
@@ -8,30 +48,24 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
-        },
-        secondary: {
-          50: '#f0fdf4',
-          100: '#dcfce7',
-          200: '#bbf7d0',
-          300: '#86efac',
-          400: '#4ade80',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
-          800: '#166534',
-          900: '#14532d',
-        },
+        primary: softBlue,
+        secondary: softGreen,
+        sky: softBlue,
+        blue: softBlue,
+        cyan: softBlue,
+        indigo: softBlue,
+        violet: softBlue,
+        purple: softBlue,
+        fuchsia: softBlue,
+        emerald: softGreen,
+        green: softGreen,
+        teal: softGreen,
+        lime: softGreen,
+        rose: softRed,
+        red: softRed,
+        pink: softRed,
+        amber: softRed,
+        orange: softRed,
       },
       fontFamily: {
         display: ['Syne', 'system-ui', 'sans-serif'],

@@ -80,6 +80,11 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
-    <Toaster />
+    <Toaster
+      toastOptions={{
+        success: { iconTheme: { primary: '#27AE60', secondary: '#fff' } },
+        error: { iconTheme: { primary: '#E74C3C', secondary: '#fff' } },
+      }}
+    />
   </React.StrictMode>
 )

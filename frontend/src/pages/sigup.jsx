@@ -133,7 +133,7 @@ const Signup = () => {
               </button>
             </div>
           ) : (
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-sm text-neutral-400 transition hover:border-[#ff5722]/50">
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-sm text-neutral-400 transition hover:border-[#3498DB]/50">
               <ImagePlus className="h-4 w-4 text-neutral-500" />
               <span>Upload a logo</span>
               <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
@@ -146,7 +146,7 @@ const Signup = () => {
             type="checkbox"
             checked={privacyAccepted}
             onChange={(e) => setPrivacyAccepted(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-[#ff5722]"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[#3498DB]"
             required
           />
           <span>
@@ -200,7 +200,7 @@ const Signup = () => {
 
         <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
           <p className="flex items-center gap-2 font-medium text-neutral-300">
-            <ShieldCheck className="h-4 w-4 text-[#ff5722]" />
+            <ShieldCheck className="h-4 w-4 text-[#3498DB]" />
             Password is set after email verification
           </p>
           <p className="mt-1 pl-6">We'll send a secure link so you can verify ownership and choose a password.</p>

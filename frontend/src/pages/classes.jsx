@@ -257,12 +257,12 @@ const Setup = () => {
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-amber-300" />
+            <Calendar className="h-4 w-4 text-sky-300" />
             <h2 className="text-sm font-semibold text-white">Academic terms</h2>
           </div>
           {currentTerm?.name ? (
             <p className="text-xs text-slate-400">
-              Current: <span className="text-amber-200">{currentTerm.name}</span>
+              Current: <span className="text-sky-200">{currentTerm.name}</span>
             </p>
           ) : null}
         </div>
@@ -333,7 +333,7 @@ const Setup = () => {
           type="button"
           onClick={saveTerms}
           disabled={savingTerms}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
         >
           <Save className="h-3.5 w-3.5" />
           {savingTerms ? 'Saving…' : 'Save terms'}

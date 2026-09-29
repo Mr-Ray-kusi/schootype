@@ -77,7 +77,7 @@ const StudentPublicId = () => {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(14, 165, 233, 0.2), transparent 55%), #020617',
+            'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(52, 152, 219, 0.2), transparent 55%), #020617',
         }}
       />
 

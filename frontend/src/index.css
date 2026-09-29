@@ -161,11 +161,11 @@
 }
 
 .landing-nav-logo {
-  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.35);
 }
 
 .landing-nav-cta {
-  background: linear-gradient(90deg, #7c3aed 0%, #8b5cf6 50%, #6366f1 100%);
+  background: linear-gradient(90deg, #3498DB 0%, #2e86c1 50%, #2471a3 100%);
 }
 
 .landing-nav-menu {
@@ -186,9 +186,9 @@
 }
 
 .auth-page .auth-field:focus {
-  border-color: #ff5722 !important;
+  border-color: #3498DB !important;
   outline: none;
-  box-shadow: 0 0 0 1px #ff5722 !important;
+  box-shadow: 0 0 0 1px #3498DB !important;
 }
 
 .auth-page .auth-field:-webkit-autofill,
@@ -200,15 +200,15 @@
 }
 
 .auth-accent {
-  background-color: #ff5722;
+  background-color: #3498DB;
 }
 
 .auth-accent:hover {
-  background-color: #ff6a3c;
+  background-color: #2e86c1;
 }
 
 .auth-checkbox {
-  accent-color: #ff5722;
+  accent-color: #3498DB;
 }
 
 @keyframes chart-sheen {
@@ -261,10 +261,10 @@
 .chart-animated-bg {
   background: linear-gradient(
     120deg,
-    rgba(168, 85, 247, 0.16),
+    rgba(52, 152, 219, 0.16),
     rgba(20, 20, 22, 0.35),
-    rgba(236, 72, 153, 0.14),
-    rgba(99, 102, 241, 0.12)
+    rgba(39, 174, 96, 0.14),
+    rgba(231, 76, 60, 0.1)
   );
   background-size: 220% 220%;
   animation: chart-sheen 14s ease-in-out infinite;

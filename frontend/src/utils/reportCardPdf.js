@@ -255,7 +255,7 @@ function drawStudentReport(doc, student, { schoolName, term }) {
       row.remark || '—',
     ]),
     styles: { fontSize: 9, cellPadding: 4 },
-    headStyles: { fillColor: [14, 165, 233] },
+    headStyles: { fillColor: [52, 152, 219] },
     margin: { left: 40, right: 40 },
   });
 
@@ -345,7 +345,7 @@ export function downloadSubjectRankingsPdf({
         row.attitude || '—',
       ]),
       styles: { fontSize: 9, cellPadding: 4 },
-      headStyles: { fillColor: [14, 165, 233] },
+      headStyles: { fillColor: [52, 152, 219] },
       margin: { left: 40, right: 40 },
     });
 

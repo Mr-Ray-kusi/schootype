@@ -327,7 +327,7 @@ const StaffPortal = () => {
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              'radial-gradient(ellipse 55% 40% at 50% 0%, rgba(14,165,233,0.18), transparent 55%), #020617',
+              'radial-gradient(ellipse 55% 40% at 50% 0%, rgba(52,152,219,0.18), transparent 55%), #020617',
           }}
         />
         <div className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">

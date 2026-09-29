@@ -120,9 +120,9 @@ const PerformanceChart = ({
   return (
     <div ref={wrapRef} className={`relative h-[280px] w-full overflow-hidden rounded-2xl md:h-[340px] ${className}`}>
       <div className="chart-animated-bg pointer-events-none absolute inset-0" />
-      <div className="chart-orb chart-orb-a -left-10 -top-8 h-52 w-52 bg-violet-500/30" />
-      <div className="chart-orb chart-orb-b -bottom-10 -right-8 h-60 w-60 bg-fuchsia-500/25" />
-      <div className="chart-orb chart-orb-c left-1/3 top-1/2 h-36 w-72 -translate-x-1/2 -translate-y-1/2 bg-indigo-500/20" />
+      <div className="chart-orb chart-orb-a -left-10 -top-8 h-52 w-52 bg-sky-500/30" />
+      <div className="chart-orb chart-orb-b -bottom-10 -right-8 h-60 w-60 bg-emerald-500/25" />
+      <div className="chart-orb chart-orb-c left-1/3 top-1/2 h-36 w-72 -translate-x-1/2 -translate-y-1/2 bg-rose-500/20" />
       <svg
         viewBox={`0 0 ${size.w} ${size.h}`}
         className="relative z-10 h-full w-full overflow-visible"
@@ -138,13 +138,13 @@ const PerformanceChart = ({
       >
         <defs>
           <linearGradient id={`area-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#A855F7" stopOpacity="0.38" />
-            <stop offset="70%" stopColor="#A855F7" stopOpacity="0.06" />
-            <stop offset="100%" stopColor="#A855F7" stopOpacity="0" />
+            <stop offset="0%" stopColor="#3498DB" stopOpacity="0.38" />
+            <stop offset="70%" stopColor="#3498DB" stopOpacity="0.06" />
+            <stop offset="100%" stopColor="#3498DB" stopOpacity="0" />
           </linearGradient>
           <linearGradient id={`line-${uid}`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#A855F7" />
-            <stop offset="100%" stopColor="#EC4899" />
+            <stop offset="0%" stopColor="#3498DB" />
+            <stop offset="100%" stopColor="#27AE60" />
           </linearGradient>
           <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="4.5" result="blur" />
@@ -207,8 +207,8 @@ const PerformanceChart = ({
               stroke="rgba(255,255,255,0.45)"
               strokeDasharray="4 5"
             />
-            <circle cx={active.x} cy={active.y} r="8" fill="#EC4899" opacity="0.22" />
-            <circle cx={active.x} cy={active.y} r="4.5" fill="#F9A8D4" stroke="#fff" strokeWidth="1.5" />
+            <circle cx={active.x} cy={active.y} r="8" fill="#27AE60" opacity="0.22" />
+            <circle cx={active.x} cy={active.y} r="4.5" fill="#82e0aa" stroke="#fff" strokeWidth="1.5" />
           </>
         ) : null}
       </svg>

@@ -94,7 +94,7 @@ const AddStudent = () => {
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-56"
           style={{
             background:
-              'radial-gradient(ellipse 70% 60% at 0% 0%, rgba(14, 165, 233, 0.14), transparent 55%)',
+              'radial-gradient(ellipse 70% 60% at 0% 0%, rgba(52, 152, 219, 0.14), transparent 55%)',
           }}
         />
 

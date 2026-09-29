@@ -276,7 +276,7 @@ const Messages = () => {
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-72"
           style={{
             background:
-              'radial-gradient(ellipse 70% 55% at 0% 0%, rgba(14, 165, 233, 0.16), transparent 55%), radial-gradient(ellipse 45% 40% at 100% 10%, rgba(16, 185, 129, 0.12), transparent 50%)',
+              'radial-gradient(ellipse 70% 55% at 0% 0%, rgba(52, 152, 219, 0.16), transparent 55%), radial-gradient(ellipse 45% 40% at 100% 10%, rgba(39, 174, 96, 0.12), transparent 50%)',
           }}
         />
 

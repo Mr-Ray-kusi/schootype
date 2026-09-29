@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import { GraduationCap } from 'lucide-react';
 
-export const AUTH_ORANGE = '#ff5722';
+export const AUTH_BLUE = '#3498DB';
+export const AUTH_ORANGE = AUTH_BLUE;
 
 export function AuthBrandMark({ compact = false }) {
   return (
     <Link to="/" className="inline-flex items-center gap-2.5">
-      <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#ff5722] text-white shadow-sm">
+      <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#3498DB] text-white shadow-sm">
         <GraduationCap className="h-5 w-5" strokeWidth={2.25} />
       </span>
       <span className="leading-none">
@@ -23,7 +24,7 @@ function PromoPanel({ mode }) {
   const isSignup = mode === 'signup';
 
   return (
-    <div className="relative flex min-h-[280px] flex-col overflow-hidden bg-[#ff5722] px-8 py-10 text-white md:min-h-[640px] md:px-12 md:py-12">
+    <div className="relative flex min-h-[280px] flex-col overflow-hidden bg-[#3498DB] px-8 py-10 text-white md:min-h-[640px] md:px-12 md:py-12">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/10"

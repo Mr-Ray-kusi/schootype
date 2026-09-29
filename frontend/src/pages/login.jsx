@@ -99,16 +99,16 @@ const Login = () => {
       <AuthBrandMark />
 
       {needsVerification && (
-        <div className="mt-6 rounded-xl border border-[#ff5722]/30 bg-[#ff5722]/10 px-4 py-3 text-sm text-orange-100">
+        <div className="mt-6 rounded-xl border border-[#3498DB]/30 bg-[#3498DB]/10 px-4 py-3 text-sm text-sky-100">
           <p className="font-medium">Check your email to finish setup</p>
-          <p className="mt-1 text-orange-100/80">
+          <p className="mt-1 text-sky-100/80">
             Open the link we sent to verify your email and choose a password. Then come back here to sign in.
           </p>
           <button
             type="button"
             disabled={resending}
             onClick={handleResend}
-            className="mt-3 text-sm font-semibold text-[#ff5722] underline-offset-2 hover:underline disabled:opacity-50"
+            className="mt-3 text-sm font-semibold text-[#3498DB] underline-offset-2 hover:underline disabled:opacity-50"
           >
             {resending ? 'Sending…' : 'Resend email'}
           </button>
